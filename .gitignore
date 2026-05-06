@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.venv/
+WorkHelper/.venv/
+WorkHelper/dist/
+WorkHelper/build/build/
+WorkHelper/build/dist/
+WorkHelper/*.spec.bak

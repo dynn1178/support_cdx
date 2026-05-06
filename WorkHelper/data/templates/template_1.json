@@ -1,0 +1,141 @@
+{
+  "meta": {
+    "template_name": "기본 설정",
+    "version": "1.0.0",
+    "saved_at": "2026-05-07T03:00:38"
+  },
+  "phrases": [
+    {
+      "id": "ph_sample",
+      "name": "인사말",
+      "text": "안녕하세요. 노랑풍선 CRM팀입니다.",
+      "hotkey": {
+        "modifiers": [
+          "ctrl",
+          "alt"
+        ],
+        "key": "1"
+      },
+      "type": "text"
+    }
+  ],
+  "snippets": [
+    {
+      "id": "sn_sample",
+      "name": "RFM 기본 쿼리",
+      "text": "SELECT customer_id, COUNT(*) AS frequency FROM orders GROUP BY customer_id",
+      "language": "sql",
+      "hotkey": {
+        "modifiers": [
+          "ctrl",
+          "shift"
+        ],
+        "key": "1"
+      },
+      "type": "code"
+    }
+  ],
+  "launchers": [
+    {
+      "id": "ln_sample_site",
+      "name": "Tableau",
+      "description": "BI 대시보드 시스템",
+      "type": "site",
+      "url": "https://tableau.company.com",
+      "username": "shared_id@company.com",
+      "password": "",
+      "browser_path": "",
+      "hotkey": null
+    },
+    {
+      "id": "ln_sample_file",
+      "name": "주간보고서",
+      "description": "매주 월요일 업데이트",
+      "type": "file",
+      "path": "D:\\reports\\weekly.xlsx",
+      "hotkey": null
+    }
+  ],
+  "images": [
+    {
+      "id": "img_sample",
+      "name": "세그먼트 맵",
+      "path": "assets/images/segment_map.png",
+      "path_type": "relative",
+      "hotkey": {
+        "modifiers": [
+          "ctrl",
+          "alt"
+        ],
+        "key": "F1"
+      }
+    }
+  ],
+  "macros": [
+    {
+      "id": "mc_sample",
+      "name": "일별 리포트 복사",
+      "hotkey": {
+        "modifiers": [
+          "ctrl",
+          "alt"
+        ],
+        "key": "F5"
+      },
+      "actions": [
+        {
+          "type": "click",
+          "x": 540,
+          "y": 320,
+          "delay": 0.5
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "ctrl",
+            "c"
+          ],
+          "delay": 0.3
+        },
+        {
+          "type": "type",
+          "text": "입력할 텍스트",
+          "delay": 0.2
+        }
+      ]
+    }
+  ],
+  "memos": [
+    {
+      "id": "mm_sample",
+      "title": "메모 제목",
+      "content": "내용",
+      "pinned": false,
+      "created_at": "2026-05-07T02:57:51",
+      "updated_at": "2026-05-07T02:57:51"
+    }
+  ],
+  "schedules": [
+    {
+      "id": "sc_sample",
+      "title": "캠페인 발송",
+      "datetime": "2026-05-10T14:00:00",
+      "repeat": "none",
+      "notify_before_minutes": 30,
+      "memo": "5월 멤버십 대상",
+      "last_notified_at": ""
+    }
+  ],
+  "settings": {
+    "theme": "light",
+    "font_family": "맑은 고딕",
+    "font_size": 9,
+    "window": {
+      "width": 400,
+      "height": 700,
+      "always_on_top": false
+    },
+    "clipboard_history_limit": 50,
+    "active_template": 1
+  }
+}

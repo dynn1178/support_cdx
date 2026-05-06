@@ -1,0 +1,2 @@
+"""WorkHelper application package."""
+
