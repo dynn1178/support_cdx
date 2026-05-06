@@ -1,2 +1,1 @@
-"""WorkHelper UI package."""
-
+"""6PM Assistant UI package."""

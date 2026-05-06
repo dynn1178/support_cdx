@@ -50,11 +50,11 @@ class SettingsTab(QWidget):
         save_btn.clicked.connect(self.save_settings)
         export_btn.clicked.connect(self.export_template)
         import_btn.clicked.connect(self.import_template)
+        buttons.addStretch(1)
         buttons.addWidget(save_btn)
         buttons.addWidget(export_btn)
         buttons.addWidget(import_btn)
         layout.addLayout(buttons)
-        layout.addWidget(QLabel("내보내기 시 런처 비밀번호는 빈 값으로 마스킹됩니다."))
         layout.addStretch(1)
         self._refreshing = False
 

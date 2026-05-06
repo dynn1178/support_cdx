@@ -7,7 +7,7 @@ from typing import Any
 
 from .utils import app_base_dir, now_iso
 
-APP_NAME = "WorkHelper"
+APP_NAME = "6PM Assistant"
 DEFAULT_VERSION = "1.0.0"
 TEMPLATE_COUNT = 5
 
@@ -16,6 +16,7 @@ DATA_DIR = BASE_DIR / "data"
 TEMPLATE_DIR = DATA_DIR / "templates"
 CLIPBOARD_HISTORY_PATH = DATA_DIR / "clipboard_history.json"
 VERSION_PATH = BASE_DIR / "version.txt"
+APP_ICON_PATH = BASE_DIR / "assets" / "icons" / "app.ico"
 
 
 DEFAULT_TEMPLATE: dict[str, Any] = {
@@ -110,7 +111,7 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
         "theme": "light",
         "font_family": "맑은 고딕",
         "font_size": 9,
-        "window": {"width": 400, "height": 700, "always_on_top": False},
+        "window": {"width": 900, "height": 580, "always_on_top": False},
         "clipboard_history_limit": 50,
         "active_template": 1,
     },
@@ -175,7 +176,7 @@ def merge_template_defaults(data: dict[str, Any]) -> dict[str, Any]:
             merged[key] = value
     for collection in ["phrases", "snippets", "launchers", "images", "macros", "memos", "schedules"]:
         merged.setdefault(collection, [])
-    merged.setdefault("settings", {}).setdefault("window", {"width": 400, "height": 700, "always_on_top": False})
+    merged.setdefault("settings", {}).setdefault("window", {"width": 900, "height": 580, "always_on_top": False})
     return merged
 
 
@@ -196,8 +197,6 @@ def save_clipboard_history(data: dict[str, Any]) -> None:
 
 def export_template(template_index: int, export_path: str | Path) -> None:
     data = load_template(template_index)
-    for launcher in data.get("launchers", []):
-        launcher["password"] = ""
     with Path(export_path).open("w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -205,10 +204,5 @@ def export_template(template_index: int, export_path: str | Path) -> None:
 def import_template(import_path: str | Path, target_index: int) -> None:
     with Path(import_path).open("r", encoding="utf-8") as f:
         incoming = merge_template_defaults(json.load(f))
-    existing = load_template(target_index)
-    for i, launcher in enumerate(incoming.get("launchers", [])):
-        if i < len(existing.get("launchers", [])):
-            launcher["password"] = existing["launchers"][i].get("password", "")
     incoming["settings"]["active_template"] = target_index
     save_template(target_index, incoming)
-

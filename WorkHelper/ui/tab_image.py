@@ -12,7 +12,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
@@ -21,7 +20,7 @@ from PyQt6.QtWidgets import (
 
 from app import config
 from app.utils import new_id, resolve_image_path, short_preview
-from ui.common import add_widget_item, make_card
+from ui.common import GridPanel, add_card_actions, make_card
 
 
 class ImageDialog(QDialog):
@@ -79,28 +78,30 @@ class ImageTab(QWidget):
         super().__init__()
         self.main = main
         layout = QVBoxLayout(self)
-        self.list = QListWidget()
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.list = GridPanel(columns=2)
         layout.addWidget(self.list, 1)
         add_btn = QPushButton("+ 이미지")
         add_btn.clicked.connect(self.edit_image)
-        layout.addWidget(add_btn)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(add_btn)
+        layout.addLayout(row)
 
     def refresh(self) -> None:
-        self.list.clear()
+        cards = []
         for item in self.main.data.get("images", []):
             card = make_card(item.get("name", "(이름 없음)"), short_preview(item.get("path", "")))
-            row = QHBoxLayout()
-            view_btn = QPushButton("보기")
-            edit_btn = QPushButton("편집")
-            del_btn = QPushButton("삭제")
-            view_btn.clicked.connect(lambda checked=False, value=item: self.view_image(value))
-            edit_btn.clicked.connect(lambda checked=False, value=item: self.edit_image(value))
-            del_btn.clicked.connect(lambda checked=False, value=item: self.delete_image(value))
-            row.addWidget(view_btn)
-            row.addWidget(edit_btn)
-            row.addWidget(del_btn)
-            card.layout().addLayout(row)
-            add_widget_item(self.list, card)
+            add_card_actions(
+                card,
+                [
+                    ("👁", "보기", lambda checked=False, value=item: self.view_image(value), False),
+                    ("✎", "편집", lambda checked=False, value=item: self.edit_image(value), False),
+                    ("×", "삭제", lambda checked=False, value=item: self.delete_image(value), True),
+                ],
+            )
+            cards.append(card)
+        self.list.add_cards(cards)
 
     def view_image(self, item: dict) -> None:
         path = resolve_image_path(item.get("path", ""), config.BASE_DIR)
@@ -131,4 +132,3 @@ class ImageTab(QWidget):
             return
         self.main.data.get("images", []).remove(item)
         self.main.save_data()
-

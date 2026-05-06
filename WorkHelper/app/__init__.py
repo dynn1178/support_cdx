@@ -1,2 +1,1 @@
-"""WorkHelper application package."""
-
+"""6PM Assistant application package."""

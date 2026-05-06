@@ -25,7 +25,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='WorkHelper',
+    name='6PM Assistant',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -38,5 +38,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='../assets/icons/app.ico',
 )
-

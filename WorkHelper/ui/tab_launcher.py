@@ -4,8 +4,8 @@ import os
 import subprocess
 import webbrowser
 
-import pyperclip
 from PyQt6.QtWidgets import (
+    QApplication,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -13,7 +13,6 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLineEdit,
-    QListWidget,
     QMessageBox,
     QPushButton,
     QTabWidget,
@@ -22,7 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.utils import new_id, short_preview
-from ui.common import add_widget_item, make_card
+from ui.common import GridPanel, add_card_actions, make_card
 
 
 class LauncherDialog(QDialog):
@@ -92,41 +91,46 @@ class LauncherTab(QWidget):
         super().__init__()
         self.main = main
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
         self.tabs = QTabWidget()
-        self.site_list = QListWidget()
-        self.file_list = QListWidget()
+        self.site_list = GridPanel(columns=2)
+        self.file_list = GridPanel(columns=2)
         self.tabs.addTab(self.site_list, "사이트")
         self.tabs.addTab(self.file_list, "파일/폴더")
         layout.addWidget(self.tabs, 1)
         add_btn = QPushButton("+ 바로가기")
         add_btn.clicked.connect(self.edit_launcher)
-        layout.addWidget(add_btn)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(add_btn)
+        layout.addLayout(row)
 
     def refresh(self) -> None:
-        self.site_list.clear()
-        self.file_list.clear()
+        site_cards = []
+        file_cards = []
         for item in self.main.data.get("launchers", []):
-            target = self.site_list if item.get("type") == "site" else self.file_list
             card = make_card(item.get("name", "(이름 없음)"), item.get("description", "") or short_preview(item.get("url") or item.get("path", "")))
-            row = QHBoxLayout()
-            open_btn = QPushButton("열기")
-            edit_btn = QPushButton("편집")
-            del_btn = QPushButton("삭제")
-            open_btn.clicked.connect(lambda checked=False, value=item: self.open_launcher(value))
-            edit_btn.clicked.connect(lambda checked=False, value=item: self.edit_launcher(value))
-            del_btn.clicked.connect(lambda checked=False, value=item: self.delete_launcher(value))
-            row.addWidget(open_btn)
-            row.addWidget(edit_btn)
-            row.addWidget(del_btn)
-            card.layout().addLayout(row)
-            add_widget_item(target, card)
+            add_card_actions(
+                card,
+                [
+                    ("↗", "열기", lambda checked=False, value=item: self.open_launcher(value), False),
+                    ("✎", "편집", lambda checked=False, value=item: self.edit_launcher(value), False),
+                    ("×", "삭제", lambda checked=False, value=item: self.delete_launcher(value), True),
+                ],
+            )
+            if item.get("type") == "site":
+                site_cards.append(card)
+            else:
+                file_cards.append(card)
+        self.site_list.add_cards(site_cards)
+        self.file_list.add_cards(file_cards)
 
     def open_launcher(self, item: dict) -> None:
         try:
             if item.get("type") == "site":
                 credential = item.get("password") or item.get("username")
                 if credential:
-                    pyperclip.copy(credential)
+                    QApplication.clipboard().setText(credential)
                 if item.get("browser_path"):
                     subprocess.Popen([item["browser_path"], item.get("url", "")])
                 else:
@@ -160,4 +164,3 @@ class LauncherTab(QWidget):
             return
         self.main.data.get("launchers", []).remove(item)
         self.main.save_data()
-

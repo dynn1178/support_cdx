@@ -5,7 +5,6 @@ import time
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
-    QListWidget,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -15,7 +14,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.utils import new_id, normalize_hotkey
-from ui.common import add_widget_item, make_card
+from ui.common import GridPanel, add_card_actions, make_card
 
 
 class MacroTab(QWidget):
@@ -28,10 +27,18 @@ class MacroTab(QWidget):
         self.keyboard_listener = None
         self.record_name = ""
         self.last_event_at = 0.0
+        self.selected_id = ""
         layout = QVBoxLayout(self)
-        self.list = QListWidget()
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.list = GridPanel(columns=3)
         self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["type", "value", "delay", "extra"])
+        self.table.setHorizontalHeaderLabels(["TYPE", "VALUE", "DELAY", "EXTRA"])
+        self.table.setStyleSheet("QTableWidget { font-size: 8pt; }")
+        self.table.horizontalHeader().setStretchLastSection(False)
+        self.table.setColumnWidth(0, 90)
+        self.table.setColumnWidth(1, 470)
+        self.table.setColumnWidth(2, 80)
+        self.table.setColumnWidth(3, 80)
         layout.addWidget(self.list, 1)
         layout.addWidget(self.table, 1)
         row = QHBoxLayout()
@@ -45,23 +52,42 @@ class MacroTab(QWidget):
         stop_btn.clicked.connect(self.stop_recording)
         play_btn.clicked.connect(self.play_selected)
         delete_btn.clicked.connect(self.delete_selected)
+        row.addStretch(1)
         row.addWidget(add_btn)
         row.addWidget(record_btn)
         row.addWidget(stop_btn)
         row.addWidget(play_btn)
         row.addWidget(delete_btn)
         layout.addLayout(row)
-        self.list.currentRowChanged.connect(self.load_actions)
 
     def refresh(self) -> None:
-        self.list.clear()
+        cards = []
         for macro in self.main.data.get("macros", []):
-            add_widget_item(self.list, make_card(macro.get("name", "(이름 없음)"), f"{len(macro.get('actions', []))}개 액션", normalize_hotkey(macro.get("hotkey"))))
+            card = make_card(macro.get("name", "(이름 없음)"), f"{len(macro.get('actions', []))}개 액션", normalize_hotkey(macro.get("hotkey")))
+            add_card_actions(
+                card,
+                [
+                    ("☑", "선택", lambda checked=False, value=macro: self.select_macro(value), False),
+                    ("▶", "재생", lambda checked=False, value=macro: self.play_macro(value), False),
+                    ("×", "삭제", lambda checked=False, value=macro: self.delete_macro(value), True),
+                ],
+            )
+            cards.append(card)
+        self.list.add_cards(cards)
 
     def selected_macro(self) -> dict | None:
-        row = self.list.currentRow()
+        for macro in self.main.data.get("macros", []):
+            if macro.get("id") == self.selected_id:
+                return macro
         macros = self.main.data.get("macros", [])
-        return macros[row] if 0 <= row < len(macros) else None
+        if macros:
+            self.selected_id = macros[0].get("id", "")
+            return macros[0]
+        return None
+
+    def select_macro(self, macro: dict) -> None:
+        self.selected_id = macro.get("id", "")
+        self.load_actions()
 
     def load_actions(self, *_args) -> None:
         macro = self.selected_macro()
@@ -83,7 +109,9 @@ class MacroTab(QWidget):
         name, ok = QInputDialog.getText(self, "매크로 추가", "이름")
         if not ok or not name.strip():
             return
-        self.main.data.setdefault("macros", []).append({"id": new_id("mc"), "name": name.strip(), "hotkey": None, "actions": []})
+        macro = {"id": new_id("mc"), "name": name.strip(), "hotkey": None, "actions": []}
+        self.selected_id = macro["id"]
+        self.main.data.setdefault("macros", []).append(macro)
         self.main.save_data()
 
     def start_recording(self) -> None:
@@ -150,6 +178,9 @@ class MacroTab(QWidget):
         macro = self.selected_macro()
         if not macro:
             return
+        self.play_macro(macro)
+
+    def play_macro(self, macro: dict) -> None:
         try:
             import pyautogui
 
@@ -167,5 +198,10 @@ class MacroTab(QWidget):
     def delete_selected(self) -> None:
         macro = self.selected_macro()
         if macro:
-            self.main.data.get("macros", []).remove(macro)
-            self.main.save_data()
+            self.delete_macro(macro)
+
+    def delete_macro(self, macro: dict) -> None:
+        self.main.data.get("macros", []).remove(macro)
+        self.selected_id = ""
+        self.main.save_data()
+        self.load_actions()

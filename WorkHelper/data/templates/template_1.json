@@ -2,7 +2,7 @@
   "meta": {
     "template_name": "기본 설정",
     "version": "1.0.0",
-    "saved_at": "2026-05-07T03:00:38"
+    "saved_at": "2026-05-07T04:37:04"
   },
   "phrases": [
     {
@@ -14,9 +14,44 @@
           "ctrl",
           "alt"
         ],
-        "key": "1"
+        "key": "3"
       },
       "type": "text"
+    },
+    {
+      "name": "D",
+      "text": "",
+      "hotkey": null,
+      "type": "text",
+      "id": "ph_5d975b32db"
+    },
+    {
+      "name": "DD",
+      "text": "",
+      "hotkey": null,
+      "type": "text",
+      "id": "ph_cf865ff4fb"
+    },
+    {
+      "name": "DD",
+      "text": "",
+      "hotkey": null,
+      "type": "text",
+      "id": "ph_c92b0640e3"
+    },
+    {
+      "name": "DD",
+      "text": "",
+      "hotkey": null,
+      "type": "text",
+      "id": "ph_53be16eda2"
+    },
+    {
+      "name": "DD",
+      "text": "",
+      "hotkey": null,
+      "type": "text",
+      "id": "ph_6d3353b942"
     }
   ],
   "snippets": [
@@ -43,9 +78,10 @@
       "type": "site",
       "url": "https://tableau.company.com",
       "username": "shared_id@company.com",
-      "password": "",
+      "password": "DSDSD",
       "browser_path": "",
-      "hotkey": null
+      "hotkey": null,
+      "path": ""
     },
     {
       "id": "ln_sample_file",
@@ -60,8 +96,8 @@
     {
       "id": "img_sample",
       "name": "세그먼트 맵",
-      "path": "assets/images/segment_map.png",
-      "path_type": "relative",
+      "path": "C:/Users/kjh/Pictures/Screenshots/스크린샷 2024-07-08 232313.png",
+      "path_type": "absolute",
       "hotkey": {
         "modifiers": [
           "ctrl",
@@ -103,27 +139,243 @@
           "delay": 0.2
         }
       ]
+    },
+    {
+      "id": "mc_6e82a29e0f",
+      "name": "3",
+      "hotkey": null,
+      "actions": [
+        {
+          "type": "click",
+          "x": 1783,
+          "y": 896,
+          "delay": 0.906
+        },
+        {
+          "type": "click",
+          "x": 1604,
+          "y": 766,
+          "delay": 1.058
+        },
+        {
+          "type": "click",
+          "x": 1689,
+          "y": 708,
+          "delay": 0.478
+        },
+        {
+          "type": "click",
+          "x": 1718,
+          "y": 804,
+          "delay": 0.253
+        },
+        {
+          "type": "click",
+          "x": 1641,
+          "y": 1036,
+          "delay": 0.423
+        },
+        {
+          "type": "click",
+          "x": 1712,
+          "y": 720,
+          "delay": 0.446
+        },
+        {
+          "type": "click",
+          "x": 1546,
+          "y": 722,
+          "delay": 0.364
+        },
+        {
+          "type": "click",
+          "x": 1491,
+          "y": 763,
+          "delay": 0.263
+        },
+        {
+          "type": "click",
+          "x": 1653,
+          "y": 746,
+          "delay": 0.242
+        },
+        {
+          "type": "click",
+          "x": 1703,
+          "y": 775,
+          "delay": 0.26
+        },
+        {
+          "type": "click",
+          "x": 1641,
+          "y": 799,
+          "delay": 0.35
+        },
+        {
+          "type": "click",
+          "x": 1612,
+          "y": 744,
+          "delay": 0.226
+        },
+        {
+          "type": "click",
+          "x": 1649,
+          "y": 1169,
+          "delay": 1.588
+        }
+      ]
+    },
+    {
+      "id": "mc_2c1094ff1c",
+      "name": "123",
+      "hotkey": null,
+      "actions": [
+        {
+          "type": "click",
+          "x": 802,
+          "y": 894,
+          "delay": 1.178
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "1"
+          ],
+          "delay": 1.269
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "2"
+          ],
+          "delay": 0.066
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "3"
+          ],
+          "delay": 0.12
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "4"
+          ],
+          "delay": 2.638
+        },
+        {
+          "type": "click",
+          "x": 812,
+          "y": 861,
+          "delay": 0.623
+        },
+        {
+          "type": "click",
+          "x": 947,
+          "y": 1138,
+          "delay": 2.146
+        }
+      ]
+    },
+    {
+      "id": "mc_2a62f11500",
+      "name": "123",
+      "hotkey": null,
+      "actions": [
+        {
+          "type": "click",
+          "x": 816,
+          "y": 885,
+          "delay": 0.701
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "1"
+          ],
+          "delay": 1.888
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "2"
+          ],
+          "delay": 0.079
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "3"
+          ],
+          "delay": 0.087
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "ctrl_l"
+          ],
+          "delay": 0.606
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "\u0003"
+          ],
+          "delay": 0.299
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "\u0016"
+          ],
+          "delay": 0.488
+        },
+        {
+          "type": "click",
+          "x": 954,
+          "y": 1137,
+          "delay": 1.077
+        }
+      ]
     }
   ],
   "memos": [
     {
       "id": "mm_sample",
-      "title": "메모 제목",
-      "content": "내용",
+      "title": "D",
+      "content": "D",
       "pinned": false,
       "created_at": "2026-05-07T02:57:51",
-      "updated_at": "2026-05-07T02:57:51"
+      "updated_at": "2026-05-07T03:33:32"
+    },
+    {
+      "id": "mm_0ffc50695b",
+      "created_at": "2026-05-07T03:33:37",
+      "title": "DD",
+      "content": "DD",
+      "pinned": false,
+      "updated_at": "2026-05-07T03:33:37"
     }
   ],
   "schedules": [
     {
       "id": "sc_sample",
       "title": "캠페인 발송",
-      "datetime": "2026-05-10T14:00:00",
+      "datetime": "2026-05-07T03:12:00",
       "repeat": "none",
-      "notify_before_minutes": 30,
+      "notify_before_minutes": 0,
       "memo": "5월 멤버십 대상",
       "last_notified_at": ""
+    },
+    {
+      "id": "sc_78e3fc3fe1",
+      "title": "45",
+      "datetime": "2026-05-07T03:11:21",
+      "repeat": "none",
+      "notify_before_minutes": 30,
+      "memo": "",
+      "last_notified_at": "2026-05-07T03:11:37"
     }
   ],
   "settings": {
@@ -131,8 +383,8 @@
     "font_family": "맑은 고딕",
     "font_size": 9,
     "window": {
-      "width": 400,
-      "height": 700,
+      "width": 900,
+      "height": 580,
       "always_on_top": false
     },
     "clipboard_history_limit": 50,

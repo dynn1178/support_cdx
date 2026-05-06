@@ -131,8 +131,8 @@
     "font_family": "맑은 고딕",
     "font_size": 9,
     "window": {
-      "width": 400,
-      "height": 700,
+      "width": 900,
+      "height": 580,
       "always_on_top": false
     },
     "clipboard_history_limit": 50,

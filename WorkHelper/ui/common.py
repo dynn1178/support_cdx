@@ -2,19 +2,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidgetItem,
     QPushButton,
+    QScrollArea,
     QTextEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -26,21 +29,75 @@ def make_card(title: str, subtitle: str = "", hotkey: str = "") -> QWidget:
     card = QWidget()
     card.setObjectName("card")
     layout = QVBoxLayout(card)
-    layout.setContentsMargins(8, 8, 8, 8)
+    layout.setContentsMargins(12, 10, 12, 10)
+    layout.setSpacing(8)
     row = QHBoxLayout()
+    row.setSpacing(10)
     title_label = QLabel(title)
-    title_label.setStyleSheet("font-weight: 600;")
+    title_label.setObjectName("cardTitle")
     row.addWidget(title_label, 1)
     if hotkey:
         key_label = QLabel(hotkey)
+        key_label.setObjectName("kbd")
         key_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         row.addWidget(key_label)
     layout.addLayout(row)
     if subtitle:
         sub = QLabel(subtitle)
+        sub.setObjectName("cardSubtitle")
         sub.setWordWrap(True)
         layout.addWidget(sub)
     return card
+
+
+def make_icon_button(text: str, tooltip: str, callback, danger: bool = False) -> QToolButton:
+    button = QToolButton()
+    button.setObjectName("dangerIconButton" if danger else "iconButton")
+    button.setText(text)
+    button.setToolTip(tooltip)
+    button.setFixedSize(QSize(28, 26))
+    button.clicked.connect(callback)
+    return button
+
+
+def add_card_actions(card: QWidget, actions: list[tuple[str, str, object, bool]]) -> None:
+    row = QHBoxLayout()
+    row.setContentsMargins(0, 2, 0, 0)
+    row.addStretch(1)
+    for text, tooltip, callback, danger in actions:
+        row.addWidget(make_icon_button(text, tooltip, callback, danger))
+    card.layout().addLayout(row)
+
+
+class GridPanel(QScrollArea):
+    def __init__(self, columns: int = 2, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.columns = max(1, columns)
+        self.setWidgetResizable(True)
+        self.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.container = QWidget()
+        self.grid = QGridLayout(self.container)
+        self.grid.setContentsMargins(10, 10, 10, 10)
+        self.grid.setHorizontalSpacing(10)
+        self.grid.setVerticalSpacing(10)
+        self.setWidget(self.container)
+
+    def clear(self) -> None:
+        while self.grid.count():
+            item = self.grid.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+    def add_cards(self, cards: list[QWidget]) -> None:
+        self.clear()
+        for i, card in enumerate(cards):
+            row, col = divmod(i, self.columns)
+            self.grid.addWidget(card, row, col)
+        for col in range(self.columns):
+            self.grid.setColumnStretch(col, 1)
+        self.grid.setRowStretch((len(cards) + self.columns - 1) // self.columns, 1)
 
 
 def add_widget_item(list_widget, widget: QWidget) -> QListWidgetItem:
@@ -129,4 +186,3 @@ class TextItemDialog(QDialog):
         else:
             data.update({"type": "text"})
         return data
-

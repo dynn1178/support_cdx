@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import pyperclip
-from PyQt6.QtWidgets import QHBoxLayout, QListWidget, QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QApplication, QHBoxLayout, QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget
 
 from app.utils import new_id, normalize_hotkey, short_preview
-from ui.common import TextItemDialog, add_widget_item, make_card
+from ui.common import GridPanel, TextItemDialog, add_card_actions, make_card
 
 
 class PhraseTab(QWidget):
@@ -12,9 +11,10 @@ class PhraseTab(QWidget):
         super().__init__()
         self.main = main
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
         self.tabs = QTabWidget()
-        self.phrase_list = QListWidget()
-        self.snippet_list = QListWidget()
+        self.phrase_list = GridPanel(columns=2)
+        self.snippet_list = GridPanel(columns=1)
         self.tabs.addTab(self.phrase_list, "일반 텍스트")
         self.tabs.addTab(self.snippet_list, "코드 스니펫")
         layout.addWidget(self.tabs, 1)
@@ -23,6 +23,7 @@ class PhraseTab(QWidget):
         add_snippet = QPushButton("+ 스니펫")
         add_phrase.clicked.connect(lambda: self.edit_item("phrases"))
         add_snippet.clicked.connect(lambda: self.edit_item("snippets"))
+        buttons.addStretch(1)
         buttons.addWidget(add_phrase)
         buttons.addWidget(add_snippet)
         layout.addLayout(buttons)
@@ -31,28 +32,23 @@ class PhraseTab(QWidget):
         self._fill(self.phrase_list, "phrases", False)
         self._fill(self.snippet_list, "snippets", True)
 
-    def _fill(self, list_widget: QListWidget, collection: str, code: bool) -> None:
-        list_widget.clear()
+    def _fill(self, list_widget: GridPanel, collection: str, code: bool) -> None:
+        cards = []
         for item in self.main.data.get(collection, []):
             card = make_card(item.get("name", "(이름 없음)"), short_preview(item.get("text", "")), normalize_hotkey(item.get("hotkey")))
-            row = QHBoxLayout()
-            copy_btn = QPushButton("복사")
-            edit_btn = QPushButton("편집")
-            del_btn = QPushButton("삭제")
-            copy_btn.clicked.connect(lambda checked=False, text=item.get("text", ""): self.copy_text(text))
-            edit_btn.clicked.connect(lambda checked=False, value=item, col=collection, is_code=code: self.edit_item(col, value, is_code))
-            del_btn.clicked.connect(lambda checked=False, value=item, col=collection: self.delete_item(col, value))
-            row.addWidget(copy_btn)
-            row.addWidget(edit_btn)
-            row.addWidget(del_btn)
-            card.layout().addLayout(row)
-            add_widget_item(list_widget, card)
+            add_card_actions(
+                card,
+                [
+                    ("⧉", "복사", lambda checked=False, text=item.get("text", ""): self.copy_text(text), False),
+                    ("✎", "편집", lambda checked=False, value=item, col=collection, is_code=code: self.edit_item(col, value, is_code), False),
+                    ("×", "삭제", lambda checked=False, value=item, col=collection: self.delete_item(col, value), True),
+                ],
+            )
+            cards.append(card)
+        list_widget.add_cards(cards)
 
     def copy_text(self, text: str) -> None:
-        try:
-            pyperclip.copy(text)
-        except Exception as exc:
-            QMessageBox.warning(self, "복사 실패", str(exc))
+        QApplication.clipboard().setText(text)
 
     def edit_item(self, collection: str, item: dict | None = None, code: bool | None = None) -> None:
         is_code = collection == "snippets" if code is None else code
@@ -77,4 +73,3 @@ class PhraseTab(QWidget):
             return
         self.main.data.get(collection, []).remove(item)
         self.main.save_data()
-

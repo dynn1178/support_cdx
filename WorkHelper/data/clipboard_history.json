@@ -1,3 +1,52 @@
 {
-  "history": []
+  "history": [
+    {
+      "id": "cb_dcc57bd270",
+      "text": "DSDSD",
+      "copied_at": "2026-05-07T04:35:50",
+      "pinned": false
+    },
+    {
+      "id": "cb_a223f7e281",
+      "text": "shared_id@company.com",
+      "copied_at": "2026-05-07T04:35:37",
+      "pinned": false
+    },
+    {
+      "id": "cb_c8d1150107",
+      "text": "안녕하세요. 노랑풍선 CRM팀입니다.",
+      "copied_at": "2026-05-07T04:33:31",
+      "pinned": false
+    },
+    {
+      "id": "cb_36a8fd7fd4",
+      "text": "6PM",
+      "copied_at": "2026-05-07T04:11:41",
+      "pinned": false
+    },
+    {
+      "id": "cb_c2c2dfbe0c",
+      "text": "SELECT customer_id, COUNT(*) AS frequency FROM orders GROUP BY customer_id",
+      "copied_at": "2026-05-07T04:03:51",
+      "pinned": false
+    },
+    {
+      "id": "cb_fec6f7df99",
+      "text": "안녕하세요. 노랑풍선 CRM팀입니다.",
+      "copied_at": "2026-05-07T04:00:39",
+      "pinned": false
+    },
+    {
+      "id": "cb_0876d7bd7f",
+      "text": "shared_id@company.com",
+      "copied_at": "2026-05-07T03:57:49",
+      "pinned": false
+    },
+    {
+      "id": "cb_6fd7b69f4e",
+      "text": "123",
+      "copied_at": "2026-05-07T03:52:51",
+      "pinned": false
+    }
+  ]
 }
