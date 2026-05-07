@@ -23,8 +23,8 @@ from PyQt6.QtWidgets import (
 )
 
 from app import config
-from app.utils import new_id, now_iso, resolve_image_path
-from ui.common import GridPanel, SortControls, add_card_actions, apply_manual_reorder, bump_usage, make_card
+from app.utils import display_hotkey, new_id, now_iso, resolve_image_path
+from ui.common import GridPanel, HotkeyFields, SortControls, add_card_actions, apply_manual_reorder, bump_usage, confirm_shift_digit_hotkey, make_card
 
 
 class ScreenCaptureDialog(QDialog):
@@ -64,6 +64,7 @@ class ImageDialog(QDialog):
         form = QFormLayout()
         self.name = QLineEdit(self.item.get("name", ""))
         self.path = QLineEdit(self.item.get("path", ""))
+        self.hotkey = HotkeyFields(self.item.get("hotkey"))
         self.url = QLineEdit()
         self.capture_scale = QComboBox()
         self.capture_scale.addItems(["100%", "75%", "50%"])
@@ -80,6 +81,7 @@ class ImageDialog(QDialog):
         row.addWidget(browse)
         form.addRow("이름", self.name)
         form.addRow("이미지 경로", row)
+        form.addRow("단축키", self.hotkey)
         url_row = QHBoxLayout()
         url_row.addWidget(self.url, 1)
         url_row.addWidget(download)
@@ -174,6 +176,7 @@ class ImageDialog(QDialog):
                 "path": path,
                 "path_type": "absolute" if Path(path).is_absolute() else "relative",
                 "display_scale": int(self.capture_scale.currentText().replace("%", "")),
+                "hotkey": self.hotkey.value(),
             }
         )
         return data
@@ -206,14 +209,17 @@ class ImageTab(QWidget):
         self.main = main
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.list = GridPanel(columns=3)
-        layout.addWidget(self.list, 1)
         add_btn = QPushButton("+ 이미지")
         add_btn.clicked.connect(self.edit_image)
+        top = QHBoxLayout()
+        self.sort_controls = SortControls(self.refresh)
+        top.addStretch(1)
+        top.addWidget(self.sort_controls)
+        layout.addLayout(top)
+        self.list = GridPanel(columns=3)
+        layout.addWidget(self.list, 1)
         row = QHBoxLayout()
         row.addStretch(1)
-        self.sort_controls = SortControls(self.refresh)
-        row.addWidget(self.sort_controls)
         row.addWidget(add_btn)
         layout.addLayout(row)
 
@@ -222,7 +228,7 @@ class ImageTab(QWidget):
         source_items = self.main.data.get("images", [])
         visible_items = self.sort_controls.sort_items(source_items, lambda value: value.get("name") or value.get("path", ""))
         for item in visible_items:
-            card = make_card(item.get("name", "(이름 없음)"), "이미지")
+            card = make_card(item.get("name", "(이름 없음)"), "", display_hotkey(item.get("hotkey")))
             add_card_actions(
                 card,
                 [
@@ -257,6 +263,12 @@ class ImageTab(QWidget):
                 continue
             if not value.get("path"):
                 QMessageBox.warning(dialog, "입력 확인", "이미지 경로를 지정해주세요.")
+                continue
+            conflict = self.main.first_hotkey_conflict(candidate=value, original=item)
+            if conflict:
+                QMessageBox.warning(dialog, "단축키 충돌", conflict)
+                continue
+            if not confirm_shift_digit_hotkey(dialog, value.get("hotkey")):
                 continue
             if not value.get("id"):
                 value["id"] = new_id("img")

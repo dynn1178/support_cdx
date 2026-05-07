@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
-from app.utils import normalize_hotkey, short_preview
+from app.utils import display_hotkey, short_preview
 from ui.common import GridPanel, make_card
 
 
@@ -13,10 +14,12 @@ class HomeTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.summary = GridPanel(columns=4)
+        self.summary.setFixedHeight(132)
+        self.summary.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.hotkeys = GridPanel(columns=2)
         label = QLabel("등록된 단축키")
         label.setObjectName("cardTitle")
-        layout.addWidget(self.summary, 1)
+        layout.addWidget(self.summary)
         layout.addWidget(label)
         layout.addWidget(self.hotkeys, 2)
 
@@ -32,20 +35,20 @@ class HomeTab(QWidget):
             ("메모", len(data.get("memos", [])), "빠른 메모"),
             ("일정", len(data.get("schedules", [])), "알림"),
         ]
-        self.summary.add_cards([make_card(name, f"{count}개 · {desc}") for name, count, desc in stats])
+        self.summary.add_cards([make_card(name, f"{count}개 · {desc}", compact=True) for name, count, desc in stats])
 
         hotkey_cards = []
         sections = [
             (data.get("phrases", []), lambda item: item.get("text") or item.get("name", "")),
             (data.get("snippets", []), lambda item: item.get("text") or item.get("name", "")),
             (data.get("title_templates", []), lambda item: item.get("template", "")),
-            (data.get("launchers", []), lambda item: item.get("description") or item.get("url") or item.get("path", "")),
+            (data.get("launchers", []), lambda item: item.get("name") or item.get("description") or item.get("url") or item.get("path", "")),
             (data.get("images", []), lambda item: item.get("name") or item.get("path", "")),
-            (data.get("macros", []), lambda item: f"{len(item.get('actions', []))}개 액션"),
+            (data.get("macros", []), lambda item: item.get("name") or f"{len(item.get('actions', []))}개 액션"),
         ]
         for items, content in sections:
             for item in items:
-                key = normalize_hotkey(item.get("hotkey"))
+                key = display_hotkey(item.get("hotkey"))
                 if key:
                     hotkey_cards.append(make_card(short_preview(content(item), 90), "", key, single_line=True))
 

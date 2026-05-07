@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, time as dt_time, timedelta
 
 from PyQt6.QtCore import QDateTime, QPoint, QTime, QTimer, Qt
+from PyQt6.QtGui import QTextCharFormat, QColor
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -11,6 +12,7 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QHBoxLayout,
+    QLabel,
     QMessageBox,
     QPushButton,
     QSizeGrip,
@@ -18,7 +20,6 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QTextEdit,
     QLineEdit,
-    QTimeEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -35,6 +36,20 @@ MEMO_COLORS = {
     "분홍": "#FFE1EA",
     "흰색": "#FFFFFF",
 }
+
+
+WEEKDAYS = ["월", "화", "수", "목", "금", "토", "일"]
+REPEAT_LABELS = {"daily": "매일", "weekly": "매주", "monthly": "매월"}
+
+
+def display_datetime(value: str, repeat: str = "none") -> str:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return value.replace("T", " ")
+    text = f"{parsed:%Y-%m-%d} {WEEKDAYS[parsed.weekday()]}요일 {parsed:%H:%M}"
+    repeat_label = REPEAT_LABELS.get(repeat)
+    return f"{text} ({repeat_label})" if repeat_label else text
 
 
 class StickyMemoDialog(QDialog):
@@ -233,30 +248,41 @@ class ScheduleDialog(QDialog):
         self.date = QDateEdit()
         self.date.setCalendarPopup(True)
         self.date.setDate(current.date())
-        self.time = QTimeEdit()
-        self.time.setDisplayFormat("HH:mm")
-        self.time.setTime(current.time())
+        calendar = self.date.calendarWidget()
+        today_format = QTextCharFormat()
+        today_format.setBackground(QColor("#FFF3B0"))
+        today_format.setForeground(QColor("#111827"))
+        today_format.setFontWeight(700)
+        calendar.setDateTextFormat(QDateTime.currentDateTime().date(), today_format)
+        self.selected_time = current.time()
+        self.time_label = QLabel()
+        self.time_label.setObjectName("cardTitle")
+        self.update_time_label()
         datetime_row = QHBoxLayout()
         datetime_row.setContentsMargins(0, 0, 0, 0)
         datetime_row.setSpacing(8)
         datetime_row.addWidget(self.date, 1)
-        datetime_row.addWidget(self.time)
+        datetime_row.addWidget(self.time_label)
         datetime_widget = QWidget()
         datetime_widget.setLayout(datetime_row)
         quick_time_row = QHBoxLayout()
         quick_time_row.setContentsMargins(0, 0, 0, 0)
         quick_time_row.setSpacing(4)
         for hour in range(9, 19):
-            btn = QPushButton(f"{hour:02d}:00")
-            btn.setFixedWidth(54)
-            btn.clicked.connect(lambda checked=False, value=hour: self.time.setTime(QTime(value, 0)))
+            btn = QPushButton(str(hour))
+            btn.setFixedWidth(34)
+            btn.clicked.connect(lambda checked=False, value=hour: self.set_time_hour(value))
+            quick_time_row.addWidget(btn)
+        for label, minutes in [("-10m", -10), ("+10m", 10), ("-30m", -30), ("+30m", 30)]:
+            btn = QPushButton(label)
+            btn.clicked.connect(lambda checked=False, value=minutes: self.adjust_time(value))
             quick_time_row.addWidget(btn)
         quick_time_row.addStretch(1)
         quick_time_widget = QWidget()
         quick_time_widget.setLayout(quick_time_row)
         self.repeat = QComboBox()
-        self.repeat.addItems(["없음", "매일", "매주"])
-        repeat_map = {"none": "없음", "daily": "매일", "weekly": "매주"}
+        self.repeat.addItems(["없음", "매일", "매주", "매월"])
+        repeat_map = {"none": "없음", "daily": "매일", "weekly": "매주", "monthly": "매월"}
         self.repeat.setCurrentIndex(max(self.repeat.findText(repeat_map.get(self.schedule.get("repeat", "none"), "없음")), 0))
         self.notify = QSpinBox()
         self.notify.setRange(0, 10080)
@@ -293,7 +319,20 @@ class ScheduleDialog(QDialog):
         layout.addWidget(buttons)
 
     def selected_datetime(self) -> datetime:
-        return datetime.combine(self.date.date().toPyDate(), self.time.time().toPyTime())
+        return datetime.combine(self.date.date().toPyDate(), self.selected_time.toPyTime())
+
+    def set_time_hour(self, hour: int) -> None:
+        self.selected_time = QTime(hour, 0)
+        self.update_time_label()
+
+    def adjust_time(self, minutes: int) -> None:
+        self.selected_time = self.selected_time.addSecs(minutes * 60)
+        self.update_time_label()
+
+    def update_time_label(self) -> None:
+        hour = self.selected_time.hour()
+        minute = self.selected_time.minute()
+        self.time_label.setText(f"{hour}:{minute:02d}")
 
     def set_previous_day_notify(self, hour: int) -> None:
         target = self.selected_datetime()
@@ -307,12 +346,12 @@ class ScheduleDialog(QDialog):
             data["created_at"] = now_iso()
             data["sort_order"] = 0
             data["usage_count"] = 0
-        date_time = QDateTime(self.date.date(), self.time.time())
+        date_time = QDateTime(self.date.date(), self.selected_time)
         data.update(
             {
                 "title": self.title.text().strip(),
                 "datetime": date_time.toString(Qt.DateFormat.ISODate),
-                "repeat": {"없음": "none", "매일": "daily", "매주": "weekly"}.get(self.repeat.currentText(), "none"),
+                "repeat": {"없음": "none", "매일": "daily", "매주": "weekly", "매월": "monthly"}.get(self.repeat.currentText(), "none"),
                 "notify_before_minutes": self.notify.value(),
                 "memo": self.memo.toPlainText(),
             }
@@ -333,10 +372,13 @@ class MemoListTab(QWidget):
         top.addWidget(self.sort_controls)
         add_btn = QPushButton("+ 메모")
         add_btn.clicked.connect(lambda: self.edit_memo())
-        top.addWidget(add_btn)
         self.grid = GridPanel(columns=2)
         layout.addLayout(top)
         layout.addWidget(self.grid, 1)
+        bottom = QHBoxLayout()
+        bottom.addStretch(1)
+        bottom.addWidget(add_btn)
+        layout.addLayout(bottom)
 
     def refresh(self) -> None:
         cards = []
@@ -409,17 +451,20 @@ class ScheduleListTab(QWidget):
         top.addWidget(self.sort_controls)
         add_btn = QPushButton("+ 일정")
         add_btn.clicked.connect(lambda: self.edit_schedule())
-        top.addWidget(add_btn)
         self.grid = GridPanel(columns=2)
         layout.addLayout(top)
         layout.addWidget(self.grid, 1)
+        bottom = QHBoxLayout()
+        bottom.addStretch(1)
+        bottom.addWidget(add_btn)
+        layout.addLayout(bottom)
 
     def refresh(self) -> None:
         cards = []
         source_items = self.main.data.get("schedules", [])
         visible_items = self.sort_controls.sort_items(source_items, lambda item: item.get("title") or item.get("memo", ""))
         for schedule in visible_items:
-            subtitle = f"{schedule.get('datetime', '')}\n{short_preview(schedule.get('memo', ''), 120)}"
+            subtitle = f"{display_datetime(schedule.get('datetime', ''), schedule.get('repeat', 'none'))}\n{short_preview(schedule.get('memo', ''), 120)}"
             card = make_card(schedule.get("title", "(제목 없음)"), subtitle)
             add_card_actions(
                 card,

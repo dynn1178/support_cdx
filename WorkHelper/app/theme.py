@@ -28,6 +28,7 @@ THEMES = {
         "hover": "#3A3D45",
         "accent": "#7AA2FF",
         "danger": "#FF7B8A",
+        "kbd_bg": "#3F4A5F",
     },
     "blue": {
         "bg": "#F3F7FB",
@@ -76,6 +77,7 @@ THEMES = {
         "hover": "#513737",
         "accent": "#FF8A8A",
         "danger": "#FF7B8A",
+        "kbd_bg": "#5A3B3B",
     },
     "mono": {
         "bg": "#F1F2F4",
@@ -124,6 +126,7 @@ THEMES = {
         "hover": "#3A414A",
         "accent": "#7BC7E8",
         "danger": "#FF7B8A",
+        "kbd_bg": "#415060",
     },
     "high_contrast": {
         "bg": "#FFFFFF",
@@ -141,6 +144,7 @@ THEMES = {
 
 
 def build_stylesheet(colors: dict[str, str]) -> str:
+    kbd_bg = colors.get("kbd_bg", colors["content"])
     return f"""
         QWidget {{
             background: {colors["bg"]}; color: {colors["text"]};
@@ -168,10 +172,10 @@ def build_stylesheet(colors: dict[str, str]) -> str:
             background: {colors["panel"]}; color: #D99229; border: 1px solid {colors["border"]};
             border-radius: 6px; padding: 4px 9px; font-weight: 800;
         }}
-        QLabel#kbd {{
-            color: {colors["text"]}; background: {colors["content"]}; border: 1px solid {colors["border"]};
-            border-bottom: 2px solid {colors["border"]}; border-radius: 4px; padding: 3px 8px;
-            font-family: Consolas, "Courier New"; font-weight: 700; min-height: 18px;
+        QLabel#kbd, QLabel#keyCap {{
+            color: {colors["text"]}; background: {kbd_bg}; border: 1px solid {colors["border"]};
+            border-radius: 4px; padding: 1px 5px;
+            font-family: Consolas, "Courier New"; font-weight: 700; font-size: 7.5pt; min-height: 16px;
         }}
         QWidget#card {{
             background: {colors["panel"]}; border: 1px solid {colors["border"]}; border-radius: 8px;
@@ -265,6 +269,6 @@ def build_stylesheet(colors: dict[str, str]) -> str:
     """
 
 
-def apply_theme(app: QApplication, theme: str, font_family: str, font_size: int) -> None:
+def apply_theme(app: QApplication, theme: str) -> None:
     app.setStyleSheet(build_stylesheet(THEMES.get(theme, THEMES["light"])))
-    app.setFont(QFont(font_family or "Malgun Gothic", int(font_size or 9)))
+    app.setFont(QFont("Malgun Gothic", 9))

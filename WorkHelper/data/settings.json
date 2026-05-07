@@ -1,7 +1,5 @@
 {
   "theme": "light",
-  "font_family": "Malgun Gothic",
-  "font_size": 8,
   "window": {
     "width": 900,
     "height": 580,
@@ -17,8 +15,10 @@
     "key": "1"
   },
   "clipboard_popup_double_ctrl": true,
-  "github_token": "",
-  "auto_update_check": false,
-  "auto_update_install": false,
-  "active_preset": 1
+  "hotkeys_enabled": true,
+  "auto_update_check": true,
+  "auto_update_install": true,
+  "startup_with_windows": true,
+  "active_preset": 1,
+  "github_token": ""
 }

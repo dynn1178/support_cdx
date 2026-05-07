@@ -240,7 +240,7 @@ class ClipboardTab(QWidget):
             text = item.get("text", "")
             if query and query not in text.lower():
                 continue
-            card = make_card(("📌 " if item.get("pinned") else "") + short_preview(text, 160), "고정됨" if item.get("pinned") else "")
+            card = make_card(("📌 " if item.get("pinned") else "") + short_preview(text, 160), "고정됨" if item.get("pinned") else "", single_line=True)
             if item.get("pinned"):
                 card.setStyleSheet("QWidget#card { border: 2px solid #3B6CF5; background: #EEF2FF; }")
             add_card_actions(

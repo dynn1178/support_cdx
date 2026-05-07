@@ -24,8 +24,8 @@ from PyQt6.QtWidgets import (
 )
 
 from app import config
-from app.utils import new_id, now_iso, short_preview
-from ui.common import GridPanel, SortControls, apply_manual_reorder, bump_usage, make_card, make_icon_button
+from app.utils import display_hotkey, new_id, now_iso, short_preview
+from ui.common import GridPanel, HotkeyFields, SortControls, apply_manual_reorder, bump_usage, confirm_shift_digit_hotkey, make_card, make_icon_button
 
 
 TYPE_LABELS = {"site": "사이트", "file": "파일", "folder": "폴더"}
@@ -66,6 +66,7 @@ class LauncherDialog(QDialog):
         self.username = QLineEdit(self.item.get("username", ""))
         self.password = QLineEdit(self.item.get("password", ""))
         self.browser_path = QLineEdit(self.item.get("browser_path", ""))
+        self.hotkey = HotkeyFields(self.item.get("hotkey"))
         self.browser_path.setPlaceholderText("기본 브라우저로 연결")
 
         self.browse_path_btn = QPushButton("찾기")
@@ -97,6 +98,7 @@ class LauncherDialog(QDialog):
         form.addRow("아이디", self.username)
         form.addRow("비밀번호", self.password)
         form.addRow("브라우저 경로", browser_widget)
+        form.addRow("단축키", self.hotkey)
         layout.addLayout(form)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -119,6 +121,8 @@ class LauncherDialog(QDialog):
         self.set_field_enabled(self.url, is_site)
         self.set_field_enabled(self.browser_path, is_site)
         self.browse_browser_btn.setEnabled(is_site)
+        self.set_field_enabled(self.username, is_site)
+        self.set_field_enabled(self.password, is_site)
         self.set_field_enabled(self.path, not is_site)
         self.browse_path_btn.setEnabled(not is_site)
 
@@ -147,6 +151,7 @@ class LauncherDialog(QDialog):
                 "username": self.username.text().strip(),
                 "password": self.password.text(),
                 "browser_path": self.browser_path.text().strip(),
+                "hotkey": self.hotkey.value(),
             }
         )
         return data
@@ -164,13 +169,13 @@ class LauncherTab(QWidget):
         self.file_list = GridPanel(columns=3)
         self.tabs.addTab(self.site_list, "사이트")
         self.tabs.addTab(self.file_list, "파일/폴더")
+        self.sort_controls = SortControls(self.refresh)
+        self.tabs.setCornerWidget(self.sort_controls, Qt.Corner.TopRightCorner)
         layout.addWidget(self.tabs, 1)
         add_btn = QPushButton("+ 바로가기")
         add_btn.clicked.connect(self.edit_launcher)
         row = QHBoxLayout()
         row.addStretch(1)
-        self.sort_controls = SortControls(self.refresh)
-        row.addWidget(self.sort_controls)
         row.addWidget(add_btn)
         layout.addLayout(row)
 
@@ -187,7 +192,7 @@ class LauncherTab(QWidget):
         file_items = []
         for item in items:
             item_type = launcher_type(item.get("type"))
-            card = make_card(item.get("name", "(이름 없음)"), item.get("description", "") or short_preview(item.get("url") or item.get("path", "")))
+            card = make_card(item.get("name", "(이름 없음)"), item.get("description", "") or short_preview(item.get("url") or item.get("path", "")), display_hotkey(item.get("hotkey")))
             self.add_launcher_actions(card, item)
             if item_type == "site":
                 site_items.append(item)
@@ -268,6 +273,12 @@ class LauncherTab(QWidget):
                 continue
             if value.get("type") in {"file", "folder"} and not value.get("path"):
                 QMessageBox.warning(dialog, "입력 확인", "경로를 지정해주세요.")
+                continue
+            conflict = self.main.first_hotkey_conflict(candidate=value, original=item)
+            if conflict:
+                QMessageBox.warning(dialog, "단축키 충돌", conflict)
+                continue
+            if not confirm_shift_digit_hotkey(dialog, value.get("hotkey")):
                 continue
             if not value.get("id"):
                 value["id"] = new_id("ln")

@@ -25,14 +25,14 @@ BUNDLED_ICON_PATH = RESOURCE_DIR / "assets" / "icons" / "app.ico"
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "theme": "light",
-    "font_family": "Malgun Gothic",
-    "font_size": 9,
     "window": {"width": 900, "height": 580, "always_on_top": False},
     "clipboard_history_limit": 50,
     "clipboard_popup_hotkey": {"modifiers": ["ctrl", "shift"], "key": "v"},
     "clipboard_popup_double_ctrl": True,
+    "hotkeys_enabled": True,
     "auto_update_check": False,
     "auto_update_install": False,
+    "startup_with_windows": False,
     "active_preset": 1,
 }
 
@@ -247,6 +247,8 @@ def load_settings() -> dict[str, Any]:
     for key, value in data.items():
         if isinstance(value, dict) and isinstance(settings.get(key), dict):
             settings[key].update(value)
+        elif key in {"font_family", "font_size"}:
+            continue
         elif key == "active_template":
             settings["active_preset"] = value
         else:
@@ -260,6 +262,8 @@ def save_settings(settings: dict[str, Any]) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     data = copy.deepcopy(DEFAULT_SETTINGS)
     for key, value in settings.items():
+        if key in {"font_family", "font_size"}:
+            continue
         if isinstance(value, dict) and isinstance(data.get(key), dict):
             data[key].update(value)
         else:

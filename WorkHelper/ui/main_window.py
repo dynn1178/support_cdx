@@ -2,20 +2,21 @@ from __future__ import annotations
 
 import threading
 import time
+import calendar
 from ctypes import wintypes
 from datetime import datetime, timedelta
 from typing import Any
 
 from PyQt6.QtCore import QAbstractNativeEventFilter, QTimer, Qt, pyqtSignal
-from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QLabel, QHBoxLayout, QMainWindow, QMessageBox, QStackedWidget, QToolButton, QVBoxLayout, QWidget
+from PyQt6.QtGui import QIcon, QPixmap
+from PyQt6.QtWidgets import QLabel, QHBoxLayout, QMainWindow, QMessageBox, QPushButton, QStackedWidget, QToolButton, QVBoxLayout, QWidget
 
 from app import config
 from app.date_tools import render_date_template
 from app.hotkey_manager import HotkeyManager, USER32, WM_HOTKEY
 from app.theme import apply_theme
 from app.update_checker import check_update_dialog
-from app.utils import normalize_hotkey
+from app.utils import display_hotkey, normalize_hotkey
 from ui.tab_clipboard import ClipboardTab
 from ui.tab_date_calc import DateCalculatorTab
 from ui.tab_home import HomeTab
@@ -46,6 +47,19 @@ class HotkeyEventFilter(QAbstractNativeEventFilter):
 class MainWindow(QMainWindow):
     CLIPBOARD_POPUP_HOTKEY_LABEL = "Ctrl+Shift+V"
     ctrl_double_tapped = pyqtSignal()
+    HOME_TIPS = [
+        "상용구에 자주 쓰는 답변을 등록하고 단축키를 지정하면 상담 문구를 바로 붙여넣을 수 있습니다.",
+        "코드 스니펫에는 자주 쓰는 SQL이나 Python 조각을 저장해두고 필요한 순간 단축키로 복사해보세요.",
+        "바로가기에 업무 사이트와 파일 경로를 등록하면 로그인 정보 복사와 열기를 한 번에 처리할 수 있습니다.",
+        "컨닝페이퍼에는 참고 이미지나 업무 절차 캡처를 넣고 단축키로 즉시 열어볼 수 있습니다.",
+        "매크로 녹화는 반복 클릭과 키 입력을 저장해두었다가 단축키로 다시 실행할 때 유용합니다.",
+        "클립보드 미니팝업은 최근 복사한 내용을 빠르게 다시 꺼낼 때 좋습니다. Ctrl 두 번 설정도 활용해보세요.",
+        "제목 생성은 날짜 토큰을 넣어 리포트명이나 파일명을 일정한 규칙으로 만드는 데 쓸 수 있습니다.",
+        "메모와 일정은 업무 중 놓치기 쉬운 체크 사항을 작게 고정하거나 알림으로 관리할 때 편합니다.",
+        "프리셋을 나눠두면 업무 상황별 상용구, 바로가기, 매크로 묶음을 빠르게 전환할 수 있습니다.",
+        "테마 설정으로 밝은 화면, 어두운 화면, 고대비 화면을 작업 환경에 맞게 바꿔보세요.",
+        "다른 프로그램 단축키와 겹칠 때는 왼쪽 하단 단축키 ON/OFF 버튼으로 잠시 꺼둘 수 있습니다.",
+    ]
 
     def __init__(self, app) -> None:
         super().__init__()
@@ -62,10 +76,12 @@ class MainWindow(QMainWindow):
         self.hotkey_event_filter = HotkeyEventFilter(self.hotkeys)
         self.app.installNativeEventFilter(self.hotkey_event_filter)
         self._last_ctrl_release = 0.0
+        self._home_tip_index = 0
         self.ctrl_double_tapped.connect(self.show_clipboard_popup)
         self._notified_schedule_ids: set[str] = set()
         self.setWindowTitle(f"{config.APP_NAME} {self.version}")
-        icon_path = config.APP_ICON_PATH if config.APP_ICON_PATH.exists() else config.BUNDLED_ICON_PATH
+        icon2_path = config.BASE_DIR / "icon2.png" if (config.BASE_DIR / "icon2.png").exists() else config.RESOURCE_DIR / "icon2.png"
+        icon_path = icon2_path if icon2_path.exists() else config.APP_ICON_PATH if config.APP_ICON_PATH.exists() else config.BUNDLED_ICON_PATH
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
         self._build_ui()
@@ -77,6 +93,9 @@ class MainWindow(QMainWindow):
         self.schedule_timer = QTimer(self)
         self.schedule_timer.timeout.connect(self.check_schedules)
         self.schedule_timer.start(60_000)
+        self.tip_timer = QTimer(self)
+        self.tip_timer.timeout.connect(self.rotate_home_tip)
+        self.tip_timer.start(300_000)
         QTimer.singleShot(1500, self.check_update_on_startup)
 
     def _build_ui(self) -> None:
@@ -103,14 +122,19 @@ class MainWindow(QMainWindow):
         side_header = QWidget()
         side_header.setObjectName("sideHeader")
         side_header.setFixedHeight(68)
-        side_header_layout = QVBoxLayout(side_header)
+        side_header_layout = QHBoxLayout(side_header)
         side_header_layout.setContentsMargins(14, 12, 14, 10)
-        eyebrow = QLabel("6PM ASSISTANT")
-        eyebrow.setObjectName("eyebrow")
-        menu = QLabel("메뉴")
-        menu.setObjectName("windowTitle")
-        side_header_layout.addWidget(eyebrow)
-        side_header_layout.addWidget(menu)
+        side_header_layout.setSpacing(10)
+        brand_icon = QLabel()
+        brand_icon.setFixedSize(34, 34)
+        icon2_path = config.BASE_DIR / "icon2.png" if (config.BASE_DIR / "icon2.png").exists() else config.RESOURCE_DIR / "icon2.png"
+        icon_path = icon2_path if icon2_path.exists() else config.APP_ICON_PATH if config.APP_ICON_PATH.exists() else config.BUNDLED_ICON_PATH
+        if icon_path.exists():
+            brand_icon.setPixmap(QPixmap(str(icon_path)).scaled(34, 34, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        brand_text = QLabel("6PM\nAssistant")
+        brand_text.setObjectName("windowTitle")
+        side_header_layout.addWidget(brand_icon)
+        side_header_layout.addWidget(brand_text, 1)
         side.addWidget(side_header)
 
         nav = QWidget()
@@ -137,8 +161,13 @@ class MainWindow(QMainWindow):
         title_col.addWidget(self.screen_title)
         title_col.addWidget(self.screen_subtitle)
         screen_head.addLayout(title_col, 1)
-        self.status = QLabel()
-        screen_head.addWidget(self.status, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.next_tip_button = QToolButton()
+        self.next_tip_button.setText(">")
+        self.next_tip_button.setToolTip("다음 팁")
+        self.next_tip_button.setObjectName("iconButton")
+        self.next_tip_button.setFixedSize(28, 28)
+        self.next_tip_button.clicked.connect(self.next_home_tip)
+        screen_head.addWidget(self.next_tip_button, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         content_layout.addWidget(screen_header)
 
         self.stack = QStackedWidget()
@@ -179,10 +208,9 @@ class MainWindow(QMainWindow):
         side_footer.setObjectName("sideFooter")
         side_footer_layout = QVBoxLayout(side_footer)
         side_footer_layout.setContentsMargins(12, 10, 12, 10)
-        hint = QLabel("단축키는 이 프로그램이 실행 중일 때 동작합니다.")
-        hint.setObjectName("mutedText")
-        hint.setWordWrap(True)
-        side_footer_layout.addWidget(hint)
+        self.hotkey_toggle = QPushButton()
+        self.hotkey_toggle.clicked.connect(self.toggle_hotkeys_enabled)
+        side_footer_layout.addWidget(self.hotkey_toggle)
         side.addWidget(side_footer)
 
         body_layout.addWidget(content, 1)
@@ -190,7 +218,7 @@ class MainWindow(QMainWindow):
         root.addWidget(shell)
         self.setCentralWidget(central)
         self.set_tab(0)
-        self.update_hotkey_status()
+        self.update_hotkey_toggle_button()
 
     def set_tab(self, index: int) -> None:
         self.stack.setCurrentIndex(index)
@@ -209,8 +237,19 @@ class MainWindow(QMainWindow):
             ("설정", "테마, 프리셋, 단축키, 클립보드 옵션을 설정합니다."),
         ]
         title, subtitle = titles[index]
+        if index == 0:
+            title, subtitle = "활용 팁", self.HOME_TIPS[self._home_tip_index]
+        self.next_tip_button.setVisible(index == 0)
         self.screen_title.setText(title)
         self.screen_subtitle.setText(subtitle)
+
+    def rotate_home_tip(self) -> None:
+        self.next_home_tip()
+
+    def next_home_tip(self) -> None:
+        self._home_tip_index = (self._home_tip_index + 1) % len(self.HOME_TIPS)
+        if self.stack.currentIndex() == 0:
+            self.set_tab(0)
 
     def apply_current_settings(self) -> None:
         settings = self.settings
@@ -222,7 +261,7 @@ class MainWindow(QMainWindow):
         else:
             flags &= ~Qt.WindowType.WindowStaysOnTopHint
         self.setWindowFlags(flags)
-        apply_theme(self.app, settings.get("theme", "light"), settings.get("font_family", "Malgun Gothic"), settings.get("font_size", 9))
+        apply_theme(self.app, settings.get("theme", "light"))
 
     def save_data(self) -> None:
         self.data["settings"] = self.settings
@@ -284,13 +323,12 @@ class MainWindow(QMainWindow):
     def register_hotkeys(self) -> None:
         self.hotkeys.set_hwnd(int(self.winId()))
         self.hotkeys.unregister_all()
+        if not self.settings.get("hotkeys_enabled", True):
+            self.update_hotkey_toggle_button()
+            return
         conflict = self.first_hotkey_conflict()
         if conflict:
-            self.status.setObjectName("statusPillInactive")
-            self.status.setText("단축키 충돌")
-            self.status.setToolTip(conflict)
-            self.status.style().unpolish(self.status)
-            self.status.style().polish(self.status)
+            QMessageBox.warning(self, "단축키 충돌", conflict)
             return
         for item in self.data.get("phrases", []) + self.data.get("snippets", []):
             hotkey = item.get("hotkey")
@@ -318,17 +356,26 @@ class MainWindow(QMainWindow):
             self.hotkeys.register(popup_hotkey.get("modifiers", []), popup_hotkey.get("key", ""), self.show_clipboard_popup, "clipboard_popup")
             self.CLIPBOARD_POPUP_HOTKEY_LABEL = normalize_hotkey(popup_hotkey)
         self.update_hotkey_status()
+        self.update_hotkey_toggle_button()
 
     def update_hotkey_status(self) -> None:
-        if self.hotkeys.registered_count > 0:
-            self.status.setObjectName("statusPill")
-            self.status.setText("단축키 활성")
-            self.status.setToolTip("")
+        return
+
+    def toggle_hotkeys_enabled(self) -> None:
+        self.settings["hotkeys_enabled"] = not self.settings.get("hotkeys_enabled", True)
+        config.save_settings(self.settings)
+        if self.settings["hotkeys_enabled"]:
+            self.register_hotkeys()
         else:
-            self.status.setObjectName("statusPillInactive")
-            self.status.setText("단축키 없음")
-        self.status.style().unpolish(self.status)
-        self.status.style().polish(self.status)
+            self.hotkeys.unregister_all()
+        self.update_hotkey_toggle_button()
+        self.refresh_all_tabs()
+
+    def update_hotkey_toggle_button(self) -> None:
+        enabled = self.settings.get("hotkeys_enabled", True)
+        self.hotkey_toggle.setText("단축키 ON" if enabled else "단축키 OFF")
+        bg = "#2EA672" if enabled else "#9CA3AF"
+        self.hotkey_toggle.setStyleSheet(f"QPushButton {{ color: {bg}; font-weight: 800; }}")
 
     def check_update_on_startup(self) -> None:
         settings = self.settings
@@ -358,6 +405,9 @@ class MainWindow(QMainWindow):
         self.ctrl_listener_thread.start()
 
     def handle_ctrl_release(self) -> None:
+        if not self.settings.get("hotkeys_enabled", True):
+            self._last_ctrl_release = 0.0
+            return
         if not self.data.get("settings", {}).get("clipboard_popup_double_ctrl", True):
             self._last_ctrl_release = 0.0
             return
@@ -373,14 +423,15 @@ class MainWindow(QMainWindow):
 
     def copy_title_template(self, item: dict) -> None:
         bump_usage(item)
-        self.app.clipboard().setText(render_date_template(item.get("template", ""), business_days=bool(item.get("business_days", False))))
+        text = render_date_template(item.get("template", ""), business_days=bool(item.get("business_days", False)))
         config.save_template(self.template_index, self.data)
+        self.paste_text(text)
 
     def clipboard_popup_shortcut_label(self) -> str:
         settings = self.settings
         if settings.get("clipboard_popup_double_ctrl", True):
             return "Ctrl 두 번"
-        return normalize_hotkey(settings.get("clipboard_popup_hotkey"))
+        return display_hotkey(settings.get("clipboard_popup_hotkey"))
 
     def paste_text(self, text: str) -> None:
         try:
@@ -419,10 +470,26 @@ class MainWindow(QMainWindow):
             if notify_at <= now <= target + timedelta(minutes=1) and schedule_id not in self._notified_schedule_ids:
                 self._notified_schedule_ids.add(schedule_id)
                 schedule["last_notified_at"] = now.isoformat(timespec="seconds")
+                self.advance_repeating_schedule(schedule, target)
                 changed = True
                 self.show_schedule_notification(schedule)
         if changed:
             config.save_template(self.template_index, self.data)
+
+    def advance_repeating_schedule(self, schedule: dict[str, Any], target: datetime) -> None:
+        repeat = schedule.get("repeat", "none")
+        if repeat == "daily":
+            schedule["datetime"] = (target + timedelta(days=1)).isoformat(timespec="seconds")
+        elif repeat == "weekly":
+            schedule["datetime"] = (target + timedelta(weeks=1)).isoformat(timespec="seconds")
+        elif repeat == "monthly":
+            month = target.month + 1
+            year = target.year
+            if month > 12:
+                month = 1
+                year += 1
+            day = min(target.day, calendar.monthrange(year, month)[1])
+            schedule["datetime"] = target.replace(year=year, month=month, day=day).isoformat(timespec="seconds")
 
     def show_schedule_notification(self, schedule: dict[str, Any]) -> None:
         try:

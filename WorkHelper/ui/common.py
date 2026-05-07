@@ -14,20 +14,21 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidgetItem,
+    QMessageBox,
     QScrollArea,
+    QSizePolicy,
     QTextEdit,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-HOTKEY_KEYS = [str(i) for i in range(1, 10)] + [chr(i) for i in range(ord("A"), ord("Z") + 1)] + [f"F{i}" for i in range(1, 13)]
+HOTKEY_KEYS = [str(i) for i in range(1, 10)] + ["0"] + [chr(i) for i in range(ord("A"), ord("Z") + 1)] + [f"F{i}" for i in range(1, 13)]
 
 SORT_MODES = [
-    ("등록순", "created"),
-    ("사용순", "usage"),
-    ("가나다순", "name"),
-    ("수동정렬", "manual"),
+    ("등록", "created"),
+    ("가나다", "name"),
+    ("수동", "manual"),
 ]
 SORT_ORDERS = [
     ("내림차순", "desc"),
@@ -47,32 +48,117 @@ ACTION_ICONS = {
 }
 
 
-def make_card(title: str, subtitle: str = "", hotkey: str = "", single_line: bool = False) -> QWidget:
+class ElidedLabel(QLabel):
+    def __init__(self, text: str) -> None:
+        super().__init__()
+        self._full_text = text
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setMinimumWidth(0)
+        self.setToolTip(text)
+        self._update_elided_text()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._update_elided_text()
+
+    def _update_elided_text(self) -> None:
+        width = max(0, self.contentsRect().width())
+        text = self.fontMetrics().elidedText(self._full_text, Qt.TextElideMode.ElideRight, width)
+        if self.text() != text:
+            self.setText(text)
+
+
+class ElidedMultilineLabel(QLabel):
+    def __init__(self, text: str, max_lines: int = 2) -> None:
+        super().__init__()
+        self._full_text = text
+        self._max_lines = max(1, max_lines)
+        self.setToolTip(text)
+        self.setWordWrap(True)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.setMinimumWidth(0)
+        self.setFixedHeight(self.fontMetrics().lineSpacing() * self._max_lines + 4)
+        self._update_elided_text()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._update_elided_text()
+
+    def _update_elided_text(self) -> None:
+        width = max(0, self.contentsRect().width())
+        lines = self._full_text.splitlines() or [self._full_text]
+        visible = lines[: self._max_lines]
+        if len(lines) > self._max_lines:
+            visible[-1] += " ..."
+        text = "\n".join(self.fontMetrics().elidedText(line, Qt.TextElideMode.ElideRight, width) for line in visible)
+        if self.text() != text:
+            self.setText(text)
+
+
+def make_card(title: str, subtitle: str = "", hotkey: str = "", single_line: bool = False, hotkey_color: str = "", compact: bool = False) -> QWidget:
     card = QWidget()
     card.setObjectName("card")
+    card.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
     layout = QVBoxLayout(card)
-    layout.setContentsMargins(12, 10, 12, 10)
-    layout.setSpacing(8)
+    layout.setContentsMargins(10, 6, 10, 6) if compact else layout.setContentsMargins(12, 10, 12, 10)
+    layout.setSpacing(4 if compact else 8)
     row = QHBoxLayout()
     row.setSpacing(10)
-    title_label = QLabel(title)
+    title_label = ElidedLabel(title) if single_line else QLabel(title)
     title_label.setObjectName("cardTitle")
     title_label.setWordWrap(not single_line)
+    title_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
     title_label.setMinimumWidth(0)
     title_label.setToolTip(title)
     row.addWidget(title_label, 1)
     if hotkey:
-        key_label = QLabel(hotkey)
-        key_label.setObjectName("kbd")
-        key_label.setAlignment(Qt.AlignmentFlag.AlignRight)
-        row.addWidget(key_label)
+        row.addWidget(make_hotkey_caps(hotkey, hotkey_color))
     layout.addLayout(row)
     if subtitle:
-        sub = QLabel(subtitle)
+        sub = ElidedMultilineLabel(subtitle, max_lines=1 if compact else 2)
         sub.setObjectName("cardSubtitle")
-        sub.setWordWrap(True)
         layout.addWidget(sub)
     return card
+
+
+def make_hotkey_caps(hotkey: str, hotkey_color: str = "") -> QWidget:
+    container = QWidget()
+    container.setObjectName("hotkeyCaps")
+    container.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+    layout = QHBoxLayout(container)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(2)
+    parts = [part.strip() for part in hotkey.split("+") if part.strip()]
+    for part in parts:
+        cap = QLabel(part)
+        cap.setObjectName("keyCap")
+        cap.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        cap.setFixedHeight(20)
+        cap.setMinimumWidth(18)
+        cap.setContentsMargins(0, 0, 0, 0)
+        if hotkey_color:
+            cap.setStyleSheet(f"QLabel#keyCap {{ background: {hotkey_color}; color: #1F2937; border-color: rgba(31, 41, 55, 0.25); }}")
+        layout.addWidget(cap)
+    return container
+
+
+def confirm_shift_digit_hotkey(parent: QWidget, hotkey: dict | None) -> bool:
+    if not hotkey:
+        return True
+    modifiers = {str(modifier).lower() for modifier in hotkey.get("modifiers", [])}
+    key = str(hotkey.get("key", ""))
+    if modifiers != {"shift"} or key not in {str(i) for i in range(10)}:
+        return True
+    return (
+        QMessageBox.question(
+            parent,
+            "단축키 확인",
+            "Shift+숫자 단축키는 특수문자 입력을 대체할 수 있습니다.\n그래도 등록하시겠습니까?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        == QMessageBox.StandardButton.Yes
+    )
 
 
 def make_icon_button(text: str, tooltip: str, callback, danger: bool = False) -> QToolButton:
@@ -135,9 +221,7 @@ def sort_items(
         created = item.get("created_at") or item.get("updated_at") or item.get("copied_at") or ""
         return str(created), int(item.get("sort_order", 0) or 0)
 
-    if mode == "usage":
-        key_func = lambda item: (int(item.get("usage_count", 0) or 0), created_key(item))
-    elif mode == "name":
+    if mode == "name":
         key_func = lambda item: text_value(item).casefold()
     elif mode == "manual":
         key_func = lambda item: int(item.get("sort_order", 0) or 0)
@@ -152,21 +236,35 @@ class SortControls(QWidget):
         super().__init__(parent)
         self.setObjectName("sortControls")
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(6)
-        label = QLabel("정렬")
-        label.setObjectName("mutedText")
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setSpacing(4)
         self.mode = QComboBox()
-        for label, value in SORT_MODES:
-            self.mode.addItem(label, value)
+        for text, value in SORT_MODES:
+            self.mode.addItem(text, value)
         self.order = QComboBox()
-        for label, value in SORT_ORDERS:
-            self.order.addItem(label, value)
+        for text, value in SORT_ORDERS:
+            self.order.addItem(text, value)
         self.mode.setCurrentIndex(self.mode.findData("created"))
         self.order.setCurrentIndex(self.order.findData("desc"))
-        layout.addWidget(label)
         layout.addWidget(self.mode)
         layout.addWidget(self.order)
+        self.mode.setFixedHeight(26)
+        self.order.setFixedHeight(26)
+        self.mode.setFixedWidth(78)
+        self.order.setFixedWidth(92)
+        self.setFixedHeight(32)
+        self.setStyleSheet(
+            """
+            QWidget#sortControls {
+                border: 0;
+                background: transparent;
+            }
+            QWidget#sortControls QComboBox {
+                padding: 2px 9px;
+                min-height: 18px;
+            }
+            """
+        )
         self.mode.currentIndexChanged.connect(self.update_order_enabled)
         if changed:
             self.mode.currentIndexChanged.connect(lambda _index: changed())
@@ -196,6 +294,7 @@ class GridPanel(QScrollArea):
         self._dragging = False
         self._on_reorder: Callable[[int, int], None] | None = None
         self.container = QWidget()
+        self.container.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.grid = QGridLayout(self.container)
         self.grid.setContentsMargins(10, 10, 10, 10)
         self.grid.setHorizontalSpacing(10)
@@ -215,6 +314,8 @@ class GridPanel(QScrollArea):
         self._cards = cards
         self._on_reorder = on_reorder
         for i, card in enumerate(cards):
+            card.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+            card.setMinimumWidth(0)
             self._install_drag_filter(card)
             row, col = divmod(i, self.columns)
             self.grid.addWidget(card, row, col)

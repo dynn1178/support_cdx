@@ -6,9 +6,10 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
+    QFormLayout,
     QHeaderView,
     QHBoxLayout,
-    QInputDialog,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -17,8 +18,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.utils import new_id, normalize_hotkey, now_iso
-from ui.common import GridPanel, SortControls, add_card_actions, apply_manual_reorder, bump_usage, make_card
+from app.utils import display_hotkey, new_id, now_iso
+from ui.common import GridPanel, HotkeyFields, SortControls, add_card_actions, apply_manual_reorder, bump_usage, confirm_shift_digit_hotkey, make_card
 
 
 MODIFIER_NAMES = {"ctrl", "ctrl_l", "ctrl_r", "alt", "alt_l", "alt_r", "shift", "shift_l", "shift_r"}
@@ -31,6 +32,12 @@ class MacroActionsDialog(QDialog):
         self.setWindowTitle(f"매크로 이력 - {macro.get('name', '(이름 없음)')}")
         self.resize(720, 420)
         layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self.name = QLineEdit(macro.get("name", ""))
+        self.hotkey = HotkeyFields(macro.get("hotkey"))
+        form.addRow("이름", self.name)
+        form.addRow("실행 단축키", self.hotkey)
+        layout.addLayout(form)
         self.table = QTableWidget(0, 4)
         self.table.setStyleSheet("QHeaderView::section { padding: 3px 6px; font-weight: 500; }")
         self.table.setHorizontalHeaderLabels(["TYPE", "VALUE", "DELAY", "EXTRA"])
@@ -97,9 +104,34 @@ class MacroActionsDialog(QDialog):
                 edited.append({"type": "type", "text": value, "delay": delay})
         return edited
 
+    def value(self) -> dict:
+        return {"name": self.name.text().strip(), "hotkey": self.hotkey.value(), "actions": self.actions()}
+
     def _text(self, row: int, col: int) -> str:
         item = self.table.item(row, col)
         return item.text().strip() if item else ""
+
+
+class MacroRecordDialog(QDialog):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("매크로 녹화")
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self.name = QLineEdit()
+        self.hotkey = HotkeyFields()
+        form.addRow("이름", self.name)
+        form.addRow("실행 단축키", self.hotkey)
+        layout.addLayout(form)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("확인")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("취소")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def value(self) -> dict:
+        return {"name": self.name.text().strip(), "hotkey": self.hotkey.value()}
 
 
 class MacroTab(QWidget):
@@ -110,6 +142,7 @@ class MacroTab(QWidget):
         self.main = main
         self.recording = False
         self.recorded_actions: list[dict] = []
+        self.record_hotkey = None
         self.mouse_listener = None
         self.keyboard_listener = None
         self.record_name = ""
@@ -119,21 +152,21 @@ class MacroTab(QWidget):
         self.stop_recording_requested.connect(self.stop_recording)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.list = GridPanel(columns=3)
-        layout.addWidget(self.list, 1)
-        row = QHBoxLayout()
+        top = QHBoxLayout()
         self.sort_controls = SortControls(self.refresh)
-        add_btn = QPushButton("+ 빈 매크로")
+        top.addStretch(1)
+        top.addWidget(self.sort_controls)
+        layout.addLayout(top)
+        row = QHBoxLayout()
         record_btn = QPushButton("녹화")
         stop_btn = QPushButton("정지")
-        add_btn.clicked.connect(self.add_macro)
         record_btn.clicked.connect(self.start_recording)
         stop_btn.clicked.connect(self.stop_recording)
         row.addStretch(1)
-        row.addWidget(self.sort_controls)
-        row.addWidget(add_btn)
         row.addWidget(record_btn)
         row.addWidget(stop_btn)
+        self.list = GridPanel(columns=3)
+        layout.addWidget(self.list, 1)
         layout.addLayout(row)
 
     def refresh(self) -> None:
@@ -141,11 +174,11 @@ class MacroTab(QWidget):
         source_items = self.main.data.get("macros", [])
         visible_items = self.sort_controls.sort_items(source_items, lambda value: value.get("name", ""))
         for macro in visible_items:
-            card = make_card(macro.get("name", "(이름 없음)"), f"{len(macro.get('actions', []))}개 액션", normalize_hotkey(macro.get("hotkey")))
+            card = make_card(macro.get("name", "(이름 없음)"), f"{len(macro.get('actions', []))}개 액션", display_hotkey(macro.get("hotkey")))
             add_card_actions(
                 card,
                 [
-                    ("history", "이력 보기/수정", lambda checked=False, value=macro: self.edit_actions(value), False),
+                    ("edit", "이력 보기/수정", lambda checked=False, value=macro: self.edit_actions(value), False),
                     ("play", "재생", lambda checked=False, value=macro: self.play_macro(value), False),
                     ("delete", "삭제", lambda checked=False, value=macro: self.delete_macro(value), True),
                 ],
@@ -162,36 +195,39 @@ class MacroTab(QWidget):
         dialog = MacroActionsDialog(macro)
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
-        macro["actions"] = dialog.actions()
-        self.main.save_data()
-
-    def add_macro(self) -> None:
-        while True:
-            name, ok = QInputDialog.getText(self, "매크로 추가", "이름")
-            if not ok:
-                return
-            if name.strip():
-                break
-            QMessageBox.warning(self, "입력 확인", "이름을 지정해주세요.")
-        items = self.main.data.setdefault("macros", [])
-        items.append(
-            {
-                "id": new_id("mc"),
-                "name": name.strip(),
-                "hotkey": None,
-                "actions": [],
-                "created_at": now_iso(),
-                "sort_order": len(items),
-                "usage_count": 0,
-            }
-        )
+        value = dialog.value()
+        if not value["name"]:
+            QMessageBox.warning(dialog, "입력 확인", "이름을 지정해주세요.")
+            return
+        conflict = self.main.first_hotkey_conflict(candidate=value, original=macro)
+        if conflict:
+            QMessageBox.warning(dialog, "단축키 충돌", conflict)
+            return
+        if not confirm_shift_digit_hotkey(dialog, value.get("hotkey")):
+            return
+        macro["name"] = value["name"]
+        macro["hotkey"] = value["hotkey"]
+        macro["actions"] = value["actions"]
         self.main.save_data()
 
     def start_recording(self) -> None:
         if self.recording:
             return
-        name, ok = QInputDialog.getText(self, "매크로 녹화", "이름")
-        if not ok or not name.strip():
+        dialog = MacroRecordDialog()
+        while dialog.exec() == dialog.DialogCode.Accepted:
+            value = dialog.value()
+            if not value["name"]:
+                QMessageBox.warning(dialog, "입력 확인", "이름을 지정해주세요.")
+                continue
+            candidate = {"name": value["name"], "hotkey": value["hotkey"]}
+            conflict = self.main.first_hotkey_conflict(candidate=candidate)
+            if conflict:
+                QMessageBox.warning(dialog, "단축키 충돌", conflict)
+                continue
+            if not confirm_shift_digit_hotkey(dialog, value.get("hotkey")):
+                continue
+            break
+        else:
             return
         try:
             from pynput import keyboard as pynput_keyboard
@@ -200,7 +236,8 @@ class MacroTab(QWidget):
             QMessageBox.warning(self, "녹화 시작 실패", str(exc))
             return
         self.recording = True
-        self.record_name = name.strip()
+        self.record_name = value["name"]
+        self.record_hotkey = value["hotkey"]
         self.recorded_actions = []
         self.pressed_modifiers = set()
         self.pressed_keys = set()
@@ -228,7 +265,7 @@ class MacroTab(QWidget):
             {
                 "id": new_id("mc"),
                 "name": self.record_name,
-                "hotkey": None,
+                "hotkey": self.record_hotkey,
                 "actions": self.recorded_actions,
                 "created_at": now_iso(),
                 "sort_order": len(items),

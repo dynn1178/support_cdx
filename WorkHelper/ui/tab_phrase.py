@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -17,8 +18,8 @@ from PyQt6.QtWidgets import (
 )
 
 from app.date_tools import render_date_template
-from app.utils import new_id, normalize_hotkey, now_iso, short_preview
-from ui.common import GridPanel, HotkeyFields, SortControls, TextItemDialog, add_card_actions, apply_manual_reorder, bump_usage, make_card
+from app.utils import display_hotkey, new_id, now_iso, short_preview
+from ui.common import GridPanel, HotkeyFields, SortControls, TextItemDialog, add_card_actions, apply_manual_reorder, bump_usage, confirm_shift_digit_hotkey, make_card
 
 
 class TitleTemplateDialog(QDialog):
@@ -72,7 +73,9 @@ class PhraseTab(QWidget):
         self.main = main
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        self.sort_controls = SortControls(self.refresh)
         self.tabs = QTabWidget()
+        self.tabs.setCornerWidget(self.sort_controls, Qt.Corner.TopRightCorner)
         self.phrase_list = GridPanel(columns=2)
         self.snippet_list = GridPanel(columns=1)
         self.title_list = GridPanel(columns=1)
@@ -81,7 +84,6 @@ class PhraseTab(QWidget):
         self.tabs.addTab(self.title_list, "제목 생성")
         layout.addWidget(self.tabs, 1)
         buttons = QHBoxLayout()
-        self.sort_controls = SortControls(self.refresh)
         add_phrase = QPushButton("+ 텍스트")
         add_snippet = QPushButton("+ 스니펫")
         add_title = QPushButton("+ 제목")
@@ -89,7 +91,6 @@ class PhraseTab(QWidget):
         add_snippet.clicked.connect(lambda: self.edit_item("snippets"))
         add_title.clicked.connect(lambda: self.edit_title())
         buttons.addStretch(1)
-        buttons.addWidget(self.sort_controls)
         buttons.addWidget(add_phrase)
         buttons.addWidget(add_snippet)
         buttons.addWidget(add_title)
@@ -109,9 +110,9 @@ class PhraseTab(QWidget):
         )
         for item in items:
             if collection == "phrases":
-                card = make_card(short_preview(item.get("text", ""), 160), "", normalize_hotkey(item.get("hotkey")))
+                card = make_card(short_preview(item.get("text", ""), 160), "", display_hotkey(item.get("hotkey")))
             else:
-                card = make_card(item.get("name", "(이름 없음)"), short_preview(item.get("text", "")), normalize_hotkey(item.get("hotkey")))
+                card = make_card(item.get("name", "(이름 없음)"), short_preview(item.get("text", "")), display_hotkey(item.get("hotkey")))
             add_card_actions(
                 card,
                 [
@@ -130,7 +131,7 @@ class PhraseTab(QWidget):
         items = self.sort_controls.sort_items(collection_items, lambda value: value.get("template", ""))
         for item in items:
             rendered = render_date_template(item.get("template", ""), business_days=bool(item.get("business_days", False)))
-            card = make_card(rendered, "", normalize_hotkey(item.get("hotkey")))
+            card = make_card(rendered, "", display_hotkey(item.get("hotkey")))
             add_card_actions(
                 card,
                 [
@@ -180,6 +181,8 @@ class PhraseTab(QWidget):
             if conflict:
                 QMessageBox.warning(dialog, "단축키 충돌", conflict)
                 continue
+            if not confirm_shift_digit_hotkey(dialog, value.get("hotkey")):
+                continue
             items = self.main.data.setdefault(collection, [])
             if item in items:
                 items[items.index(item)] = value
@@ -203,6 +206,8 @@ class PhraseTab(QWidget):
             conflict = self.main.first_hotkey_conflict(candidate=value, original=item)
             if conflict:
                 QMessageBox.warning(dialog, "단축키 충돌", conflict)
+                continue
+            if not confirm_shift_digit_hotkey(dialog, value.get("hotkey")):
                 continue
             items = self.main.data.setdefault("title_templates", [])
             if item in items:

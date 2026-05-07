@@ -51,10 +51,52 @@ def normalize_hotkey(hotkey: dict | None) -> str:
     return "+".join([m.title() for m in modifiers] + ([key] if key else []))
 
 
+def display_hotkey(hotkey: dict | None) -> str:
+    if not hotkey:
+        return ""
+    aliases = {"ctrl": "Ctrl", "alt": "Alt", "shift": "Shift"}
+    modifiers = [aliases.get(str(modifier).lower(), str(modifier).title()) for modifier in hotkey.get("modifiers", [])]
+    key = hotkey.get("key", "")
+    return "+".join(modifiers + ([key] if key else []))
+
+
 def hotkey_to_keyboard_string(hotkey: dict | None) -> str:
     if not hotkey:
         return ""
     modifiers = [m.lower() for m in hotkey.get("modifiers", [])]
     key = str(hotkey.get("key", "")).lower()
     return "+".join(sorted(modifiers) + ([key] if key else []))
+
+
+STARTUP_APP_NAME = "6PM Assistant"
+
+
+def startup_command() -> str:
+    if getattr(sys, "frozen", False):
+        return f'"{sys.executable}"'
+    return f'"{sys.executable}" "{app_base_dir() / "main.py"}"'
+
+
+def is_startup_enabled() -> bool:
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run") as key:
+            value, _ = winreg.QueryValueEx(key, STARTUP_APP_NAME)
+        return value == startup_command()
+    except Exception:
+        return False
+
+
+def set_startup_enabled(enabled: bool) -> None:
+    import winreg
+
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_SET_VALUE) as key:
+        if enabled:
+            winreg.SetValueEx(key, STARTUP_APP_NAME, 0, winreg.REG_SZ, startup_command())
+        else:
+            try:
+                winreg.DeleteValue(key, STARTUP_APP_NAME)
+            except FileNotFoundError:
+                pass
 
