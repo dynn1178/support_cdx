@@ -1,8 +1,8 @@
 {
   "meta": {
-    "template_name": "템플릿 5",
+    "preset_name": "기본 프리셋",
     "version": "1.0.0",
-    "saved_at": "2026-05-07T02:57:51"
+    "saved_at": "2026-05-07T17:49:10"
   },
   "phrases": [
     {
@@ -16,7 +16,9 @@
         ],
         "key": "1"
       },
-      "type": "text"
+      "type": "text",
+      "sort_order": 0,
+      "usage_count": 0
     }
   ],
   "snippets": [
@@ -32,7 +34,9 @@
         ],
         "key": "1"
       },
-      "type": "code"
+      "type": "code",
+      "sort_order": 0,
+      "usage_count": 0
     }
   ],
   "launchers": [
@@ -45,7 +49,9 @@
       "username": "shared_id@company.com",
       "password": "",
       "browser_path": "",
-      "hotkey": null
+      "hotkey": null,
+      "sort_order": 0,
+      "usage_count": 0
     },
     {
       "id": "ln_sample_file",
@@ -53,7 +59,9 @@
       "description": "매주 월요일 업데이트",
       "type": "file",
       "path": "D:\\reports\\weekly.xlsx",
-      "hotkey": null
+      "hotkey": null,
+      "sort_order": 1,
+      "usage_count": 0
     }
   ],
   "images": [
@@ -68,7 +76,9 @@
           "alt"
         ],
         "key": "F1"
-      }
+      },
+      "sort_order": 0,
+      "usage_count": 0
     }
   ],
   "macros": [
@@ -102,7 +112,9 @@
           "text": "입력할 텍스트",
           "delay": 0.2
         }
-      ]
+      ],
+      "sort_order": 0,
+      "usage_count": 0
     }
   ],
   "memos": [
@@ -112,7 +124,9 @@
       "content": "내용",
       "pinned": false,
       "created_at": "2026-05-07T02:57:51",
-      "updated_at": "2026-05-07T02:57:51"
+      "updated_at": "2026-05-07T02:57:51",
+      "sort_order": 0,
+      "usage_count": 0
     }
   ],
   "schedules": [
@@ -123,19 +137,19 @@
       "repeat": "none",
       "notify_before_minutes": 30,
       "memo": "5월 멤버십 대상",
-      "last_notified_at": ""
+      "last_notified_at": "",
+      "sort_order": 0,
+      "usage_count": 0
     }
   ],
-  "settings": {
-    "theme": "light",
-    "font_family": "맑은 고딕",
-    "font_size": 9,
-    "window": {
-      "width": 900,
-      "height": 580,
-      "always_on_top": false
-    },
-    "clipboard_history_limit": 50,
-    "active_template": 5
-  }
+  "title_templates": [
+    {
+      "id": "tt_sample",
+      "name": "일별 제목",
+      "template": "리포트 {yyyy-mm-dd}",
+      "business_days": false,
+      "sort_order": 0,
+      "usage_count": 0
+    }
+  ]
 }

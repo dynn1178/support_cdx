@@ -23,10 +23,10 @@ class HomeTab(QWidget):
     def refresh(self) -> None:
         data = self.main.data
         stats = [
-            ("상용구", len(data.get("phrases", [])), "상용구 & 코드"),
-            ("코드", len(data.get("snippets", [])), "상용구&코드"),
+            ("상용구", len(data.get("phrases", [])), "일반 텍스트"),
+            ("코드", len(data.get("snippets", [])), "코드 스니펫"),
             ("바로가기", len(data.get("launchers", [])), "사이트/파일"),
-            ("컨닝 페이퍼", len(data.get("images", [])), "이미지 자료"),
+            ("컨닝페이퍼", len(data.get("images", [])), "이미지 자료"),
             ("매크로", len(data.get("macros", [])), "녹화/재생"),
             ("클립보드", len(getattr(self.main.clipboard_tab, "history", {}).get("history", [])), "복사 이력"),
             ("메모", len(data.get("memos", [])), "빠른 메모"),
@@ -36,18 +36,22 @@ class HomeTab(QWidget):
 
         hotkey_cards = []
         sections = [
-            ("상용구", data.get("phrases", []), "name"),
-            ("코드", data.get("snippets", []), "name"),
-            ("바로가기", data.get("launchers", []), "name"),
-            ("컨닝 페이퍼", data.get("images", []), "name"),
-            ("매크로", data.get("macros", []), "name"),
+            (data.get("phrases", []), lambda item: item.get("text") or item.get("name", "")),
+            (data.get("snippets", []), lambda item: item.get("text") or item.get("name", "")),
+            (data.get("title_templates", []), lambda item: item.get("template", "")),
+            (data.get("launchers", []), lambda item: item.get("description") or item.get("url") or item.get("path", "")),
+            (data.get("images", []), lambda item: item.get("name") or item.get("path", "")),
+            (data.get("macros", []), lambda item: f"{len(item.get('actions', []))}개 액션"),
         ]
-        for section, items, field in sections:
+        for items, content in sections:
             for item in items:
                 key = normalize_hotkey(item.get("hotkey"))
                 if key:
-                    hotkey_cards.append(make_card(f"{section} · {item.get(field, '(이름 없음)')}", short_preview(item.get("text") or item.get("path") or ""), key))
-        hotkey_cards.append(make_card("클립보드 미니 팝업", "최근 복사 이력을 작은 창으로 표시", self.main.CLIPBOARD_POPUP_HOTKEY_LABEL))
+                    hotkey_cards.append(make_card(short_preview(content(item), 90), "", key, single_line=True))
+
+        popup_label = self.main.clipboard_popup_shortcut_label()
+        if popup_label:
+            hotkey_cards.append(make_card("최근 복사 이력 미니팝업", "", popup_label, single_line=True))
         if not hotkey_cards:
             hotkey_cards.append(make_card("등록된 단축키 없음", "각 기능 화면에서 단축키를 지정할 수 있습니다."))
         self.hotkeys.add_cards(hotkey_cards)

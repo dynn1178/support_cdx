@@ -12,8 +12,9 @@ from ui.main_window import MainWindow
 def main() -> int:
     config.ensure_data_files()
     app = QApplication(sys.argv)
-    if config.APP_ICON_PATH.exists():
-        app.setWindowIcon(QIcon(str(config.APP_ICON_PATH)))
+    icon_path = config.APP_ICON_PATH if config.APP_ICON_PATH.exists() else config.BUNDLED_ICON_PATH
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
     window = MainWindow(app)
     window.show()
     return app.exec()

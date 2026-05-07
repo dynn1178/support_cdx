@@ -17,6 +17,8 @@ USER32.RegisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_uint, ct
 USER32.RegisterHotKey.restype = wintypes.BOOL
 USER32.UnregisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int]
 USER32.UnregisterHotKey.restype = wintypes.BOOL
+USER32.GetAsyncKeyState.argtypes = [ctypes.c_int]
+USER32.GetAsyncKeyState.restype = ctypes.c_short
 
 
 class HotkeyManager:

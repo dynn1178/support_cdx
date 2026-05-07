@@ -1,8 +1,8 @@
 {
   "meta": {
-    "template_name": "기본 설정",
+    "preset_name": "기본 프리셋",
     "version": "1.0.0",
-    "saved_at": "2026-05-07T04:37:04"
+    "saved_at": "2026-05-07T17:50:58"
   },
   "phrases": [
     {
@@ -16,42 +16,9 @@
         ],
         "key": "3"
       },
-      "type": "text"
-    },
-    {
-      "name": "D",
-      "text": "",
-      "hotkey": null,
       "type": "text",
-      "id": "ph_5d975b32db"
-    },
-    {
-      "name": "DD",
-      "text": "",
-      "hotkey": null,
-      "type": "text",
-      "id": "ph_cf865ff4fb"
-    },
-    {
-      "name": "DD",
-      "text": "",
-      "hotkey": null,
-      "type": "text",
-      "id": "ph_c92b0640e3"
-    },
-    {
-      "name": "DD",
-      "text": "",
-      "hotkey": null,
-      "type": "text",
-      "id": "ph_53be16eda2"
-    },
-    {
-      "name": "DD",
-      "text": "",
-      "hotkey": null,
-      "type": "text",
-      "id": "ph_6d3353b942"
+      "sort_order": 0,
+      "usage_count": 0
     }
   ],
   "snippets": [
@@ -67,7 +34,9 @@
         ],
         "key": "1"
       },
-      "type": "code"
+      "type": "code",
+      "sort_order": 0,
+      "usage_count": 0
     }
   ],
   "launchers": [
@@ -81,7 +50,9 @@
       "password": "DSDSD",
       "browser_path": "",
       "hotkey": null,
-      "path": ""
+      "path": "",
+      "sort_order": 0,
+      "usage_count": 2
     },
     {
       "id": "ln_sample_file",
@@ -89,7 +60,35 @@
       "description": "매주 월요일 업데이트",
       "type": "file",
       "path": "D:\\reports\\weekly.xlsx",
-      "hotkey": null
+      "hotkey": null,
+      "sort_order": 1,
+      "usage_count": 0
+    },
+    {
+      "type": "folder",
+      "name": "213",
+      "description": "123",
+      "url": "",
+      "path": "D:/",
+      "username": "",
+      "password": "",
+      "browser_path": "",
+      "id": "ln_f17dfb20cf",
+      "sort_order": 2,
+      "usage_count": 1
+    },
+    {
+      "type": "file",
+      "name": "D",
+      "description": "D",
+      "url": "",
+      "path": "C:/Users/User/Downloads/(호텔액티비티공급팀) 26.05 포인트 지급 요청 리스트.xlsx",
+      "username": "",
+      "password": "",
+      "browser_path": "",
+      "id": "ln_29f4321776",
+      "sort_order": 3,
+      "usage_count": 1
     }
   ],
   "images": [
@@ -104,7 +103,42 @@
           "alt"
         ],
         "key": "F1"
-      }
+      },
+      "sort_order": 0,
+      "usage_count": 0
+    },
+    {
+      "name": "2",
+      "path": "assets/images/capture_7997cc1b7d.png",
+      "path_type": "relative",
+      "id": "img_c3a7308dbb",
+      "sort_order": 1,
+      "usage_count": 0
+    },
+    {
+      "name": "1",
+      "path": "assets/images/capture_cd29ee5d7d.png",
+      "path_type": "relative",
+      "id": "img_5adf48c464",
+      "sort_order": 2,
+      "usage_count": 0
+    },
+    {
+      "name": "23",
+      "path": "assets/images/capture_04429be813.png",
+      "path_type": "relative",
+      "id": "img_1be70fa419",
+      "sort_order": 3,
+      "usage_count": 0
+    },
+    {
+      "name": "드래그",
+      "path": "assets/images/capture_c8af12303a.png",
+      "path_type": "relative",
+      "id": "img_e0dd5a9525",
+      "sort_order": 4,
+      "usage_count": 3,
+      "display_scale": 100
     }
   ],
   "macros": [
@@ -138,7 +172,9 @@
           "text": "입력할 텍스트",
           "delay": 0.2
         }
-      ]
+      ],
+      "sort_order": 0,
+      "usage_count": 0
     },
     {
       "id": "mc_6e82a29e0f",
@@ -223,7 +259,9 @@
           "y": 1169,
           "delay": 1.588
         }
-      ]
+      ],
+      "sort_order": 1,
+      "usage_count": 0
     },
     {
       "id": "mc_2c1094ff1c",
@@ -276,7 +314,9 @@
           "y": 1138,
           "delay": 2.146
         }
-      ]
+      ],
+      "sort_order": 2,
+      "usage_count": 0
     },
     {
       "id": "mc_2a62f11500",
@@ -337,25 +377,192 @@
           "y": 1137,
           "delay": 1.077
         }
-      ]
+      ],
+      "sort_order": 3,
+      "usage_count": 0
+    },
+    {
+      "id": "mc_6a2e1570b5",
+      "name": "D",
+      "hotkey": null,
+      "actions": [
+        {
+          "type": "click",
+          "x": 3605,
+          "y": 794,
+          "delay": 2.438
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "1"
+          ],
+          "delay": 1.687
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "2"
+          ],
+          "delay": 0.016
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "3"
+          ],
+          "delay": 0.109
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "ctrl",
+            "\u0003"
+          ],
+          "delay": 1.891
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "ctrl",
+            "\u0016"
+          ],
+          "delay": 1.203
+        }
+      ],
+      "sort_order": 4,
+      "usage_count": 0
+    },
+    {
+      "id": "mc_19811240ef",
+      "name": "3213",
+      "hotkey": null,
+      "actions": [
+        {
+          "type": "click",
+          "x": 3894,
+          "y": 796,
+          "delay": 1.641
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "alt",
+            "tab"
+          ],
+          "delay": 0.5
+        },
+        {
+          "type": "click",
+          "x": 3512,
+          "y": 760,
+          "delay": 0.469
+        },
+        {
+          "type": "click",
+          "x": 3830,
+          "y": 765,
+          "delay": 0.609
+        },
+        {
+          "type": "click",
+          "x": 3495,
+          "y": 740,
+          "delay": 0.969
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "1"
+          ],
+          "delay": 0.375
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "2"
+          ],
+          "delay": 0.062
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "3"
+          ],
+          "delay": 0.141
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "enter"
+          ],
+          "delay": 2.922
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "up"
+          ],
+          "delay": 1.765
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "ctrl",
+            "c"
+          ],
+          "delay": 0.297
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "down"
+          ],
+          "delay": 0.375
+        },
+        {
+          "type": "hotkey",
+          "keys": [
+            "ctrl",
+            "v"
+          ],
+          "delay": 0.281
+        }
+      ],
+      "sort_order": 5,
+      "usage_count": 0
     }
   ],
   "memos": [
     {
       "id": "mm_sample",
       "title": "D",
-      "content": "D",
+      "content": "DASDASD",
       "pinned": false,
       "created_at": "2026-05-07T02:57:51",
-      "updated_at": "2026-05-07T03:33:32"
+      "updated_at": "2026-05-07T15:48:34",
+      "always_on_top": false,
+      "background": "노랑",
+      "opacity": 100,
+      "width": 329,
+      "height": 240,
+      "sort_order": 0,
+      "usage_count": 0
     },
     {
       "id": "mm_0ffc50695b",
       "created_at": "2026-05-07T03:33:37",
       "title": "DD",
-      "content": "DD",
+      "content": "AAAADDDD",
       "pinned": false,
-      "updated_at": "2026-05-07T03:33:37"
+      "updated_at": "2026-05-07T16:15:25",
+      "always_on_top": true,
+      "background": "노랑",
+      "opacity": 95,
+      "width": 300,
+      "height": 240,
+      "sort_order": 1,
+      "usage_count": 0
     }
   ],
   "schedules": [
@@ -366,7 +573,9 @@
       "repeat": "none",
       "notify_before_minutes": 0,
       "memo": "5월 멤버십 대상",
-      "last_notified_at": ""
+      "last_notified_at": "",
+      "sort_order": 0,
+      "usage_count": 0
     },
     {
       "id": "sc_78e3fc3fe1",
@@ -375,19 +584,36 @@
       "repeat": "none",
       "notify_before_minutes": 30,
       "memo": "",
-      "last_notified_at": "2026-05-07T03:11:37"
+      "last_notified_at": "2026-05-07T03:11:37",
+      "sort_order": 1,
+      "usage_count": 0
     }
   ],
-  "settings": {
-    "theme": "light",
-    "font_family": "맑은 고딕",
-    "font_size": 9,
-    "window": {
-      "width": 900,
-      "height": 580,
-      "always_on_top": false
+  "title_templates": [
+    {
+      "id": "tt_sample",
+      "name": "일별 제목",
+      "template": "리포트 {date:yyyy-mm-dd}",
+      "business_days": false,
+      "sort_order": 0,
+      "usage_count": 0
     },
-    "clipboard_history_limit": 50,
-    "active_template": 1
-  }
+    {
+      "name": "데일리",
+      "template": "리포트 {date:yyyy-mm-dd-1}",
+      "business_days": false,
+      "id": "tt_ae1d273041",
+      "sort_order": 1,
+      "usage_count": 0
+    },
+    {
+      "name": "{YYMMDD}_데일리세일즈리포트({m}월 {d-1D}일 ({ddd-1...",
+      "template": "{YYMMDD}_데일리세일즈리포트({m}월 {d-1D}일 ({ddd-1D}) 기준)",
+      "business_days": true,
+      "id": "tt_7ee6e0f410",
+      "sort_order": 2,
+      "usage_count": 0,
+      "hotkey": null
+    }
+  ]
 }

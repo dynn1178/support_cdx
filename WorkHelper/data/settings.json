@@ -1,0 +1,24 @@
+{
+  "theme": "light",
+  "font_family": "Malgun Gothic",
+  "font_size": 8,
+  "window": {
+    "width": 900,
+    "height": 580,
+    "always_on_top": false
+  },
+  "clipboard_history_limit": 50,
+  "clipboard_popup_hotkey": {
+    "modifiers": [
+      "ctrl",
+      "alt",
+      "shift"
+    ],
+    "key": "1"
+  },
+  "clipboard_popup_double_ctrl": true,
+  "github_token": "",
+  "auto_update_check": false,
+  "auto_update_install": false,
+  "active_preset": 1
+}

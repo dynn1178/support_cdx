@@ -1,62 +1,193 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QDateTime, Qt
+from datetime import datetime, time as dt_time, timedelta
+
+from PyQt6.QtCore import QDateTime, QPoint, QTime, QTimer, Qt
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QDateTimeEdit,
+    QDateEdit,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
     QHBoxLayout,
-    QLabel,
-    QLineEdit,
     QMessageBox,
     QPushButton,
+    QSizeGrip,
     QSlider,
     QSpinBox,
     QTextEdit,
+    QLineEdit,
+    QTimeEdit,
     QVBoxLayout,
     QWidget,
 )
 
+from app import config
 from app.utils import new_id, now_iso, short_preview
-from ui.common import GridPanel, add_card_actions, make_card
+from ui.common import GridPanel, SortControls, add_card_actions, apply_manual_reorder, bump_usage, make_card
+
+
+MEMO_COLORS = {
+    "노랑": "#FFF9C4",
+    "하늘": "#DFF3FF",
+    "연두": "#E5F8D2",
+    "분홍": "#FFE1EA",
+    "흰색": "#FFFFFF",
+}
 
 
 class StickyMemoDialog(QDialog):
-    def __init__(self, memo: dict) -> None:
+    def __init__(self, memo: dict, main=None, on_saved=None) -> None:
         super().__init__()
+        self.memo = memo
+        self.main = main
+        self.on_saved = on_saved
+        self.drag_position: QPoint | None = None
+        self.save_timer = QTimer(self)
+        self.save_timer.setSingleShot(True)
+        self.save_timer.timeout.connect(self.persist)
         self.setWindowTitle(memo.get("title", "메모"))
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool)
+        if memo.get("always_on_top", True):
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         layout = QVBoxLayout(self)
-        text = QTextEdit(memo.get("content", ""))
-        text.setReadOnly(True)
-        slider = QSlider(Qt.Orientation.Horizontal)
-        slider.setRange(40, 100)
-        slider.setValue(95)
-        slider.valueChanged.connect(lambda value: self.setWindowOpacity(value / 100))
-        layout.addWidget(text)
-        layout.addWidget(slider)
-        self.resize(300, 240)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(4)
+        self.text = QTextEdit(memo.get("content", ""))
+        self.text.textChanged.connect(self.schedule_save)
+        layout.addWidget(self.text, 1)
+        controls = QHBoxLayout()
+        controls.setContentsMargins(0, 0, 0, 0)
+        self.always_on_top = QCheckBox("항상 위")
+        self.always_on_top.setChecked(bool(memo.get("always_on_top", True)))
+        self.always_on_top.toggled.connect(self.toggle_always_on_top)
+        self.color = QComboBox()
+        self.color.addItems(list(MEMO_COLORS))
+        self.color.setCurrentText(memo.get("background", "노랑") if memo.get("background", "노랑") in MEMO_COLORS else "노랑")
+        self.color.currentTextChanged.connect(self.apply_color)
+        self.color.currentTextChanged.connect(self.schedule_save)
+        self.slider = QSlider(Qt.Orientation.Horizontal)
+        self.slider.setRange(40, 100)
+        self.slider.setValue(int(memo.get("opacity", 95)))
+        self.slider.setFixedWidth(110)
+        self.slider.valueChanged.connect(lambda value: self.setWindowOpacity(value / 100))
+        self.slider.valueChanged.connect(self.schedule_save)
+        self.close_button = QPushButton("X")
+        self.close_button.clicked.connect(self.accept)
+        self.grip = QSizeGrip(self)
+        controls.addWidget(self.always_on_top)
+        controls.addWidget(self.color)
+        controls.addStretch(1)
+        controls.addWidget(self.slider)
+        controls.addWidget(self.close_button)
+        controls.addWidget(self.grip)
+        layout.addLayout(controls)
+        self.apply_color()
+        self.setWindowOpacity(self.slider.value() / 100)
+        self.set_controls_visible(False)
+        self.resize(int(memo.get("width", 300)), int(memo.get("height", 240)))
+
+    def apply_color(self, *_args) -> None:
+        color = MEMO_COLORS.get(self.color.currentText(), "#FFF9C4")
+        self.setStyleSheet(
+            f"""
+            QDialog {{ background: {color}; border: 1px solid #B8B08A; }}
+            QTextEdit {{ background: transparent; border: 0; color: #2F2A14; padding: 6px; }}
+            QPushButton {{ background: rgba(255,255,255,190); border: 1px solid #B8B08A; border-radius: 4px; padding: 3px 7px; }}
+            QCheckBox, QComboBox {{ background: transparent; color: #2F2A14; }}
+            """
+        )
+
+    def toggle_always_on_top(self, checked: bool) -> None:
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, checked)
+        self.show()
+        self.schedule_save()
+
+    def schedule_save(self, *_args) -> None:
+        self.save_timer.start(400)
+
+    def set_controls_visible(self, visible: bool) -> None:
+        self.slider.setVisible(visible)
+        self.close_button.setVisible(visible)
+        self.always_on_top.setVisible(visible)
+        self.color.setVisible(visible)
+        self.grip.setVisible(visible)
+
+    def enterEvent(self, event) -> None:
+        self.set_controls_visible(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        QTimer.singleShot(180, self.hide_controls_if_idle)
+        super().leaveEvent(event)
+
+    def hide_controls_if_idle(self) -> None:
+        if self.underMouse() or self.color.view().isVisible() or self.color.hasFocus():
+            return
+        self.set_controls_visible(False)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and not self.text.geometry().contains(event.position().toPoint()):
+            self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self.drag_position and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self.drag_position)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        self.drag_position = None
+        super().mouseReleaseEvent(event)
+
+    def persist(self) -> None:
+        self.memo["content"] = self.text.toPlainText()
+        self.memo["always_on_top"] = self.always_on_top.isChecked()
+        self.memo["background"] = self.color.currentText()
+        self.memo["opacity"] = self.slider.value()
+        self.memo["width"] = self.width()
+        self.memo["height"] = self.height()
+        self.memo["updated_at"] = now_iso()
+        if self.main is not None:
+            config.save_template(self.main.template_index, self.main.data)
+        if self.on_saved:
+            self.on_saved()
+
+    def accept(self) -> None:
+        self.persist()
+        super().accept()
+
+    def closeEvent(self, event) -> None:
+        self.persist()
+        super().closeEvent(event)
 
 
 class MemoDialog(QDialog):
     def __init__(self, memo: dict | None = None) -> None:
         super().__init__()
-        self.setWindowTitle("메모 편집")
+        self.setWindowTitle("메모")
         self.memo = memo or {}
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.title = QLineEdit(self.memo.get("title", ""))
         self.content = QTextEdit(self.memo.get("content", ""))
-        self.pinned = QCheckBox("핀 고정")
+        self.pinned = QCheckBox("목록에서 고정")
         self.pinned.setChecked(bool(self.memo.get("pinned")))
+        self.always_on_top = QCheckBox("스티커 항상 위")
+        self.always_on_top.setChecked(bool(self.memo.get("always_on_top", True)))
+        self.background = QComboBox()
+        self.background.addItems(list(MEMO_COLORS))
+        self.background.setCurrentText(self.memo.get("background", "노랑") if self.memo.get("background", "노랑") in MEMO_COLORS else "노랑")
         form.addRow("제목", self.title)
         form.addRow("내용", self.content)
-        form.addRow("옵션", self.pinned)
+        form.addRow("목록 옵션", self.pinned)
+        form.addRow("스티커 옵션", self.always_on_top)
+        form.addRow("배경색", self.background)
         layout.addLayout(form)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("확인")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("취소")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -66,11 +197,15 @@ class MemoDialog(QDialog):
         if not data.get("id"):
             data["id"] = new_id("mm")
             data["created_at"] = now_iso()
+            data["sort_order"] = 0
+            data["usage_count"] = 0
         data.update(
             {
                 "title": self.title.text().strip(),
                 "content": self.content.toPlainText(),
                 "pinned": self.pinned.isChecked(),
+                "always_on_top": self.always_on_top.isChecked(),
+                "background": self.background.currentText(),
                 "updated_at": now_iso(),
             }
         )
@@ -80,43 +215,104 @@ class MemoDialog(QDialog):
 class ScheduleDialog(QDialog):
     def __init__(self, schedule: dict | None = None) -> None:
         super().__init__()
-        self.setWindowTitle("일정 편집")
+        self.setWindowTitle("일정")
         self.schedule = schedule or {}
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 14, 14, 12)
+        layout.setSpacing(12)
         form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        form.setFormAlignment(Qt.AlignmentFlag.AlignTop)
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(10)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         self.title = QLineEdit(self.schedule.get("title", ""))
-        self.datetime = QDateTimeEdit()
-        self.datetime.setCalendarPopup(True)
-        schedule_dt = QDateTime.fromString(self.schedule.get("datetime", ""), Qt.DateFormat.ISODate)
-        self.datetime.setDateTime(schedule_dt if schedule_dt.isValid() else QDateTime.currentDateTime())
+        current = QDateTime.fromString(self.schedule.get("datetime", ""), Qt.DateFormat.ISODate)
+        if not current.isValid():
+            current = QDateTime.currentDateTime()
+        self.date = QDateEdit()
+        self.date.setCalendarPopup(True)
+        self.date.setDate(current.date())
+        self.time = QTimeEdit()
+        self.time.setDisplayFormat("HH:mm")
+        self.time.setTime(current.time())
+        datetime_row = QHBoxLayout()
+        datetime_row.setContentsMargins(0, 0, 0, 0)
+        datetime_row.setSpacing(8)
+        datetime_row.addWidget(self.date, 1)
+        datetime_row.addWidget(self.time)
+        datetime_widget = QWidget()
+        datetime_widget.setLayout(datetime_row)
+        quick_time_row = QHBoxLayout()
+        quick_time_row.setContentsMargins(0, 0, 0, 0)
+        quick_time_row.setSpacing(4)
+        for hour in range(9, 19):
+            btn = QPushButton(f"{hour:02d}:00")
+            btn.setFixedWidth(54)
+            btn.clicked.connect(lambda checked=False, value=hour: self.time.setTime(QTime(value, 0)))
+            quick_time_row.addWidget(btn)
+        quick_time_row.addStretch(1)
+        quick_time_widget = QWidget()
+        quick_time_widget.setLayout(quick_time_row)
         self.repeat = QComboBox()
-        self.repeat.addItems(["none", "daily", "weekly"])
-        idx = self.repeat.findText(self.schedule.get("repeat", "none"))
-        self.repeat.setCurrentIndex(max(idx, 0))
+        self.repeat.addItems(["없음", "매일", "매주"])
+        repeat_map = {"none": "없음", "daily": "매일", "weekly": "매주"}
+        self.repeat.setCurrentIndex(max(self.repeat.findText(repeat_map.get(self.schedule.get("repeat", "none"), "없음")), 0))
         self.notify = QSpinBox()
-        self.notify.setRange(0, 1440)
+        self.notify.setRange(0, 10080)
         self.notify.setValue(int(self.schedule.get("notify_before_minutes", 30)))
+        notify_row = QHBoxLayout()
+        notify_row.setContentsMargins(0, 0, 0, 0)
+        notify_row.setSpacing(6)
+        notify_row.addWidget(self.notify)
+        for label, minutes in [("정각", 0), ("5분 전", 5), ("10분 전", 10), ("30분 전", 30), ("1시간 전", 60)]:
+            btn = QPushButton(label)
+            btn.clicked.connect(lambda checked=False, value=minutes: self.notify.setValue(value))
+            notify_row.addWidget(btn)
+        prev_9 = QPushButton("전일 9시")
+        prev_18 = QPushButton("전일 6시")
+        prev_9.clicked.connect(lambda: self.set_previous_day_notify(9))
+        prev_18.clicked.connect(lambda: self.set_previous_day_notify(18))
+        notify_row.addWidget(prev_9)
+        notify_row.addWidget(prev_18)
+        notify_widget = QWidget()
+        notify_widget.setLayout(notify_row)
         self.memo = QTextEdit(self.schedule.get("memo", ""))
         form.addRow("제목", self.title)
-        form.addRow("일시", self.datetime)
+        form.addRow("일시", datetime_widget)
+        form.addRow("시간 선택", quick_time_widget)
         form.addRow("반복", self.repeat)
-        form.addRow("알림 전(분)", self.notify)
+        form.addRow("알림", notify_widget)
         form.addRow("메모", self.memo)
         layout.addLayout(form)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("확인")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("취소")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def selected_datetime(self) -> datetime:
+        return datetime.combine(self.date.date().toPyDate(), self.time.time().toPyTime())
+
+    def set_previous_day_notify(self, hour: int) -> None:
+        target = self.selected_datetime()
+        notify_at = datetime.combine(target.date() - timedelta(days=1), dt_time(hour, 0))
+        self.notify.setValue(max(0, int((target - notify_at).total_seconds() // 60)))
 
     def value(self) -> dict:
         data = dict(self.schedule)
         if not data.get("id"):
             data["id"] = new_id("sc")
+            data["created_at"] = now_iso()
+            data["sort_order"] = 0
+            data["usage_count"] = 0
+        date_time = QDateTime(self.date.date(), self.time.time())
         data.update(
             {
                 "title": self.title.text().strip(),
-                "datetime": self.datetime.dateTime().toString(Qt.DateFormat.ISODate),
-                "repeat": self.repeat.currentText(),
+                "datetime": date_time.toString(Qt.DateFormat.ISODate),
+                "repeat": {"없음": "none", "매일": "daily", "매주": "weekly"}.get(self.repeat.currentText(), "none"),
                 "notify_before_minutes": self.notify.value(),
                 "memo": self.memo.toPlainText(),
             }
@@ -128,11 +324,14 @@ class MemoListTab(QWidget):
     def __init__(self, main) -> None:
         super().__init__()
         self.main = main
+        self.sticky_windows: list[StickyMemoDialog] = []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         top = QHBoxLayout()
         top.addStretch(1)
-        add_btn = QPushButton("+ 새 메모")
+        self.sort_controls = SortControls(self.refresh)
+        top.addWidget(self.sort_controls)
+        add_btn = QPushButton("+ 메모")
         add_btn.clicked.connect(lambda: self.edit_memo())
         top.addWidget(add_btn)
         self.grid = GridPanel(columns=2)
@@ -141,34 +340,57 @@ class MemoListTab(QWidget):
 
     def refresh(self) -> None:
         cards = []
-        memos = sorted(self.main.data.get("memos", []), key=lambda item: (not item.get("pinned"), item.get("updated_at", "")))
+        source_items = self.main.data.get("memos", [])
+        memos = self.sort_controls.sort_items(source_items, lambda item: item.get("title") or item.get("content", ""))
+        if not self.sort_controls.is_manual():
+            memos = sorted(memos, key=lambda item: not item.get("pinned"))
         for memo in memos:
             card = make_card(memo.get("title", "(제목 없음)"), short_preview(memo.get("content", ""), 160))
             add_card_actions(
                 card,
                 [
-                    ("📌", "스티커", lambda checked=False, value=memo: StickyMemoDialog(value).exec(), False),
-                    ("✎", "편집", lambda checked=False, value=memo: self.edit_memo(value), False),
-                    ("×", "삭제", lambda checked=False, value=memo: self.delete_memo(value), True),
+                    ("sticker", "스티커", lambda checked=False, value=memo: self.show_sticker(value), False),
+                    ("edit", "수정", lambda checked=False, value=memo: self.edit_memo(value), False),
+                    ("delete", "삭제", lambda checked=False, value=memo: self.delete_memo(value), True),
                 ],
             )
             cards.append(card)
-        self.grid.add_cards(cards)
+        callback = (lambda old, new: self.reorder_items(source_items, memos, old, new)) if self.sort_controls.is_manual() else None
+        self.grid.add_cards(cards, on_reorder=callback)
+
+    def reorder_items(self, source: list[dict], visible: list[dict], old: int, new: int) -> None:
+        apply_manual_reorder(source, visible, old, new)
+        self.main.save_data()
+
+    def show_sticker(self, memo: dict) -> None:
+        bump_usage(memo)
+        self.main.save_data()
+        dialog = StickyMemoDialog(memo, self.main, self.refresh)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        dialog.destroyed.connect(lambda _obj=None, dlg=dialog: self.forget_sticker(dlg))
+        self.sticky_windows.append(dialog)
+        dialog.show()
+        dialog.raise_()
+
+    def forget_sticker(self, dialog: StickyMemoDialog) -> None:
+        if dialog in self.sticky_windows:
+            self.sticky_windows.remove(dialog)
 
     def edit_memo(self, memo: dict | None = None) -> None:
         dialog = MemoDialog(memo)
-        if dialog.exec() != dialog.DialogCode.Accepted:
+        while dialog.exec() == dialog.DialogCode.Accepted:
+            value = dialog.value()
+            if not value.get("title"):
+                QMessageBox.warning(dialog, "입력 확인", "이름을 지정해주세요.")
+                continue
+            items = self.main.data.setdefault("memos", [])
+            if memo in items:
+                items[items.index(memo)] = value
+            else:
+                value["sort_order"] = len(items)
+                items.append(value)
+            self.main.save_data()
             return
-        value = dialog.value()
-        if not value.get("title"):
-            QMessageBox.warning(self, "입력 확인", "제목을 입력해주세요.")
-            return
-        items = self.main.data.setdefault("memos", [])
-        if memo in items:
-            items[items.index(memo)] = value
-        else:
-            items.append(value)
-        self.main.save_data()
 
     def delete_memo(self, memo: dict) -> None:
         self.main.data.get("memos", []).remove(memo)
@@ -183,7 +405,9 @@ class ScheduleListTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         top = QHBoxLayout()
         top.addStretch(1)
-        add_btn = QPushButton("+ 새 일정")
+        self.sort_controls = SortControls(self.refresh)
+        top.addWidget(self.sort_controls)
+        add_btn = QPushButton("+ 일정")
         add_btn.clicked.connect(lambda: self.edit_schedule())
         top.addWidget(add_btn)
         self.grid = GridPanel(columns=2)
@@ -192,33 +416,41 @@ class ScheduleListTab(QWidget):
 
     def refresh(self) -> None:
         cards = []
-        for schedule in self.main.data.get("schedules", []):
+        source_items = self.main.data.get("schedules", [])
+        visible_items = self.sort_controls.sort_items(source_items, lambda item: item.get("title") or item.get("memo", ""))
+        for schedule in visible_items:
             subtitle = f"{schedule.get('datetime', '')}\n{short_preview(schedule.get('memo', ''), 120)}"
             card = make_card(schedule.get("title", "(제목 없음)"), subtitle)
             add_card_actions(
                 card,
                 [
-                    ("✎", "편집", lambda checked=False, value=schedule: self.edit_schedule(value), False),
-                    ("×", "삭제", lambda checked=False, value=schedule: self.delete_schedule(value), True),
+                    ("edit", "수정", lambda checked=False, value=schedule: self.edit_schedule(value), False),
+                    ("delete", "삭제", lambda checked=False, value=schedule: self.delete_schedule(value), True),
                 ],
             )
             cards.append(card)
-        self.grid.add_cards(cards)
+        callback = (lambda old, new: self.reorder_items(source_items, visible_items, old, new)) if self.sort_controls.is_manual() else None
+        self.grid.add_cards(cards, on_reorder=callback)
+
+    def reorder_items(self, source: list[dict], visible: list[dict], old: int, new: int) -> None:
+        apply_manual_reorder(source, visible, old, new)
+        self.main.save_data()
 
     def edit_schedule(self, schedule: dict | None = None) -> None:
         dialog = ScheduleDialog(schedule)
-        if dialog.exec() != dialog.DialogCode.Accepted:
+        while dialog.exec() == dialog.DialogCode.Accepted:
+            value = dialog.value()
+            if not value.get("title"):
+                QMessageBox.warning(dialog, "입력 확인", "이름을 지정해주세요.")
+                continue
+            items = self.main.data.setdefault("schedules", [])
+            if schedule in items:
+                items[items.index(schedule)] = value
+            else:
+                value["sort_order"] = len(items)
+                items.append(value)
+            self.main.save_data()
             return
-        value = dialog.value()
-        if not value.get("title"):
-            QMessageBox.warning(self, "입력 확인", "제목을 입력해주세요.")
-            return
-        items = self.main.data.setdefault("schedules", [])
-        if schedule in items:
-            items[items.index(schedule)] = value
-        else:
-            items.append(value)
-        self.main.save_data()
 
     def delete_schedule(self, schedule: dict) -> None:
         self.main.data.get("schedules", []).remove(schedule)

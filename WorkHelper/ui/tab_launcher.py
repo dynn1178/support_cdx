@@ -3,7 +3,9 @@ from __future__ import annotations
 import os
 import subprocess
 import webbrowser
+from pathlib import Path
 
+from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -12,6 +14,7 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
@@ -20,21 +23,42 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.utils import new_id, short_preview
-from ui.common import GridPanel, add_card_actions, make_card
+from app import config
+from app.utils import new_id, now_iso, short_preview
+from ui.common import GridPanel, SortControls, apply_manual_reorder, bump_usage, make_card, make_icon_button
+
+
+TYPE_LABELS = {"site": "사이트", "file": "파일", "folder": "폴더"}
+TYPE_ALIASES = {"사이트": "site", "파일": "file", "폴더": "folder", "site": "site", "file": "file", "folder": "folder"}
+
+
+def launcher_type(value: str | None) -> str:
+    return TYPE_ALIASES.get(str(value or "site").strip().lower(), TYPE_ALIASES.get(str(value or "site").strip(), "site"))
 
 
 class LauncherDialog(QDialog):
-    def __init__(self, item: dict | None = None, launcher_type: str = "site") -> None:
+    def __init__(self, item: dict | None = None, launcher_type_value: str = "site") -> None:
         super().__init__()
         self.setWindowTitle("바로가기 편집")
-        self.item = item or {"type": launcher_type}
+        self.setMinimumWidth(460)
+        self.item = item or {"type": launcher_type_value}
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 14, 14, 12)
+        layout.setSpacing(12)
+
         form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        form.setFormAlignment(Qt.AlignmentFlag.AlignTop)
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(10)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
         self.type = QComboBox()
-        self.type.addItems(["site", "file", "folder"])
-        idx = self.type.findText(self.item.get("type", launcher_type))
-        self.type.setCurrentIndex(max(idx, 0))
+        for value in ["site", "file", "folder"]:
+            self.type.addItem(TYPE_LABELS[value], value)
+        self.type.setCurrentIndex(max(self.type.findData(launcher_type(self.item.get("type"))), 0))
+        self.type.currentIndexChanged.connect(self.update_enabled_fields)
+
         self.name = QLineEdit(self.item.get("name", ""))
         self.description = QLineEdit(self.item.get("description", ""))
         self.url = QLineEdit(self.item.get("url", ""))
@@ -42,38 +66,80 @@ class LauncherDialog(QDialog):
         self.username = QLineEdit(self.item.get("username", ""))
         self.password = QLineEdit(self.item.get("password", ""))
         self.browser_path = QLineEdit(self.item.get("browser_path", ""))
-        browse = QPushButton("찾기")
-        browse.clicked.connect(self.browse_path)
+        self.browser_path.setPlaceholderText("기본 브라우저로 연결")
+
+        self.browse_path_btn = QPushButton("찾기")
+        self.browse_path_btn.clicked.connect(self.browse_path)
+        self.browse_browser_btn = QPushButton("찾기")
+        self.browse_browser_btn.clicked.connect(self.browse_browser)
+
         path_row = QHBoxLayout()
+        path_row.setContentsMargins(0, 0, 0, 0)
+        path_row.setSpacing(8)
         path_row.addWidget(self.path, 1)
-        path_row.addWidget(browse)
+        path_row.addWidget(self.browse_path_btn)
+        path_widget = QWidget()
+        path_widget.setLayout(path_row)
+
+        browser_row = QHBoxLayout()
+        browser_row.setContentsMargins(0, 0, 0, 0)
+        browser_row.setSpacing(8)
+        browser_row.addWidget(self.browser_path, 1)
+        browser_row.addWidget(self.browse_browser_btn)
+        browser_widget = QWidget()
+        browser_widget.setLayout(browser_row)
+
         form.addRow("종류", self.type)
         form.addRow("이름", self.name)
         form.addRow("설명", self.description)
         form.addRow("URL", self.url)
-        form.addRow("경로", path_row)
+        form.addRow("경로", path_widget)
         form.addRow("아이디", self.username)
         form.addRow("비밀번호", self.password)
-        form.addRow("브라우저", self.browser_path)
+        form.addRow("브라우저 경로", browser_widget)
         layout.addLayout(form)
+
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("확인")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("취소")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        self.update_enabled_fields()
+
+    def current_type(self) -> str:
+        return self.type.currentData()
+
+    def set_field_enabled(self, widget: QWidget, enabled: bool) -> None:
+        widget.setEnabled(enabled)
+        widget.setStyleSheet("" if enabled else "background: #D1D5DB; color: #6B7280; border-color: #9CA3AF;")
+
+    def update_enabled_fields(self, *_args) -> None:
+        is_site = self.current_type() == "site"
+        self.set_field_enabled(self.url, is_site)
+        self.set_field_enabled(self.browser_path, is_site)
+        self.browse_browser_btn.setEnabled(is_site)
+        self.set_field_enabled(self.path, not is_site)
+        self.browse_path_btn.setEnabled(not is_site)
 
     def browse_path(self) -> None:
-        if self.type.currentText() == "folder":
+        if self.current_type() == "folder":
             path = QFileDialog.getExistingDirectory(self, "폴더 선택")
         else:
             path, _ = QFileDialog.getOpenFileName(self, "파일 선택")
         if path:
             self.path.setText(path)
 
+    def browse_browser(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "브라우저 선택", "", "Programs (*.exe);;All Files (*.*)")
+        if path:
+            self.browser_path.setText(path)
+
     def value(self) -> dict:
         data = dict(self.item)
         data.update(
             {
-                "type": self.type.currentText(),
+                "type": self.current_type(),
                 "name": self.name.text().strip(),
                 "description": self.description.text().strip(),
                 "url": self.url.text().strip(),
@@ -90,11 +156,12 @@ class LauncherTab(QWidget):
     def __init__(self, main) -> None:
         super().__init__()
         self.main = main
+        self.status_labels: dict[str, QLabel] = {}
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.tabs = QTabWidget()
         self.site_list = GridPanel(columns=2)
-        self.file_list = GridPanel(columns=2)
+        self.file_list = GridPanel(columns=3)
         self.tabs.addTab(self.site_list, "사이트")
         self.tabs.addTab(self.file_list, "파일/폴더")
         layout.addWidget(self.tabs, 1)
@@ -102,62 +169,118 @@ class LauncherTab(QWidget):
         add_btn.clicked.connect(self.edit_launcher)
         row = QHBoxLayout()
         row.addStretch(1)
+        self.sort_controls = SortControls(self.refresh)
+        row.addWidget(self.sort_controls)
         row.addWidget(add_btn)
         layout.addLayout(row)
 
     def refresh(self) -> None:
+        self.status_labels = {}
         site_cards = []
         file_cards = []
-        for item in self.main.data.get("launchers", []):
+        source_items = self.main.data.get("launchers", [])
+        items = self.sort_controls.sort_items(
+            source_items,
+            lambda value: value.get("name") or value.get("description") or value.get("url") or value.get("path", ""),
+        )
+        site_items = []
+        file_items = []
+        for item in items:
+            item_type = launcher_type(item.get("type"))
             card = make_card(item.get("name", "(이름 없음)"), item.get("description", "") or short_preview(item.get("url") or item.get("path", "")))
-            add_card_actions(
-                card,
-                [
-                    ("↗", "열기", lambda checked=False, value=item: self.open_launcher(value), False),
-                    ("✎", "편집", lambda checked=False, value=item: self.edit_launcher(value), False),
-                    ("×", "삭제", lambda checked=False, value=item: self.delete_launcher(value), True),
-                ],
-            )
-            if item.get("type") == "site":
+            self.add_launcher_actions(card, item)
+            if item_type == "site":
+                site_items.append(item)
                 site_cards.append(card)
             else:
+                file_items.append(item)
                 file_cards.append(card)
-        self.site_list.add_cards(site_cards)
-        self.file_list.add_cards(file_cards)
+        site_callback = (lambda old, new: self.reorder_items(source_items, site_items, old, new)) if self.sort_controls.is_manual() else None
+        file_callback = (lambda old, new: self.reorder_items(source_items, file_items, old, new)) if self.sort_controls.is_manual() else None
+        self.site_list.add_cards(site_cards, on_reorder=site_callback)
+        self.file_list.add_cards(file_cards, on_reorder=file_callback)
+
+    def reorder_items(self, source: list[dict], visible: list[dict], old: int, new: int) -> None:
+        apply_manual_reorder(source, visible, old, new)
+        self.main.save_data()
+
+    def add_launcher_actions(self, card: QWidget, item: dict) -> None:
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 2, 0, 0)
+        status = QLabel("")
+        status.setStyleSheet("color: #168A4A; font-weight: 700;")
+        status.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self.status_labels[item.get("id", "")] = status
+        row.addWidget(status, 1)
+        row.addWidget(make_icon_button("open", "열기", lambda checked=False, value=item: self.open_launcher(value)))
+        row.addWidget(make_icon_button("edit", "수정", lambda checked=False, value=item: self.edit_launcher(value)))
+        row.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=item: self.delete_launcher(value), True))
+        card.layout().addLayout(row)
+
+    def show_credential_status(self, item: dict) -> None:
+        label = self.status_labels.get(item.get("id", ""))
+        if not label:
+            return
+        label.setText("아이디/비밀번호 클립보드 저장 완료!")
+        timer = QTimer(label)
+        timer.setSingleShot(True)
+        timer.timeout.connect(label.clear)
+        timer.timeout.connect(timer.deleteLater)
+        timer.start(1000)
+
+    def save_usage_only(self) -> None:
+        config.save_template(self.main.template_index, self.main.data)
 
     def open_launcher(self, item: dict) -> None:
         try:
-            if item.get("type") == "site":
-                credential = item.get("password") or item.get("username")
-                if credential:
-                    QApplication.clipboard().setText(credential)
+            item_type = launcher_type(item.get("type"))
+            bump_usage(item)
+            if item_type == "site":
+                credentials = " ".join(part for part in [item.get("username", ""), item.get("password", "")] if part)
+                if credentials:
+                    QApplication.clipboard().setText(credentials)
+                    self.show_credential_status(item)
                 if item.get("browser_path"):
                     subprocess.Popen([item["browser_path"], item.get("url", "")])
                 else:
                     webbrowser.open(item.get("url", ""))
-            elif item.get("type") == "folder":
-                subprocess.Popen(["explorer", item.get("path", "")])
-            else:
-                os.startfile(item.get("path", ""))
+                self.save_usage_only()
+                return
+
+            path = item.get("path", "")
+            if not path or not Path(path).exists():
+                QMessageBox.warning(self, "실행 실패", f"경로를 찾을 수 없습니다.\n{path}")
+                return
+            os.startfile(path)
+            self.save_usage_only()
         except Exception as exc:
             QMessageBox.warning(self, "실행 실패", str(exc))
 
     def edit_launcher(self, item: dict | None = None) -> None:
         dialog = LauncherDialog(item)
-        if dialog.exec() != dialog.DialogCode.Accepted:
+        while dialog.exec() == dialog.DialogCode.Accepted:
+            value = dialog.value()
+            if not value.get("name"):
+                QMessageBox.warning(dialog, "입력 확인", "이름을 지정해주세요.")
+                continue
+            if value.get("type") == "site" and not value.get("url"):
+                QMessageBox.warning(dialog, "입력 확인", "URL을 지정해주세요.")
+                continue
+            if value.get("type") in {"file", "folder"} and not value.get("path"):
+                QMessageBox.warning(dialog, "입력 확인", "경로를 지정해주세요.")
+                continue
+            if not value.get("id"):
+                value["id"] = new_id("ln")
+                value["created_at"] = now_iso()
+                value["sort_order"] = len(self.main.data.setdefault("launchers", []))
+                value["usage_count"] = 0
+            items = self.main.data.setdefault("launchers", [])
+            if item in items:
+                items[items.index(item)] = value
+            else:
+                items.append(value)
+            self.main.save_data()
             return
-        value = dialog.value()
-        if not value.get("name"):
-            QMessageBox.warning(self, "입력 확인", "이름을 입력해주세요.")
-            return
-        if not value.get("id"):
-            value["id"] = new_id("ln")
-        items = self.main.data.setdefault("launchers", [])
-        if item in items:
-            items[items.index(item)] = value
-        else:
-            items.append(value)
-        self.main.save_data()
 
     def delete_launcher(self, item: dict) -> None:
         if QMessageBox.question(self, "삭제", "선택한 바로가기를 삭제할까요?") != QMessageBox.StandardButton.Yes:

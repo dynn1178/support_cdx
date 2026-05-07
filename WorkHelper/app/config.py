@@ -2,26 +2,44 @@ from __future__ import annotations
 
 import copy
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
-from .utils import app_base_dir, now_iso
+from .utils import app_base_dir, bundled_resource_dir, now_iso
 
 APP_NAME = "6PM Assistant"
 DEFAULT_VERSION = "1.0.0"
+GITHUB_REPO = "dynn1178/support_cdx"
 TEMPLATE_COUNT = 5
 
 BASE_DIR = app_base_dir()
+RESOURCE_DIR = bundled_resource_dir()
 DATA_DIR = BASE_DIR / "data"
 TEMPLATE_DIR = DATA_DIR / "templates"
+SETTINGS_PATH = DATA_DIR / "settings.json"
 CLIPBOARD_HISTORY_PATH = DATA_DIR / "clipboard_history.json"
 VERSION_PATH = BASE_DIR / "version.txt"
 APP_ICON_PATH = BASE_DIR / "assets" / "icons" / "app.ico"
+BUNDLED_ICON_PATH = RESOURCE_DIR / "assets" / "icons" / "app.ico"
+
+DEFAULT_SETTINGS: dict[str, Any] = {
+    "theme": "light",
+    "font_family": "Malgun Gothic",
+    "font_size": 9,
+    "window": {"width": 900, "height": 580, "always_on_top": False},
+    "clipboard_history_limit": 50,
+    "clipboard_popup_hotkey": {"modifiers": ["ctrl", "shift"], "key": "v"},
+    "clipboard_popup_double_ctrl": True,
+    "auto_update_check": False,
+    "auto_update_install": False,
+    "active_preset": 1,
+}
 
 
 DEFAULT_TEMPLATE: dict[str, Any] = {
     "meta": {
-        "template_name": "기본 설정",
+        "preset_name": "기본 프리셋",
         "version": DEFAULT_VERSION,
         "saved_at": now_iso(),
     },
@@ -107,14 +125,14 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
             "last_notified_at": "",
         }
     ],
-    "settings": {
-        "theme": "light",
-        "font_family": "맑은 고딕",
-        "font_size": 9,
-        "window": {"width": 900, "height": 580, "always_on_top": False},
-        "clipboard_history_limit": 50,
-        "active_template": 1,
-    },
+    "title_templates": [
+        {
+            "id": "tt_sample",
+            "name": "일별 제목",
+            "template": "리포트 {yyyy-mm-dd}",
+            "business_days": False,
+        }
+    ],
 }
 
 
@@ -122,22 +140,53 @@ def ensure_data_files() -> None:
     TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
     (BASE_DIR / "assets" / "images").mkdir(parents=True, exist_ok=True)
     (BASE_DIR / "assets" / "icons").mkdir(parents=True, exist_ok=True)
+    copy_bundled_file(RESOURCE_DIR / "assets" / "icons" / "app.ico", APP_ICON_PATH)
     if not VERSION_PATH.exists():
-        VERSION_PATH.write_text(DEFAULT_VERSION, encoding="utf-8")
+        if not copy_bundled_file(RESOURCE_DIR / "version.txt", VERSION_PATH):
+            VERSION_PATH.write_text(DEFAULT_VERSION, encoding="utf-8")
+    if not SETTINGS_PATH.exists():
+        save_settings(load_legacy_settings() or DEFAULT_SETTINGS)
     for index in range(1, TEMPLATE_COUNT + 1):
         path = template_path(index)
         if not path.exists():
-            data = default_template(index)
-            save_template(index, data)
+            bundled_template = RESOURCE_DIR / "data" / "templates" / f"template_{index}.json"
+            if not copy_bundled_file(bundled_template, path):
+                data = default_template(index)
+                save_template(index, data)
     if not CLIPBOARD_HISTORY_PATH.exists():
-        save_clipboard_history({"history": []})
+        if not copy_bundled_file(RESOURCE_DIR / "data" / "clipboard_history.json", CLIPBOARD_HISTORY_PATH):
+            save_clipboard_history({"history": []})
+
+
+def copy_bundled_file(source: Path, target: Path) -> bool:
+    if not source.exists() or target.exists():
+        return False
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+    return True
+
+
+def load_legacy_settings() -> dict[str, Any] | None:
+    for index in range(1, TEMPLATE_COUNT + 1):
+        path = template_path(index)
+        if not path.exists():
+            continue
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                settings = json.load(f).get("settings", {})
+        except Exception:
+            continue
+        if settings:
+            migrated = copy.deepcopy(settings)
+            migrated["active_preset"] = int(migrated.pop("active_template", index) or index)
+            return migrated
+    return None
 
 
 def default_template(index: int = 1) -> dict[str, Any]:
     data = copy.deepcopy(DEFAULT_TEMPLATE)
-    data["meta"]["template_name"] = "기본 설정" if index == 1 else f"템플릿 {index}"
+    data["meta"]["preset_name"] = "기본 프리셋" if index == 1 else f"프리셋 {index}"
     data["meta"]["saved_at"] = now_iso()
-    data["settings"]["active_template"] = index
     return data
 
 
@@ -161,10 +210,12 @@ def load_template(index: int) -> dict[str, Any]:
 
 def save_template(index: int, data: dict[str, Any]) -> None:
     TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
-    data.setdefault("meta", {})
-    data["meta"]["saved_at"] = now_iso()
+    data_to_save = copy.deepcopy(data)
+    data_to_save.pop("settings", None)
+    data_to_save.setdefault("meta", {})
+    data_to_save["meta"]["saved_at"] = now_iso()
     with template_path(index).open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        json.dump(data_to_save, f, ensure_ascii=False, indent=2)
 
 
 def merge_template_defaults(data: dict[str, Any]) -> dict[str, Any]:
@@ -176,8 +227,45 @@ def merge_template_defaults(data: dict[str, Any]) -> dict[str, Any]:
             merged[key] = value
     for collection in ["phrases", "snippets", "launchers", "images", "macros", "memos", "schedules"]:
         merged.setdefault(collection, [])
-    merged.setdefault("settings", {}).setdefault("window", {"width": 900, "height": 580, "always_on_top": False})
+    merged.pop("settings", None)
+    meta = merged.setdefault("meta", {})
+    if not meta.get("preset_name"):
+        meta["preset_name"] = meta.get("template_name") or "프리셋"
+    meta.pop("template_name", None)
+    merged.setdefault("title_templates", [])
     return merged
+
+
+def load_settings() -> dict[str, Any]:
+    ensure_data_files()
+    try:
+        with SETTINGS_PATH.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        data = {}
+    settings = copy.deepcopy(DEFAULT_SETTINGS)
+    for key, value in data.items():
+        if isinstance(value, dict) and isinstance(settings.get(key), dict):
+            settings[key].update(value)
+        elif key == "active_template":
+            settings["active_preset"] = value
+        else:
+            settings[key] = value
+    settings.setdefault("window", copy.deepcopy(DEFAULT_SETTINGS["window"]))
+    settings["active_preset"] = max(1, min(TEMPLATE_COUNT, int(settings.get("active_preset", 1) or 1)))
+    return settings
+
+
+def save_settings(settings: dict[str, Any]) -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    data = copy.deepcopy(DEFAULT_SETTINGS)
+    for key, value in settings.items():
+        if isinstance(value, dict) and isinstance(data.get(key), dict):
+            data[key].update(value)
+        else:
+            data[key] = value
+    with SETTINGS_PATH.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 def load_clipboard_history() -> dict[str, Any]:
@@ -204,5 +292,4 @@ def export_template(template_index: int, export_path: str | Path) -> None:
 def import_template(import_path: str | Path, target_index: int) -> None:
     with Path(import_path).open("r", encoding="utf-8") as f:
         incoming = merge_template_defaults(json.load(f))
-    incoming["settings"]["active_template"] = target_index
     save_template(target_index, incoming)

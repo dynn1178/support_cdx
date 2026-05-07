@@ -13,6 +13,12 @@ def app_base_dir() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def bundled_resource_dir() -> Path:
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS).resolve()
+    return app_base_dir()
+
+
 def now_iso() -> str:
     return datetime.now().replace(microsecond=0).isoformat()
 
