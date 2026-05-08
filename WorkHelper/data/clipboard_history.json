@@ -1,6 +1,46 @@
 {
   "history": [
     {
+      "id": "cb_338150b0c3",
+      "type": "text",
+      "text": "샘플",
+      "copied_at": "2026-05-09T03:26:47",
+      "created_at": "2026-05-09T03:26:47",
+      "sort_order": 8,
+      "usage_count": 0,
+      "pinned": false
+    },
+    {
+      "id": "cb_2b72dec02a",
+      "type": "text",
+      "text": "예시 일정",
+      "copied_at": "2026-05-09T03:26:33",
+      "created_at": "2026-05-09T03:26:33",
+      "sort_order": 7,
+      "usage_count": 0,
+      "pinned": false
+    },
+    {
+      "id": "cb_ba45d48f2b",
+      "type": "text",
+      "text": "excel_shortcut",
+      "copied_at": "2026-05-09T03:23:50",
+      "created_at": "2026-05-09T03:23:50",
+      "sort_order": 6,
+      "usage_count": 0,
+      "pinned": false
+    },
+    {
+      "id": "cb_44b6675962",
+      "type": "text",
+      "text": "C:\\Users\\kjh\\Documents\\GitHub\\support_cdx",
+      "copied_at": "2026-05-09T03:23:41",
+      "created_at": "2026-05-09T03:23:41",
+      "sort_order": 5,
+      "usage_count": 0,
+      "pinned": false
+    },
+    {
       "id": "cb_990522ea81",
       "type": "text",
       "text": "엑셀에서 유용한 단축키를 이미지 한장으로 제작해줘",

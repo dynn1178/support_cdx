@@ -2,7 +2,7 @@
   "meta": {
     "preset_name": "기본 프리셋",
     "version": "1.0.0",
-    "saved_at": "2026-05-09T03:20:51"
+    "saved_at": "2026-05-09T03:29:25"
   },
   "phrases": [
     {
@@ -82,8 +82,8 @@
   "images": [
     {
       "id": "img_sample",
-      "name": "세그먼트 맵",
-      "path": "assets/images/segment_map.png",
+      "name": "엑셀 단축키",
+      "path": "assets/images/capture_e05542b42c.png",
       "path_type": "relative",
       "hotkey": {
         "modifiers": [
@@ -93,41 +93,57 @@
         "key": "F1"
       },
       "sort_order": 0,
-      "usage_count": 0
+      "usage_count": 3,
+      "display_scale": 100,
+      "used_today_date": "2026-05-09",
+      "used_today_count": 3,
+      "last_used_at": "2026-05-09T03:26:08"
     }
   ],
   "macros": [],
   "memos": [
     {
       "id": "mm_sample",
-      "title": "오후 할일",
-      "content": "없음",
+      "title": "메모를 저장하세요",
+      "content": "스티커 버튼을 누르면 바탕화면에 띄울 수 있어요.",
       "pinned": false,
       "created_at": "2026-05-09T03:01:04",
-      "updated_at": "2026-05-09T03:15:14",
+      "updated_at": "2026-05-09T03:28:11",
       "sort_order": 0,
-      "usage_count": 2,
+      "usage_count": 3,
       "always_on_top": true,
       "background": "노랑",
       "used_today_date": "2026-05-09",
-      "used_today_count": 2,
-      "last_used_at": "2026-05-09T03:15:11",
+      "used_today_count": 3,
+      "last_used_at": "2026-05-09T03:27:36",
       "sticker_open": false,
       "opacity": 95,
       "width": 300,
       "height": 240,
-      "x": 3680,
-      "y": 536
+      "x": 4823,
+      "y": 33
+    },
+    {
+      "id": "mm_a4531f74ad",
+      "title": "ALT를 2번 빠르게 눌러보세요",
+      "content": "빠르게 메모 입력이 가능합니다. (단축키는 설정에서 변경 가능)",
+      "pinned": false,
+      "always_on_top": true,
+      "background": "노랑",
+      "created_at": "2026-05-09T03:28:52",
+      "updated_at": "2026-05-09T03:29:25",
+      "sort_order": 1,
+      "usage_count": 0
     }
   ],
   "schedules": [
     {
       "id": "sc_sample",
-      "title": "프로그램 업데이트",
+      "title": "알람 등록하기",
       "datetime": "2030-12-31T09:00:00",
       "repeat": "none",
       "notify_before_minutes": 0,
-      "memo": "프로그램 업데이트",
+      "memo": "",
       "last_notified_at": "",
       "sort_order": 0,
       "usage_count": 0
