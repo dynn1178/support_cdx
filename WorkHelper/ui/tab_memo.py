@@ -287,6 +287,8 @@ class ScheduleDialog(QDialog):
         self.date = QDateEdit()
         self.date.setCalendarPopup(True)
         self.date.setDate(current.date())
+        self.date.setMinimumWidth(150)
+        self.date.dateChanged.connect(lambda _date: self.update_notify_label())
         calendar = self.date.calendarWidget()
         today_format = QTextCharFormat()
         today_format.setBackground(QColor("#FFF3B0"))
@@ -296,12 +298,14 @@ class ScheduleDialog(QDialog):
         self.selected_time = current.time()
         self.time_label = QLabel()
         self.time_label.setObjectName("cardTitle")
+        self.time_label.setMinimumWidth(52)
         self.update_time_label()
         datetime_row = QHBoxLayout()
         datetime_row.setContentsMargins(0, 0, 0, 0)
-        datetime_row.setSpacing(8)
-        datetime_row.addWidget(self.date, 1)
+        datetime_row.setSpacing(6)
+        datetime_row.addWidget(self.date)
         datetime_row.addWidget(self.time_label)
+        datetime_row.addStretch(1)
         datetime_widget = QWidget()
         datetime_widget.setLayout(datetime_row)
         quick_time_row = QHBoxLayout()
@@ -309,27 +313,42 @@ class ScheduleDialog(QDialog):
         quick_time_row.setSpacing(4)
         for hour in range(9, 19):
             btn = QPushButton(str(hour))
-            btn.setFixedWidth(34)
+            btn.setFixedSize(42, 32)
             btn.clicked.connect(lambda checked=False, value=hour: self.set_time_hour(value))
             quick_time_row.addWidget(btn)
+        quick_time_row.addStretch(1)
+        time_adjust_row = QHBoxLayout()
+        time_adjust_row.setContentsMargins(0, 0, 0, 0)
+        time_adjust_row.setSpacing(4)
         for label, minutes in [("-10m", -10), ("+10m", 10), ("-30m", -30), ("+30m", 30)]:
             btn = QPushButton(label)
             btn.clicked.connect(lambda checked=False, value=minutes: self.adjust_time(value))
-            quick_time_row.addWidget(btn)
-        quick_time_row.addStretch(1)
+            time_adjust_row.addWidget(btn)
+        time_adjust_row.addStretch(1)
         quick_time_widget = QWidget()
-        quick_time_widget.setLayout(quick_time_row)
+        quick_time_layout = QVBoxLayout(quick_time_widget)
+        quick_time_layout.setContentsMargins(0, 0, 0, 0)
+        quick_time_layout.setSpacing(4)
+        quick_time_layout.addLayout(quick_time_row)
+        quick_time_layout.addLayout(time_adjust_row)
         self.repeat = QComboBox()
         self.repeat.addItems(["없음", "매일", "매주", "매월"])
+        self.repeat.setMinimumWidth(110)
+        self.repeat.view().setMinimumWidth(110)
         repeat_map = {"none": "없음", "daily": "매일", "weekly": "매주", "monthly": "매월"}
         self.repeat.setCurrentIndex(max(self.repeat.findText(repeat_map.get(self.schedule.get("repeat", "none"), "없음")), 0))
         self.notify = QSpinBox()
         self.notify.setRange(0, 10080)
         self.notify.setValue(int(self.schedule.get("notify_before_minutes", 30)))
+        self.notify.valueChanged.connect(lambda _value: self.update_notify_label())
+        self.notify.setVisible(False)
+        self.notify_at_label = QLabel()
+        self.notify_at_label.setObjectName("cardTitle")
+        self.notify_at_label.setMinimumWidth(142)
         notify_row = QHBoxLayout()
         notify_row.setContentsMargins(0, 0, 0, 0)
         notify_row.setSpacing(6)
-        notify_row.addWidget(self.notify)
+        notify_row.addWidget(self.notify_at_label)
         for label, minutes in [("정각", 0), ("5분 전", 5), ("10분 전", 10), ("30분 전", 30), ("1시간 전", 60)]:
             btn = QPushButton(label)
             btn.clicked.connect(lambda checked=False, value=minutes: self.notify.setValue(value))
@@ -342,6 +361,7 @@ class ScheduleDialog(QDialog):
         notify_row.addWidget(prev_18)
         notify_widget = QWidget()
         notify_widget.setLayout(notify_row)
+        self.update_notify_label()
         self.memo = QTextEdit(self.schedule.get("memo", ""))
         form.addRow("제목", self.title)
         form.addRow("일시", datetime_widget)
@@ -360,13 +380,23 @@ class ScheduleDialog(QDialog):
     def selected_datetime(self) -> datetime:
         return datetime.combine(self.date.date().toPyDate(), self.selected_time.toPyTime())
 
+    def notify_datetime(self) -> datetime:
+        return self.selected_datetime() - timedelta(minutes=self.notify.value())
+
+    def update_notify_label(self) -> None:
+        if not hasattr(self, "notify_at_label"):
+            return
+        self.notify_at_label.setText(self.notify_datetime().strftime("%Y-%m-%d %H:%M"))
+
     def set_time_hour(self, hour: int) -> None:
         self.selected_time = QTime(hour, 0)
         self.update_time_label()
+        self.update_notify_label()
 
     def adjust_time(self, minutes: int) -> None:
         self.selected_time = self.selected_time.addSecs(minutes * 60)
         self.update_time_label()
+        self.update_notify_label()
 
     def update_time_label(self) -> None:
         hour = self.selected_time.hour()
@@ -377,6 +407,7 @@ class ScheduleDialog(QDialog):
         target = self.selected_datetime()
         notify_at = datetime.combine(target.date() - timedelta(days=1), dt_time(hour, 0))
         self.notify.setValue(max(0, int((target - notify_at).total_seconds() // 60)))
+        self.update_notify_label()
 
     def value(self) -> dict:
         data = dict(self.schedule)
@@ -456,15 +487,17 @@ class MemoListTab(QWidget):
         apply_manual_reorder(source, visible, old, new)
         self.main.save_data()
 
-    def show_sticker(self, memo: dict) -> None:
-        bump_usage(memo)
-        self.main.save_data()
+    def show_sticker(self, memo: dict, track_usage: bool = True, raise_window: bool = True) -> None:
+        if track_usage:
+            bump_usage(memo)
+            self.main.save_usage_data()
         dialog = StickyMemoDialog(memo, self.main, self.refresh)
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         dialog.destroyed.connect(lambda _obj=None, dlg=dialog: self.forget_sticker(dlg))
         self.sticky_windows.append(dialog)
         dialog.show()
-        dialog.raise_()
+        if raise_window:
+            dialog.raise_()
 
     def forget_sticker(self, dialog: StickyMemoDialog) -> None:
         if dialog in self.sticky_windows:
@@ -517,7 +550,7 @@ class ScheduleListTab(QWidget):
         visible_items = self.sort_controls.sort_items(source_items, lambda item: item.get("title") or item.get("memo", ""))
         for schedule in visible_items:
             subtitle = f"{display_datetime(schedule.get('datetime', ''), schedule.get('repeat', 'none'))}\n{short_preview(schedule.get('memo', ''), 120)}"
-            card = make_card(schedule.get("title", "(제목 없음)"), subtitle, card_size="b")
+            card = make_card(schedule.get("title", "(제목 없음)"), subtitle, card_size="c")
             add_card_actions(
                 card,
                 [

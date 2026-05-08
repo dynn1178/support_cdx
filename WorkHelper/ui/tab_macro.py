@@ -165,7 +165,7 @@ class MacroTab(QWidget):
         row.addStretch(1)
         row.addWidget(record_btn)
         row.addWidget(stop_btn)
-        self.list = GridPanel(columns=3)
+        self.list = GridPanel(columns=2)
         layout.addWidget(self.list, 1)
         layout.addLayout(row)
 
@@ -335,7 +335,7 @@ class MacroTab(QWidget):
             import pyautogui
 
             bump_usage(macro)
-            self.main.save_data()
+            self.main.save_usage_data()
             time.sleep(1.0)
             for action in macro.get("actions", []):
                 time.sleep(float(action.get("delay", 0)))

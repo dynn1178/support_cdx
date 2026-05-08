@@ -216,7 +216,7 @@ class ImageTab(QWidget):
         top.addStretch(1)
         top.addWidget(self.sort_controls)
         layout.addLayout(top)
-        self.list = GridPanel(columns=3)
+        self.list = GridPanel(columns=2)
         layout.addWidget(self.list, 1)
         row = QHBoxLayout()
         row.addStretch(1)
@@ -251,7 +251,7 @@ class ImageTab(QWidget):
             QMessageBox.warning(self, "이미지 없음", f"파일을 찾을 수 없습니다.\n{path}")
             return
         bump_usage(item)
-        self.main.save_data()
+        self.main.save_usage_data()
         ImageViewerDialog(path, item.get("name", "이미지"), int(item.get("display_scale", 100))).exec()
 
     def edit_image(self, item: dict | None = None) -> None:

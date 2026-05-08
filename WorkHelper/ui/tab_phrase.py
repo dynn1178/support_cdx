@@ -144,10 +144,15 @@ class PhraseTab(QWidget):
         self.status_label = QLabel("")
         self.status_label.setObjectName("mutedText")
 
-    def tab_page(self, panel: GridPanel, button_text: str, callback) -> QWidget:
+    def tab_page(self, panel: GridPanel, button_text: str, callback, help_text: str = "") -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
+        if help_text:
+            help_label = QLabel(help_text)
+            help_label.setObjectName("mutedText")
+            help_label.setWordWrap(True)
+            layout.addWidget(help_label)
         layout.addWidget(panel, 1)
         buttons = QHBoxLayout()
         add_button = QPushButton(button_text)
@@ -156,6 +161,13 @@ class PhraseTab(QWidget):
         buttons.addWidget(add_button)
         layout.addLayout(buttons)
         return page
+
+    def single_line_preview(self, text: str, limit: int = 160) -> str:
+        lines = text.splitlines()
+        first_line = lines[0] if lines else text
+        suffix = "..." if len(lines) > 1 else ""
+        preview = short_preview(first_line, max(1, limit - len(suffix)))
+        return f"{preview}{suffix}" if suffix and not preview.endswith("...") else preview
 
     def refresh(self) -> None:
         self._fill(self.phrase_list, "phrases", False)
@@ -169,7 +181,7 @@ class PhraseTab(QWidget):
         items = self.sort_controls.sort_items(collection_items, lambda value: value.get("name") or value.get("text", ""))
         for item in items:
             if collection == "phrases":
-                card = make_card(short_preview(item.get("text", ""), 160), "", display_hotkey(item.get("hotkey")), card_size="a")
+                card = make_card(self.single_line_preview(item.get("text", ""), 160), "", display_hotkey(item.get("hotkey")), card_size="a")
             else:
                 card = make_card(item.get("name", "(이름 없음)"), short_preview(item.get("text", "")), display_hotkey(item.get("hotkey")), card_size="b")
             self.add_phrase_actions(card, item, collection, code)
@@ -217,7 +229,7 @@ class PhraseTab(QWidget):
     def copy_text(self, item: dict) -> None:
         bump_usage(item)
         QApplication.clipboard().setText(item.get("text", ""))
-        self.main.save_data()
+        self.main.save_usage_data()
 
     def add_phrase_actions(self, card: QWidget, item: dict, collection: str, code: bool) -> None:
         row = QHBoxLayout()
@@ -279,12 +291,12 @@ class PhraseTab(QWidget):
     def copy_hotstring(self, item: dict) -> None:
         bump_usage(item)
         QApplication.clipboard().setText(item.get("text", ""))
-        self.main.save_data()
+        self.main.save_usage_data()
 
     def copy_title(self, item: dict) -> None:
         bump_usage(item)
         QApplication.clipboard().setText(render_date_template(item.get("template", ""), business_days=bool(item.get("business_days", False))))
-        self.main.save_data()
+        self.main.save_usage_data()
 
     def edit_item(self, collection: str, item: dict | None = None, code: bool | None = None) -> None:
         is_code = collection == "snippets" if code is None else code

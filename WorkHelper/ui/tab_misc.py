@@ -82,8 +82,9 @@ class MagnifierPopup(QDialog):
         screen = QApplication.screenAt(pos) or QApplication.primaryScreen()
         if not screen:
             return
-        zoom = screen.grabWindow(0, pos.x() - 10, pos.y() - 10, 21, 21)
-        one = screen.grabWindow(0, pos.x(), pos.y(), 1, 1).toImage()
+        local = pos - screen.geometry().topLeft()
+        zoom = screen.grabWindow(0, local.x() - 10, local.y() - 10, 21, 21)
+        one = screen.grabWindow(0, local.x(), local.y(), 1, 1).toImage()
         if one.isNull():
             return
         color = one.pixelColor(0, 0)
@@ -223,7 +224,8 @@ class ColorToolsTab(QWidget):
         screen = QApplication.screenAt(QPoint(x, y)) or QApplication.primaryScreen()
         if not screen:
             return
-        one = screen.grabWindow(0, x, y, 1, 1).toImage()
+        local = QPoint(x, y) - screen.geometry().topLeft()
+        one = screen.grabWindow(0, local.x(), local.y(), 1, 1).toImage()
         if one.isNull():
             return
         self.set_color(one.pixelColor(0, 0).name().upper())

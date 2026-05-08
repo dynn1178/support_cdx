@@ -8,7 +8,7 @@ from pathlib import Path
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtWidgets import (
     QApplication,
-    QComboBox,
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -27,7 +27,6 @@ from app.utils import display_hotkey, new_id, now_iso, short_preview
 from ui.common import GridPanel, HotkeyFields, SortControls, apply_manual_reorder, apply_modern_dialog_style, ask_modern_question, bump_usage, confirm_shift_digit_hotkey, make_card, make_icon_button, show_modern_warning
 
 
-TYPE_LABELS = {"site": "사이트", "file": "파일", "folder": "폴더"}
 TYPE_ALIASES = {"사이트": "site", "파일": "file", "폴더": "folder", "site": "site", "file": "file", "folder": "folder"}
 
 
@@ -38,10 +37,13 @@ def launcher_type(value: str | None) -> str:
 class LauncherDialog(QDialog):
     def __init__(self, item: dict | None = None, launcher_type_value: str = "site") -> None:
         super().__init__()
-        self.setWindowTitle("바로가기 편집")
+        self.item = item or {"type": launcher_type_value}
+        self.fixed_type = launcher_type(self.item.get("type", launcher_type_value))
+        action = "수정" if item else "등록"
+        title_by_type = {"site": f"사이트 {action}", "file": f"파일/폴더 {action}", "folder": f"파일/폴더 {action}"}
+        self.setWindowTitle(title_by_type.get(self.fixed_type, "바로가기 등록"))
         apply_modern_dialog_style(self)
         self.setMinimumWidth(460)
-        self.item = item or {"type": launcher_type_value}
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 14, 14, 12)
         layout.setSpacing(12)
@@ -53,24 +55,21 @@ class LauncherDialog(QDialog):
         form.setVerticalSpacing(10)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
-        self.type = QComboBox()
-        for value in ["site", "file", "folder"]:
-            self.type.addItem(TYPE_LABELS[value], value)
-        self.type.setCurrentIndex(max(self.type.findData(launcher_type(self.item.get("type"))), 0))
-        self.type.currentIndexChanged.connect(self.update_enabled_fields)
-
         self.name = QLineEdit(self.item.get("name", ""))
-        self.description = QLineEdit(self.item.get("description", ""))
         self.url = QLineEdit(self.item.get("url", ""))
         self.path = QLineEdit(self.item.get("path", ""))
         self.username = QLineEdit(self.item.get("username", ""))
         self.password = QLineEdit(self.item.get("password", ""))
+        self.show_credentials_on_card = QCheckBox("카드에 아이디/비밀번호 표시")
+        self.show_credentials_on_card.setChecked(bool(self.item.get("show_credentials_on_card", False)))
         self.browser_path = QLineEdit(self.item.get("browser_path", ""))
         self.hotkey = HotkeyFields(self.item.get("hotkey"))
         self.browser_path.setPlaceholderText("기본 브라우저로 연결")
 
-        self.browse_path_btn = QPushButton("찾기")
-        self.browse_path_btn.clicked.connect(self.browse_path)
+        self.browse_file_btn = QPushButton("파일")
+        self.browse_file_btn.clicked.connect(self.browse_file)
+        self.browse_folder_btn = QPushButton("폴더")
+        self.browse_folder_btn.clicked.connect(self.browse_folder)
         self.browse_browser_btn = QPushButton("찾기")
         self.browse_browser_btn.clicked.connect(self.browse_browser)
 
@@ -78,7 +77,8 @@ class LauncherDialog(QDialog):
         path_row.setContentsMargins(0, 0, 0, 0)
         path_row.setSpacing(8)
         path_row.addWidget(self.path, 1)
-        path_row.addWidget(self.browse_path_btn)
+        path_row.addWidget(self.browse_file_btn)
+        path_row.addWidget(self.browse_folder_btn)
         path_widget = QWidget()
         path_widget.setLayout(path_row)
 
@@ -90,47 +90,39 @@ class LauncherDialog(QDialog):
         browser_widget = QWidget()
         browser_widget.setLayout(browser_row)
 
-        form.addRow("종류", self.type)
         form.addRow("이름", self.name)
-        form.addRow("설명", self.description)
-        form.addRow("URL", self.url)
-        form.addRow("경로", path_widget)
-        form.addRow("아이디", self.username)
-        form.addRow("비밀번호", self.password)
-        form.addRow("브라우저 경로", browser_widget)
+        if self.fixed_type == "site":
+            form.addRow("URL", self.url)
+            form.addRow("아이디", self.username)
+            form.addRow("비밀번호", self.password)
+            form.addRow("브라우저 경로", browser_widget)
+        else:
+            form.addRow("경로", path_widget)
         form.addRow("단축키", self.hotkey)
         layout.addLayout(form)
 
+        footer = QHBoxLayout()
+        if self.fixed_type == "site":
+            footer.addWidget(self.show_credentials_on_card)
+        footer.addStretch(1)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.button(QDialogButtonBox.StandardButton.Ok).setText("확인")
         buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("취소")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-        self.update_enabled_fields()
+        footer.addWidget(buttons)
+        layout.addLayout(footer)
 
     def current_type(self) -> str:
-        return self.type.currentData()
+        return self.fixed_type
 
-    def set_field_enabled(self, widget: QWidget, enabled: bool) -> None:
-        widget.setEnabled(enabled)
-        widget.setStyleSheet("" if enabled else "background: #D1D5DB; color: #6B7280; border-color: #9CA3AF;")
+    def browse_file(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "파일 선택")
+        if path:
+            self.path.setText(path)
 
-    def update_enabled_fields(self, *_args) -> None:
-        is_site = self.current_type() == "site"
-        self.set_field_enabled(self.url, is_site)
-        self.set_field_enabled(self.browser_path, is_site)
-        self.browse_browser_btn.setEnabled(is_site)
-        self.set_field_enabled(self.username, is_site)
-        self.set_field_enabled(self.password, is_site)
-        self.set_field_enabled(self.path, not is_site)
-        self.browse_path_btn.setEnabled(not is_site)
-
-    def browse_path(self) -> None:
-        if self.current_type() == "folder":
-            path = QFileDialog.getExistingDirectory(self, "폴더 선택")
-        else:
-            path, _ = QFileDialog.getOpenFileName(self, "파일 선택")
+    def browse_folder(self) -> None:
+        path = QFileDialog.getExistingDirectory(self, "폴더 선택")
         if path:
             self.path.setText(path)
 
@@ -143,14 +135,15 @@ class LauncherDialog(QDialog):
         data = dict(self.item)
         data.update(
             {
-                "type": self.current_type(),
+                "type": "folder" if self.current_type() != "site" and Path(self.path.text().strip()).is_dir() else self.current_type(),
                 "name": self.name.text().strip(),
-                "description": self.description.text().strip(),
-                "url": self.url.text().strip(),
-                "path": self.path.text().strip(),
-                "username": self.username.text().strip(),
-                "password": self.password.text(),
-                "browser_path": self.browser_path.text().strip(),
+                "description": "",
+                "url": self.url.text().strip() if self.current_type() == "site" else "",
+                "path": self.path.text().strip() if self.current_type() != "site" else "",
+                "username": self.username.text().strip() if self.current_type() == "site" else "",
+                "password": self.password.text() if self.current_type() == "site" else "",
+                "browser_path": self.browser_path.text().strip() if self.current_type() == "site" else "",
+                "show_credentials_on_card": self.current_type() == "site" and self.show_credentials_on_card.isChecked(),
                 "hotkey": self.hotkey.value(),
             }
         )
@@ -166,18 +159,37 @@ class LauncherTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         self.tabs = QTabWidget()
         self.site_list = GridPanel(columns=2)
-        self.file_list = GridPanel(columns=3)
+        self.file_list = GridPanel(columns=2)
         self.tabs.addTab(self.site_list, "사이트")
         self.tabs.addTab(self.file_list, "파일/폴더")
         self.sort_controls = SortControls(self.refresh)
         self.tabs.setCornerWidget(self.sort_controls, Qt.Corner.TopRightCorner)
         layout.addWidget(self.tabs, 1)
-        add_btn = QPushButton("+ 바로가기")
-        add_btn.clicked.connect(self.edit_launcher)
+        self.add_site_btn = QPushButton("+ 사이트 등록")
+        self.add_site_btn.clicked.connect(lambda: self.edit_launcher(launcher_type_value="site"))
+        self.add_file_btn = QPushButton("+ 파일/폴더 등록")
+        self.add_file_btn.clicked.connect(lambda: self.edit_launcher(launcher_type_value="file"))
         row = QHBoxLayout()
         row.addStretch(1)
-        row.addWidget(add_btn)
+        row.addWidget(self.add_site_btn)
+        row.addWidget(self.add_file_btn)
         layout.addLayout(row)
+        self.tabs.currentChanged.connect(self.update_add_buttons)
+        self.update_add_buttons()
+
+    def update_add_buttons(self) -> None:
+        is_site_tab = self.tabs.currentIndex() == 0
+        self.add_site_btn.setVisible(is_site_tab)
+        self.add_file_btn.setVisible(not is_site_tab)
+
+    def site_card_subtitle(self, item: dict) -> str:
+        lines = [item.get("url", "")]
+        if item.get("show_credentials_on_card"):
+            username = item.get("username", "")
+            password = item.get("password", "")
+            if username or password:
+                lines.append(f"{username} / {password}")
+        return "\n".join(lines)
 
     def refresh(self) -> None:
         self.status_labels = {}
@@ -192,7 +204,7 @@ class LauncherTab(QWidget):
         file_items = []
         for item in items:
             item_type = launcher_type(item.get("type"))
-            card = make_card(item.get("name", "(이름 없음)"), item.get("description", "") or short_preview(item.get("url") or item.get("path", "")), display_hotkey(item.get("hotkey")), card_size="b")
+            card = make_card(item.get("name", "(이름 없음)"), self.site_card_subtitle(item), display_hotkey(item.get("hotkey")), card_size="c") if item_type == "site" else make_card(item.get("name", "(이름 없음)"), short_preview(item.get("path", "")), display_hotkey(item.get("hotkey")), card_size="b")
             self.add_launcher_actions(card, item)
             if item_type == "site":
                 site_items.append(item)
@@ -234,7 +246,7 @@ class LauncherTab(QWidget):
         timer.start(1000)
 
     def save_usage_only(self) -> None:
-        config.save_template(self.main.template_index, self.main.data)
+        self.main.save_usage_data()
 
     def open_launcher(self, item: dict) -> None:
         try:
@@ -261,8 +273,8 @@ class LauncherTab(QWidget):
         except Exception as exc:
             show_modern_warning(self, "실행 실패", str(exc))
 
-    def edit_launcher(self, item: dict | None = None) -> None:
-        dialog = LauncherDialog(item)
+    def edit_launcher(self, item: dict | None = None, launcher_type_value: str = "site") -> None:
+        dialog = LauncherDialog(item, launcher_type_value)
         while dialog.exec() == dialog.DialogCode.Accepted:
             value = dialog.value()
             if not value.get("name"):

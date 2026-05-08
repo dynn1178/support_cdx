@@ -158,7 +158,8 @@ def build_stylesheet(colors: dict[str, str]) -> str:
         }}
         QWidget#sideBar {{ border-right: 1px solid {colors["border"]}; }}
         QWidget#sideHeader, QWidget#screenHeader {{ border-bottom: 1px solid {colors["border"]}; }}
-        QWidget#sideFooter, QWidget#contentArea {{ background: {colors["content"]}; }}
+        QWidget#contentArea {{ background: {colors["content"]}; }}
+        QWidget#sideFooter {{ background: {colors["bg"]}; }}
         QWidget#sideFooter {{ border-top: 1px solid {colors["border"]}; }}
         QLabel {{ background: transparent; }}
         QLabel#eyebrow, QLabel#screenSubtitle, QLabel#mutedText {{ color: {colors["muted"]}; }}
@@ -208,6 +209,21 @@ def build_stylesheet(colors: dict[str, str]) -> str:
         QToolButton#iconButton:hover {{ background: {colors["hover"]}; }}
         QToolButton#dangerIconButton {{ color: {colors["danger"]}; }}
         QToolButton#dangerIconButton:hover {{ background: {colors["hover"]}; }}
+        QToolButton#tipNavButton {{
+            background: transparent; border: 0; border-radius: 4px;
+            color: {colors["muted"]}; padding: 0; min-width: 30px; min-height: 30px;
+            max-width: 30px; max-height: 30px; font-size: 18pt; font-weight: 400;
+        }}
+        QToolButton#tipNavButton:hover {{
+            background: transparent; color: {colors["accent"]};
+        }}
+        QToolButton#tipNavButton:pressed {{ background: transparent; color: {colors["text"]}; }}
+        QPushButton#homePlayButton {{
+            background: transparent; border: 0; border-radius: 4px; padding: 0;
+            color: {colors["muted"]}; font-size: 16pt; font-weight: 400;
+            min-width: 22px; min-height: 22px; max-width: 22px; max-height: 22px;
+        }}
+        QPushButton#homePlayButton:hover {{ color: {colors["accent"]}; background: transparent; }}
         QToolButton#navButton {{
             background: transparent; border: 0; border-left: 3px solid transparent;
             border-radius: 6px; padding: 0 12px; color: {colors["text"]}; text-align: left; font-weight: 700;

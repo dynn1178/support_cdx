@@ -69,6 +69,7 @@ class NumberPopupFilter(QAbstractNativeEventFilter):
 class NumberedTextPopup(QDialog):
     def __init__(self, parent: QWidget, title: str, items: list[dict], paste_callback) -> None:
         super().__init__(None)
+        self.owner = parent
         self.items = items[:10]
         self.paste_callback = paste_callback
         self.filter = NumberPopupFilter(self)
@@ -80,7 +81,16 @@ class NumberedTextPopup(QDialog):
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setFixedWidth(430)
-        self.setStyleSheet("QDialog { background: #EEF4FF; }")
+        self.setStyleSheet(
+            """
+            QDialog { background: #EEF4FF; }
+            QPushButton#miniCopyButton {
+                padding: 0;
+                min-width: 54px; max-width: 54px;
+                min-height: 24px; max-height: 24px;
+            }
+            """
+        )
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(4)
@@ -115,12 +125,13 @@ class NumberedTextPopup(QDialog):
         number.setObjectName("kbd")
         number.setAlignment(Qt.AlignmentFlag.AlignCenter)
         number.setFixedWidth(24)
-        text = QLabel((item.get("name") or item.get("text", "")).replace("\n", " ")[:70])
+        text = QLabel(item.get("text", "").replace("\n", " ")[:70])
         text.setToolTip(item.get("text", ""))
         text.setMinimumWidth(0)
         text.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         copy = QPushButton("복사")
-        copy.setFixedSize(MINI_COPY_BUTTON_WIDTH, MINI_COPY_BUTTON_HEIGHT)
+        copy.setObjectName("miniCopyButton")
+        copy.setFixedSize(54, 24)
         copy.clicked.connect(lambda checked=False, value=index: self.choose(value))
         layout.addWidget(number)
         layout.addWidget(text, 1)
@@ -179,8 +190,15 @@ class NumberedTextPopup(QDialog):
         if self._closing or not (0 <= index < len(self.items)):
             return
         self._closing = True
-        self.paste_callback(self.items[index].get("text", ""))
+        item = self.items[index]
+        bump_usage(item)
+        text = item.get("text", "")
+        try:
+            self.owner.save_usage_data()
+        except Exception:
+            pass
         self.accept()
+        self.paste_callback(text)
 
     def done(self, result: int) -> None:
         self.stop_number_hotkeys()
@@ -237,7 +255,7 @@ class MainWindow(QMainWindow):
     CLIPBOARD_POPUP_HOTKEY_LABEL = "Ctrl+Shift+V"
     ctrl_double_tapped = pyqtSignal()
     alt_double_tapped = pyqtSignal()
-    hotstring_expand_requested = pyqtSignal(str, str)
+    hotstring_expand_requested = pyqtSignal(str, str, str)
     HOME_TIPS = [
         "상용구에 자주 쓰는 답변을 등록하고 단축키를 지정하면 상담 문구를 바로 붙여넣을 수 있습니다.",
         "코드 스니펫에는 자주 쓰는 SQL이나 Python 조각을 저장해두고 필요한 순간 단축키로 복사해보세요.",
@@ -370,13 +388,29 @@ class MainWindow(QMainWindow):
         self.screen_subtitle.setWordWrap(True)
         title_col.addWidget(self.screen_subtitle)
         screen_head.addLayout(title_col, 1)
+        tip_nav_col = QVBoxLayout()
+        tip_nav_col.setContentsMargins(0, 0, 0, 0)
+        tip_nav_col.setSpacing(0)
+        tip_nav_col.addStretch(1)
+        tip_nav_row = QHBoxLayout()
+        tip_nav_row.setContentsMargins(0, 0, 0, 0)
+        tip_nav_row.setSpacing(2)
+        self.prev_tip_button = QToolButton()
+        self.prev_tip_button.setText("‹")
+        self.prev_tip_button.setToolTip("이전 팁")
+        self.prev_tip_button.setObjectName("tipNavButton")
+        self.prev_tip_button.setFixedSize(30, 30)
+        self.prev_tip_button.clicked.connect(self.prev_home_tip)
         self.next_tip_button = QToolButton()
-        self.next_tip_button.setText(">")
+        self.next_tip_button.setText("›")
         self.next_tip_button.setToolTip("다음 팁")
-        self.next_tip_button.setObjectName("iconButton")
-        self.next_tip_button.setFixedSize(28, 28)
+        self.next_tip_button.setObjectName("tipNavButton")
+        self.next_tip_button.setFixedSize(30, 30)
         self.next_tip_button.clicked.connect(self.next_home_tip)
-        screen_head.addWidget(self.next_tip_button, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        tip_nav_row.addWidget(self.prev_tip_button)
+        tip_nav_row.addWidget(self.next_tip_button)
+        tip_nav_col.addLayout(tip_nav_row)
+        screen_head.addLayout(tip_nav_col)
         content_layout.addWidget(screen_header)
 
         self.stack = QStackedWidget()
@@ -457,6 +491,7 @@ class MainWindow(QMainWindow):
         subtitle = subtitles[index]
         if index == 0:
             subtitle = self.numbered_home_tip()
+        self.prev_tip_button.setVisible(index == 0)
         self.next_tip_button.setVisible(index == 0)
         self.screen_subtitle.setText(subtitle)
 
@@ -465,6 +500,11 @@ class MainWindow(QMainWindow):
 
     def numbered_home_tip(self) -> str:
         return f"{self._home_tip_index + 1}. {self.HOME_TIPS[self._home_tip_index]}"
+
+    def prev_home_tip(self) -> None:
+        self._home_tip_index = (self._home_tip_index - 1) % len(self.HOME_TIPS)
+        if self.stack.currentIndex() == 0:
+            self.set_tab(0)
 
     def next_home_tip(self) -> None:
         self._home_tip_index = (self._home_tip_index + 1) % len(self.HOME_TIPS)
@@ -491,10 +531,21 @@ class MainWindow(QMainWindow):
         self.register_hotkeys()
         self.refresh_all_tabs()
 
+    def save_usage_data(self) -> None:
+        config.save_template(self.template_index, self.data)
+        self.refresh_home_tab()
+
     def refresh_all_tabs(self) -> None:
         for tab in self.tabs:
             if hasattr(tab, "refresh"):
                 tab.refresh()
+
+    def refresh_home_tab(self) -> None:
+        if not hasattr(self, "tabs") or not self.tabs:
+            return
+        home = self.tabs[0]
+        if hasattr(home, "refresh"):
+            home.refresh()
 
     def change_template(self, index: int) -> None:
         config.save_template(self.template_index, self.data)
@@ -560,7 +611,7 @@ class MainWindow(QMainWindow):
         for item in self.data.get("phrases", []) + self.data.get("snippets", []):
             hotkey = item.get("hotkey")
             if hotkey:
-                self.hotkeys.register(hotkey.get("modifiers", []), hotkey.get("key", ""), lambda text=item.get("text", ""): self.paste_text(text), item.get("id", ""))
+                self.hotkeys.register(hotkey.get("modifiers", []), hotkey.get("key", ""), lambda value=item: self.paste_text_item(value), item.get("id", ""))
         for item in self.data.get("title_templates", []):
             hotkey = item.get("hotkey")
             if hotkey:
@@ -682,7 +733,7 @@ class MainWindow(QMainWindow):
                 "text": render_date_template(item.get("template", ""), business_days=bool(item.get("business_days", False))),
             }
         items = [by_id[item_id] for item_id in favorite_ids if item_id in by_id]
-        NumberedTextPopup(self, "상용구", items, lambda text: self.app.clipboard().setText(text)).exec()
+        NumberedTextPopup(self, "상용구", items, self.paste_text).exec()
 
     def show_quick_memo_popup(self) -> None:
         dialog = QuickMemoPopup(self)
@@ -715,19 +766,19 @@ class MainWindow(QMainWindow):
     def copy_title_template(self, item: dict) -> None:
         bump_usage(item)
         text = render_date_template(item.get("template", ""), business_days=bool(item.get("business_days", False)))
-        config.save_template(self.template_index, self.data)
+        self.save_usage_data()
         self.paste_text(text)
 
     def clipboard_popup_shortcut_label(self) -> str:
         settings = self.settings
         if settings.get("clipboard_popup_double_ctrl", True):
-            return "Ctrl 두 번"
+            return "Ctrl x2"
         return display_hotkey(settings.get("clipboard_popup_hotkey"))
 
     def quick_memo_shortcut_label(self) -> str:
         settings = self.settings
         if settings.get("quick_memo_double_alt", True):
-            return "Alt 두 번"
+            return "Alt x2"
         return display_hotkey(settings.get("quick_memo_hotkey"))
 
     def paste_text(self, text: str) -> None:
@@ -746,6 +797,11 @@ class MainWindow(QMainWindow):
             threading.Thread(target=send_paste, daemon=True).start()
         except Exception as exc:
             show_modern_warning(self, "단축키 실행 실패", f"텍스트를 붙여넣지 못했습니다.\n{exc}")
+
+    def paste_text_item(self, item: dict) -> None:
+        bump_usage(item)
+        self.save_usage_data()
+        self.paste_text(item.get("text", ""))
 
     def start_hotstring_listener(self) -> None:
         try:
@@ -780,30 +836,32 @@ class MainWindow(QMainWindow):
             needle = trigger if item.get("case_sensitive") else trigger.lower()
             if buffer.endswith(needle):
                 self.hotstring_busy = True
-                self.hotstring_expand_requested.emit(trigger, item.get("text", ""))
-                bump_usage(item)
+                self.hotstring_expand_requested.emit(trigger, item.get("text", ""), item.get("id", ""))
                 break
 
-    def expand_hotstring(self, trigger: str, text: str) -> None:
+    def expand_hotstring(self, trigger: str, text: str, item_id: str) -> None:
         self.hotstring_busy = True
+        for item in self.data.get("hotstrings", []):
+            if item.get("id") == item_id:
+                bump_usage(item)
+                QTimer.singleShot(250, self.save_usage_data)
+                break
         self.app.clipboard().setText(text)
 
         def worker() -> None:
             try:
                 import pyautogui
 
-                pyautogui.PAUSE = 0
-                pyautogui.PAUSE = 0
+                pyautogui.PAUSE = 0.01
+                time.sleep(0.10)
+                pyautogui.press("backspace", presses=len(trigger), interval=0.02)
                 time.sleep(0.04)
-                pyautogui.press("backspace", presses=len(trigger), interval=0.002)
-                time.sleep(0.01)
                 pyautogui.hotkey("ctrl", "v")
             except Exception:
                 pass
             finally:
                 self.hotstring_buffer = ""
                 self.hotstring_busy = False
-                config.save_template(self.template_index, self.data)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -822,7 +880,7 @@ class MainWindow(QMainWindow):
             return
         for memo in self.data.get("memos", []):
             if memo.get("sticker_open"):
-                self.tabs[8].show_sticker(memo)
+                self.tabs[8].show_sticker(memo, track_usage=False, raise_window=False)
 
     def wait_for_modifier_release(self, timeout: float = 1.0) -> None:
         deadline = time.monotonic() + timeout
@@ -866,6 +924,8 @@ class MainWindow(QMainWindow):
             schedule["datetime"] = target.replace(year=year, month=month, day=day).isoformat(timespec="seconds")
 
     def show_schedule_notification(self, schedule: dict[str, Any]) -> None:
+        bump_usage(schedule)
+        self.save_usage_data()
         try:
             from plyer import notification
 
@@ -888,4 +948,6 @@ class MainWindow(QMainWindow):
             self.ctrl_listener_thread.join(timeout=0.2)
         if hasattr(self.clipboard_tab, "stop"):
             self.clipboard_tab.stop()
+        if hasattr(self.clipboard_tab, "cleanup_expired_images"):
+            self.clipboard_tab.cleanup_expired_images(days=7)
         super().closeEvent(event)

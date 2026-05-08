@@ -24,11 +24,13 @@ from PyQt6.QtWidgets import (
 )
 
 from app.theme import THEMES
+from app.utils import now_iso
 
 HOTKEY_KEYS = [str(i) for i in range(1, 10)] + ["0"] + [";"] + [chr(i) for i in range(ord("A"), ord("Z") + 1)] + [f"F{i}" for i in range(1, 13)]
 DIALOG_THEME = "light"
 CARD_SIZE_A = 72
 CARD_SIZE_B = 108
+CARD_SIZE_C = 126
 
 SORT_MODES = [
     ("등록", "created"),
@@ -120,23 +122,34 @@ def make_card(
     elif card_size == "b":
         card_height = CARD_SIZE_B
         compact = False
+    elif card_size == "c":
+        card_height = CARD_SIZE_C
+        compact = False
     elif card_height is None:
         card_height = 56 if compact else CARD_SIZE_B
     card.setFixedHeight(card_height)
     layout = QVBoxLayout(card)
-    layout.setContentsMargins(10, 6, 10, 6) if compact else layout.setContentsMargins(12, 8, 12, 10)
-    layout.setSpacing(4 if compact else 6)
+    if compact:
+        layout.setContentsMargins(10, 6, 10, 6)
+        layout.setSpacing(4)
+    elif card_size == "c":
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(5)
+    else:
+        layout.setContentsMargins(12, 8, 12, 10)
+        layout.setSpacing(6)
     row = QHBoxLayout()
     row.setSpacing(10)
-    title_label = ElidedLabel(title) if single_line else QLabel(title)
+    title_display = title.splitlines()[0] + "..." if "\n" in title or "\r" in title else title
+    title_label = ElidedLabel(title_display)
     title_label.setObjectName("cardTitle")
-    title_label.setWordWrap(not single_line)
+    title_label.setWordWrap(False)
     title_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
     title_label.setMinimumWidth(0)
     title_label.setFixedHeight(22)
     title_label.setToolTip(title)
     row.addWidget(title_label, 1)
-    reserve_hotkey = bool(hotkey) or card_size in {"a", "b"}
+    reserve_hotkey = bool(hotkey)
     if reserve_hotkey:
         hotkey_slot = QWidget()
         hotkey_slot.setObjectName("hotkeySlot")
@@ -151,11 +164,12 @@ def make_card(
             hotkey_layout.addWidget(make_hotkey_caps(hotkey, hotkey_color))
         row.addWidget(hotkey_slot)
     layout.addLayout(row)
-    if subtitle or card_size == "b":
-        sub = ElidedMultilineLabel(subtitle, max_lines=1 if compact else 2)
+    if subtitle or card_size in {"b", "c"}:
+        sub = ElidedMultilineLabel(subtitle, max_lines=2 if card_size == "c" else 1 if compact else 2)
         sub.setObjectName("cardSubtitle")
-        sub.setFixedHeight(18 if compact else 24)
+        sub.setFixedHeight(38 if card_size == "c" else 18 if compact else 24)
         layout.addWidget(sub)
+    layout.addStretch(1)
     return card
 
 
@@ -340,6 +354,14 @@ def ensure_item_meta(items: list[dict]) -> None:
 
 def bump_usage(item: dict) -> None:
     item["usage_count"] = int(item.get("usage_count", 0) or 0) + 1
+    used_at = now_iso()
+    today = used_at[:10]
+    if item.get("used_today_date") == today:
+        item["used_today_count"] = int(item.get("used_today_count", 0) or 0) + 1
+    else:
+        item["used_today_date"] = today
+        item["used_today_count"] = 1
+    item["last_used_at"] = used_at
 
 
 def apply_manual_reorder(items: list[dict], visible_items: list[dict], old_index: int, new_index: int) -> None:
@@ -584,21 +606,34 @@ class HotkeyFields(QWidget):
 
 
 class TextItemDialog(QDialog):
-    def __init__(self, title: str, item: dict[str, Any] | None = None, code: bool = False, require_name: bool = True) -> None:
+    def __init__(
+        self,
+        title: str,
+        item: dict[str, Any] | None = None,
+        code: bool = False,
+        require_name: bool = True,
+        help_text: str = "",
+    ) -> None:
         super().__init__()
         self.setWindowTitle(title)
         apply_modern_dialog_style(self)
+        if code:
+            self.setMinimumWidth(500)
         self.item = item or {}
         self.code = code
         self.require_name = require_name
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.name = QLineEdit(self.item.get("name", ""))
-        self.text = QTextEdit(self.item.get("text", ""))
+        self.text = QTextEdit()
+        self.text.setPlainText(self.item.get("text", ""))
         self.hotkey = HotkeyFields(self.item.get("hotkey"))
         if require_name:
             form.addRow("이름", self.name)
         if code:
+            self.language = QComboBox()
+            self.language.addItem(str(self.item.get("language", "other") or "other"))
+        if False and code:
             self.language = QComboBox()
             self.language.addItems(["sql", "python", "기타"])
             current = self.item.get("language", "sql")
@@ -611,12 +646,18 @@ class TextItemDialog(QDialog):
         form.addRow("내용", self.text)
         form.addRow("단축키", self.hotkey)
         layout.addLayout(form)
+        footer = QHBoxLayout()
+        hint = QLabel(help_text or "줄바꿈 형태 지원")
+        hint.setObjectName("mutedText")
+        footer.addWidget(hint)
+        footer.addStretch(1)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.button(QDialogButtonBox.StandardButton.Ok).setText("확인")
         buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("취소")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        footer.addWidget(buttons)
+        layout.addLayout(footer)
 
     def value(self) -> dict[str, Any]:
         data = dict(self.item)

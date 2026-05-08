@@ -157,7 +157,23 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
             "business_days": False,
         }
     ],
+    "phrase_popup_favorites": [],
 }
+
+PRESET_COLLECTION_KEYS = (
+    "phrases",
+    "snippets",
+    "hotstrings",
+    "title_templates",
+    "launchers",
+    "images",
+    "macros",
+    "memos",
+    "schedules",
+)
+PRESET_LINK_KEYS = ("phrase_popup_favorites",)
+PRESET_LIST_KEYS = PRESET_COLLECTION_KEYS + PRESET_LINK_KEYS
+PRESET_RUNTIME_EXCLUDED_KEYS = {"settings"}
 
 
 def ensure_data_files() -> None:
@@ -236,7 +252,10 @@ def load_template(index: int) -> dict[str, Any]:
 def save_template(index: int, data: dict[str, Any]) -> None:
     TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
     data_to_save = copy.deepcopy(data)
-    data_to_save.pop("settings", None)
+    for key in PRESET_RUNTIME_EXCLUDED_KEYS:
+        data_to_save.pop(key, None)
+    for collection in PRESET_LIST_KEYS:
+        data_to_save.setdefault(collection, [])
     data_to_save.setdefault("meta", {})
     data_to_save["meta"]["saved_at"] = now_iso()
     with template_path(index).open("w", encoding="utf-8") as f:
@@ -250,9 +269,10 @@ def merge_template_defaults(data: dict[str, Any]) -> dict[str, Any]:
             merged[key].update(value)
         else:
             merged[key] = value
-    for collection in ["phrases", "snippets", "launchers", "images", "macros", "memos", "schedules", "hotstrings", "title_templates", "phrase_popup_favorites"]:
+    for collection in PRESET_LIST_KEYS:
         merged.setdefault(collection, [])
-    merged.pop("settings", None)
+    for key in PRESET_RUNTIME_EXCLUDED_KEYS:
+        merged.pop(key, None)
     meta = merged.setdefault("meta", {})
     if not meta.get("preset_name"):
         meta["preset_name"] = meta.get("template_name") or "프리셋"

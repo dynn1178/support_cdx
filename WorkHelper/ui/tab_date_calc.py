@@ -3,9 +3,19 @@ from __future__ import annotations
 from datetime import datetime
 
 from PyQt6.QtCore import QDate, Qt
+from PyQt6.QtGui import QColor, QTextCharFormat
 from PyQt6.QtWidgets import QCheckBox, QComboBox, QDateEdit, QFormLayout, QHBoxLayout, QLabel, QPushButton, QSpinBox, QVBoxLayout, QWidget
 
 from app.date_tools import apply_offset, format_date
+
+
+def highlight_today(date_edit: QDateEdit) -> None:
+    calendar = date_edit.calendarWidget()
+    today_format = QTextCharFormat()
+    today_format.setBackground(QColor("#FFF3B0"))
+    today_format.setForeground(QColor("#111827"))
+    today_format.setFontWeight(700)
+    calendar.setDateTextFormat(QDate.currentDate(), today_format)
 
 
 class DateCalculatorTab(QWidget):
@@ -26,6 +36,7 @@ class DateCalculatorTab(QWidget):
         self.base_date = QDateEdit()
         self.base_date.setCalendarPopup(True)
         self.base_date.setDate(QDate.currentDate())
+        highlight_today(self.base_date)
         self.base_date.setMinimumWidth(220)
         self.amount = QSpinBox()
         self.amount.setRange(-9999, 9999)
