@@ -57,6 +57,7 @@ class HotkeyManager:
             if 1 <= number <= 24:
                 return 0x70 + number - 1
         special = {
+            ";": 0xBA,
             "SPACE": 0x20,
             "TAB": 0x09,
             "ESC": 0x1B,

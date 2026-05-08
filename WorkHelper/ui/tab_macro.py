@@ -174,7 +174,7 @@ class MacroTab(QWidget):
         source_items = self.main.data.get("macros", [])
         visible_items = self.sort_controls.sort_items(source_items, lambda value: value.get("name", ""))
         for macro in visible_items:
-            card = make_card(macro.get("name", "(이름 없음)"), f"{len(macro.get('actions', []))}개 액션", display_hotkey(macro.get("hotkey")))
+            card = make_card(macro.get("name", "(이름 없음)"), f"{len(macro.get('actions', []))}개 액션", display_hotkey(macro.get("hotkey")), card_size="b")
             add_card_actions(
                 card,
                 [

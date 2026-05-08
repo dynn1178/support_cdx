@@ -228,7 +228,7 @@ class ImageTab(QWidget):
         source_items = self.main.data.get("images", [])
         visible_items = self.sort_controls.sort_items(source_items, lambda value: value.get("name") or value.get("path", ""))
         for item in visible_items:
-            card = make_card(item.get("name", "(이름 없음)"), "", display_hotkey(item.get("hotkey")))
+            card = make_card(item.get("name", "(이름 없음)"), "", display_hotkey(item.get("hotkey")), card_size="a")
             add_card_actions(
                 card,
                 [

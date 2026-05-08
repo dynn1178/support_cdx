@@ -2,7 +2,7 @@
   "meta": {
     "preset_name": "11",
     "version": "1.0.0",
-    "saved_at": "2026-05-08T00:22:45"
+    "saved_at": "2026-05-08T17:02:55"
   },
   "phrases": [
     {
@@ -717,6 +717,44 @@
       "height": 240,
       "sort_order": 1,
       "usage_count": 0
+    },
+    {
+      "id": "mm_295edb564a",
+      "title": "asd",
+      "content": "asd",
+      "pinned": false,
+      "always_on_top": true,
+      "background": "노랑",
+      "created_at": "2026-05-08T13:11:13",
+      "updated_at": "2026-05-08T13:55:51",
+      "sort_order": 2,
+      "usage_count": 1,
+      "sticker_open": false,
+      "magnetic_snap": false,
+      "opacity": 95,
+      "width": 301,
+      "height": 240,
+      "x": 1120,
+      "y": 536
+    },
+    {
+      "id": "mm_833fa78a57",
+      "title": "asdasd",
+      "content": "asdasd SAD SAD ",
+      "pinned": false,
+      "always_on_top": true,
+      "background": "노랑",
+      "created_at": "2026-05-08T13:11:17",
+      "updated_at": "2026-05-08T14:23:00",
+      "sort_order": 3,
+      "usage_count": 5,
+      "sticker_open": false,
+      "opacity": 100,
+      "width": 362,
+      "height": 219,
+      "x": 1915,
+      "y": 215,
+      "magnetic_snap": false
     }
   ],
   "schedules": [
@@ -754,6 +792,17 @@
       "memo": ""
     }
   ],
+  "hotstrings": [
+    {
+      "trigger": "grt.",
+      "text": "CrM/BI팀 권준희입니다.",
+      "case_sensitive": true,
+      "id": "hs_376091e524",
+      "created_at": "2026-05-08T11:57:53",
+      "sort_order": 0,
+      "usage_count": 15
+    }
+  ],
   "title_templates": [
     {
       "id": "tt_sample",
@@ -786,5 +835,11 @@
         "key": "0"
       }
     }
+  ],
+  "phrase_popup_favorites": [
+    "ph_ba2c98d827",
+    "ph_sample",
+    "ph_adc946b760",
+    "ph_604b113004"
   ]
 }

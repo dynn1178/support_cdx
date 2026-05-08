@@ -1,14 +1,50 @@
 from __future__ import annotations
 
+import hashlib
+from datetime import datetime
+from pathlib import Path
+
 from PyQt6.QtCore import QAbstractNativeEventFilter, QTimer, Qt, pyqtSignal
-from PyQt6.QtGui import QCursor, QKeyEvent
-from PyQt6.QtWidgets import QApplication, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget
+from PyQt6.QtGui import QCursor, QImage, QKeyEvent, QPixmap
+from PyQt6.QtWidgets import QApplication, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from app import config
 from app.clipboard_watcher import ClipboardWatcher
 from app.hotkey_manager import USER32, WM_HOTKEY
 from app.utils import new_id, now_iso, short_preview
 from ui.common import GridPanel, SortControls, add_card_actions, apply_manual_reorder, bump_usage, make_card
+
+
+IMAGE_THUMB_SIZE = 52
+MINI_IMAGE_THUMB_SIZE = 28
+MINI_COPY_BUTTON_WIDTH = 64
+MINI_COPY_BUTTON_HEIGHT = 26
+
+
+def is_image_item(item: dict) -> bool:
+    return item.get("type") == "image"
+
+
+def display_copied_at(value: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except Exception:
+        return value.replace("T", " ")
+    return parsed.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def image_path(item: dict) -> Path:
+    raw = item.get("path", "")
+    path = Path(raw)
+    return path if path.is_absolute() else config.BASE_DIR / raw
+
+
+def stable_image_signature(image: QImage) -> str:
+    normalized = image.convertToFormat(QImage.Format.Format_RGBA8888)
+    bits = normalized.constBits()
+    bits.setsize(normalized.sizeInBytes())
+    digest = hashlib.sha1(bytes(bits)).hexdigest()
+    return f"{normalized.width()}x{normalized.height()}:{digest}"
 
 
 class PopupNumberFilter(QAbstractNativeEventFilter):
@@ -33,16 +69,17 @@ class ClipboardMiniPopup(QDialog):
     number_selected = pyqtSignal(int)
 
     def __init__(self, parent: QWidget, items: list[dict]) -> None:
-        super().__init__(parent)
+        super().__init__(None)
         self.items = items
         self.number_filter = PopupNumberFilter(self)
         self.registered_number_hotkeys: list[int] = []
+        self.previous_hwnd = 0
         self._closing = False
         self.setWindowTitle("클립보드")
+        self.setWindowFlag(Qt.WindowType.Tool, True)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-        self.setWindowModality(Qt.WindowModality.ApplicationModal)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setFixedWidth(360)
+        self.setFixedWidth(430)
         self.number_selected.connect(self.copy_by_number)
 
         layout = QVBoxLayout(self)
@@ -71,17 +108,22 @@ class ClipboardMiniPopup(QDialog):
         hint = QLabel("1~5번 단축키를 누르면 바로 복사됩니다.")
         hint.setObjectName("mutedText")
         close_btn = QPushButton("닫기")
+        close_btn.setFixedWidth(72)
         close_btn.clicked.connect(self.accept)
         footer.addWidget(hint, 1)
         footer.addWidget(close_btn)
         layout.addLayout(footer)
 
-        visible_rows = min(max(len(self.items), 1), 7)
-        self.setFixedHeight(54 + visible_rows * 34)
+        visible_rows = min(max(len(self.items), 1), 5)
+        self.setFixedHeight(58 + visible_rows * 36)
         self.start_number_hotkeys()
         QTimer.singleShot(0, self.activate_popup)
 
     def activate_popup(self) -> None:
+        try:
+            self.previous_hwnd = int(USER32.GetForegroundWindow())
+        except Exception:
+            self.previous_hwnd = 0
         cursor = QCursor.pos()
         screen = QApplication.screenAt(cursor) or QApplication.primaryScreen()
         if screen:
@@ -130,6 +172,7 @@ class ClipboardMiniPopup(QDialog):
     def _item_row(self, index: int, item: dict) -> QWidget:
         row = QWidget()
         row.setObjectName("card")
+        row.setFixedHeight(33)
         layout = QHBoxLayout(row)
         layout.setContentsMargins(6, 3, 6, 3)
         layout.setSpacing(6)
@@ -138,15 +181,30 @@ class ClipboardMiniPopup(QDialog):
         number.setObjectName("kbd")
         number.setAlignment(Qt.AlignmentFlag.AlignCenter)
         number.setFixedWidth(24)
-        text = QLabel(short_preview(item.get("text", ""), 55))
+        if is_image_item(item):
+            thumb = QLabel()
+            thumb.setFixedSize(MINI_IMAGE_THUMB_SIZE, MINI_IMAGE_THUMB_SIZE)
+            thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            pixmap = QPixmap(str(image_path(item)))
+            if not pixmap.isNull():
+                thumb.setPixmap(pixmap.scaled(MINI_IMAGE_THUMB_SIZE, MINI_IMAGE_THUMB_SIZE, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            else:
+                thumb.setText("이미지")
+            text = QLabel(display_copied_at(item.get("copied_at", "")))
+            text.setToolTip(display_copied_at(item.get("copied_at", "")))
+        else:
+            text = QLabel(short_preview(item.get("text", ""), 70))
+            text.setToolTip(item.get("text", ""))
         text.setWordWrap(False)
-        text.setFixedWidth(230)
-        text.setToolTip(item.get("text", ""))
+        text.setMinimumWidth(0)
+        text.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         copy_btn = QPushButton("복사")
-        copy_btn.setFixedWidth(48)
+        copy_btn.setFixedSize(MINI_COPY_BUTTON_WIDTH, MINI_COPY_BUTTON_HEIGHT)
         copy_btn.clicked.connect(lambda checked=False, value=item: self.copy_and_close(value))
 
         layout.addWidget(number)
+        if is_image_item(item):
+            layout.addWidget(thumb)
         layout.addWidget(text, 1)
         layout.addWidget(copy_btn)
         return row
@@ -169,12 +227,21 @@ class ClipboardMiniPopup(QDialog):
         if self._closing:
             return
         self._closing = True
-        QApplication.clipboard().setText(item.get("text", ""))
+        copy_to_clipboard(item)
         self.accept()
 
     def done(self, result: int) -> None:
         self.stop_number_hotkeys()
         super().done(result)
+        self.restore_previous_window()
+
+    def restore_previous_window(self) -> None:
+        if not self.previous_hwnd:
+            return
+        try:
+            USER32.SetForegroundWindow(self.previous_hwnd)
+        except Exception:
+            pass
 
     def closeEvent(self, event) -> None:
         self.stop_number_hotkeys()
@@ -201,10 +268,16 @@ class ClipboardTab(QWidget):
         self.watcher = ClipboardWatcher()
         self.watcher.new_item.connect(self.add_history)
         self.watcher.start()
+        self.last_image_signature = ""
+        self.ignore_next_image = False
+        self.image_timer = QTimer(self)
+        self.image_timer.timeout.connect(self.check_image_clipboard)
+        self.image_timer.start(700)
 
     def stop(self) -> None:
         self.watcher.stop()
         self.watcher.wait(1000)
+        self.image_timer.stop()
 
     def add_history(self, text: str) -> None:
         items = self.history.setdefault("history", [])
@@ -214,6 +287,7 @@ class ClipboardTab(QWidget):
             0,
             {
                 "id": new_id("cb"),
+                "type": "text",
                 "text": text,
                 "copied_at": now_iso(),
                 "created_at": now_iso(),
@@ -229,28 +303,87 @@ class ClipboardTab(QWidget):
         config.save_clipboard_history(self.history)
         self.refresh()
 
+    def check_image_clipboard(self) -> None:
+        clipboard = QApplication.clipboard()
+        mime = clipboard.mimeData()
+        if not mime or not mime.hasImage():
+            return
+        if self.ignore_next_image:
+            self.ignore_next_image = False
+            return
+        image = clipboard.image()
+        if image.isNull():
+            return
+        signature = stable_image_signature(image)
+        if signature == self.last_image_signature:
+            return
+        self.last_image_signature = signature
+        if self.history.get("history") and self.history["history"][0].get("image_signature") == signature:
+            return
+        self.add_image_history(image, signature)
+
+    def add_image_history(self, image: QImage, signature: str) -> None:
+        items = self.history.setdefault("history", [])
+        item_id = new_id("cbimg")
+        config.CLIPBOARD_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+        path = config.CLIPBOARD_IMAGE_DIR / f"{item_id}.png"
+        if not image.save(str(path), "PNG"):
+            return
+        copied_at = now_iso()
+        items.insert(
+            0,
+            {
+                "id": item_id,
+                "type": "image",
+                "path": str(path),
+                "copied_at": copied_at,
+                "created_at": copied_at,
+                "sort_order": len(items),
+                "usage_count": 0,
+                "pinned": False,
+                "image_signature": signature,
+                "width": image.width(),
+                "height": image.height(),
+            },
+        )
+        self.trim_history()
+        config.save_clipboard_history(self.history)
+        self.refresh()
+
+    def trim_history(self) -> None:
+        items = self.history.setdefault("history", [])
+        limit = int(self.main.data.get("settings", {}).get("clipboard_history_limit", 50))
+        pinned = [item for item in items if item.get("pinned")]
+        unpinned = [item for item in items if not item.get("pinned")][: max(0, limit - len(pinned))]
+        self.history["history"] = pinned + unpinned
+
     def refresh(self) -> None:
         cards = []
         query = self.search.text().strip().lower()
         source_items = self.history.get("history", [])
-        items = self.sort_controls.sort_items(source_items, lambda value: value.get("text", ""))
+        items = self.sort_controls.sort_items(source_items, lambda value: value.get("text") or value.get("copied_at", ""))
         if not self.sort_controls.is_manual():
             items = sorted(items, key=lambda item: not item.get("pinned"))
         for item in items:
-            text = item.get("text", "")
-            if query and query not in text.lower():
+            searchable = item.get("text", "") if not is_image_item(item) else f"이미지 {display_copied_at(item.get('copied_at', ''))}"
+            if query and query not in searchable.lower():
                 continue
-            card = make_card(("📌 " if item.get("pinned") else "") + short_preview(text, 160), "고정됨" if item.get("pinned") else "", single_line=True)
+            if is_image_item(item):
+                card = self.make_image_card(item)
+            else:
+                text = item.get("text", "")
+                card = make_card(("📌 " if item.get("pinned") else "") + short_preview(text, 160), "", single_line=True, card_size="a")
             if item.get("pinned"):
                 card.setStyleSheet("QWidget#card { border: 2px solid #3B6CF5; background: #EEF2FF; }")
-            add_card_actions(
-                card,
-                [
-                    ("copy", "복사", lambda checked=False, value=item: self.copy_item(value), False),
-                    ("pin", "고정/해제", lambda checked=False, value=item: self.toggle_pin(value), False),
-                    ("delete", "삭제", lambda checked=False, value=item: self.delete_item(value), True),
-                ],
-            )
+            if not is_image_item(item):
+                add_card_actions(
+                    card,
+                    [
+                        ("copy", "복사", lambda checked=False, value=item: self.copy_item(value), False),
+                        ("pin", "고정/해제", lambda checked=False, value=item: self.toggle_pin(value), False),
+                        ("delete", "삭제", lambda checked=False, value=item: self.delete_item(value), True),
+                    ],
+                )
             cards.append(card)
         callback = (lambda old, new: self.reorder_items(source_items, items, old, new)) if self.sort_controls.is_manual() else None
         self.list.add_cards(cards, on_reorder=callback)
@@ -262,7 +395,9 @@ class ClipboardTab(QWidget):
 
     def copy_item(self, item: dict) -> None:
         bump_usage(item)
-        QApplication.clipboard().setText(item.get("text", ""))
+        if is_image_item(item):
+            self.ignore_next_image = True
+        copy_to_clipboard(item)
         config.save_clipboard_history(self.history)
         self.refresh()
 
@@ -273,9 +408,69 @@ class ClipboardTab(QWidget):
 
     def delete_item(self, item: dict) -> None:
         self.history.get("history", []).remove(item)
+        if is_image_item(item):
+            try:
+                image_path(item).unlink(missing_ok=True)
+            except Exception:
+                pass
         config.save_clipboard_history(self.history)
         self.refresh()
 
     def show_mini_popup(self) -> None:
         limit = int(self.main.data.get("settings", {}).get("clipboard_history_limit", 50))
         ClipboardMiniPopup(self, self.history.get("history", [])[:limit]).exec()
+
+    def make_image_card(self, item: dict) -> QWidget:
+        card = QWidget()
+        card.setObjectName("card")
+        card.setFixedHeight(72)
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(8)
+        preview = QLabel()
+        preview.setFixedSize(IMAGE_THUMB_SIZE, IMAGE_THUMB_SIZE)
+        preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        pixmap = QPixmap(str(image_path(item)))
+        if not pixmap.isNull():
+            preview.setPixmap(pixmap.scaled(IMAGE_THUMB_SIZE, IMAGE_THUMB_SIZE, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        else:
+            preview.setText("이미지")
+        text_col = QVBoxLayout()
+        text_col.setContentsMargins(0, 0, 0, 0)
+        text_col.setSpacing(2)
+        title = QLabel(("📌 " if item.get("pinned") else "") + "이미지")
+        title.setObjectName("cardTitle")
+        time_label = QLabel(display_copied_at(item.get("copied_at", "")))
+        time_label.setObjectName("cardSubtitle")
+        text_col.addWidget(title)
+        text_col.addWidget(time_label)
+        text_col.addStretch(1)
+        actions = QHBoxLayout()
+        actions.setContentsMargins(0, 0, 0, 0)
+        copy_btn = QPushButton("복사")
+        copy_btn.setFixedWidth(54)
+        copy_btn.clicked.connect(lambda checked=False, value=item: self.copy_item(value))
+        pin_btn = QPushButton("★")
+        pin_btn.setFixedWidth(30)
+        pin_btn.clicked.connect(lambda checked=False, value=item: self.toggle_pin(value))
+        delete_btn = QPushButton("✕")
+        delete_btn.setFixedWidth(30)
+        delete_btn.setStyleSheet("color: #D7263D; font-weight: 900;")
+        delete_btn.clicked.connect(lambda checked=False, value=item: self.delete_item(value))
+        actions.addWidget(copy_btn)
+        actions.addWidget(pin_btn)
+        actions.addWidget(delete_btn)
+        layout.addWidget(preview)
+        layout.addLayout(text_col, 1)
+        layout.addLayout(actions)
+        return card
+
+
+def copy_to_clipboard(item: dict) -> None:
+    clipboard = QApplication.clipboard()
+    if is_image_item(item):
+        image = QImage(str(image_path(item)))
+        if not image.isNull():
+            clipboard.setImage(image)
+        return
+    clipboard.setText(item.get("text", ""))

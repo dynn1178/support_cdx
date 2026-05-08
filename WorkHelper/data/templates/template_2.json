@@ -1,8 +1,8 @@
 {
   "meta": {
-    "preset_name": "기본 프리셋",
+    "preset_name": "프리셋 2",
     "version": "1.0.0",
-    "saved_at": "2026-05-07T17:48:37"
+    "saved_at": "2026-05-08T17:02:59"
   },
   "phrases": [
     {
@@ -51,7 +51,8 @@
       "browser_path": "",
       "hotkey": null,
       "sort_order": 0,
-      "usage_count": 0
+      "usage_count": 0,
+      "path": ""
     },
     {
       "id": "ln_sample_file",
@@ -122,11 +123,41 @@
       "id": "mm_sample",
       "title": "메모 제목",
       "content": "내용",
-      "pinned": false,
-      "created_at": "2026-05-07T02:57:51",
-      "updated_at": "2026-05-07T02:57:51",
+      "pinned": true,
+      "created_at": "2026-05-08T14:40:46",
+      "updated_at": "2026-05-08T14:40:46",
       "sort_order": 0,
       "usage_count": 0
+    },
+    {
+      "id": "mm_21e72f7f67",
+      "created_at": "2026-05-08T15:09:24",
+      "sort_order": 1,
+      "usage_count": 1,
+      "title": "asd",
+      "content": "asdasd",
+      "pinned": false,
+      "always_on_top": true,
+      "background": "노랑",
+      "updated_at": "2026-05-08T15:09:46",
+      "sticker_open": false,
+      "opacity": 95,
+      "width": 301,
+      "height": 230,
+      "x": 2117,
+      "y": 544
+    },
+    {
+      "id": "mm_f60bb12cb2",
+      "created_at": "2026-05-08T15:26:19",
+      "sort_order": 2,
+      "usage_count": 0,
+      "title": "122222",
+      "content": "",
+      "pinned": true,
+      "always_on_top": true,
+      "background": "노랑",
+      "updated_at": "2026-05-08T15:26:24"
     }
   ],
   "schedules": [
@@ -142,6 +173,26 @@
       "usage_count": 0
     }
   ],
+  "hotstrings": [
+    {
+      "id": "hs_sample",
+      "trigger": "GR.",
+      "text": "안녕하세요~",
+      "case_sensitive": false,
+      "created_at": "2026-05-08T14:40:46",
+      "sort_order": 0,
+      "usage_count": 25
+    },
+    {
+      "trigger": "gg.",
+      "text": "google.com",
+      "case_sensitive": false,
+      "id": "hs_f4a0b133dc",
+      "created_at": "2026-05-08T16:59:03",
+      "sort_order": 1,
+      "usage_count": 3
+    }
+  ],
   "title_templates": [
     {
       "id": "tt_sample",
@@ -151,5 +202,10 @@
       "sort_order": 0,
       "usage_count": 0
     }
+  ],
+  "phrase_popup_favorites": [
+    "sn_sample",
+    "tt_sample",
+    "ph_sample"
   ]
 }

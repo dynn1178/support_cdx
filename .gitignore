@@ -6,3 +6,4 @@ WorkHelper/dist/
 WorkHelper/build/build/
 WorkHelper/build/dist/
 WorkHelper/*.spec.bak
+*.png

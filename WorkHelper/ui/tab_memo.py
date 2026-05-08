@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, time as dt_time, timedelta
 
 from PyQt6.QtCore import QDateTime, QPoint, QTime, QTimer, Qt
-from PyQt6.QtGui import QTextCharFormat, QColor
+from PyQt6.QtGui import QTextCharFormat, QColor, QPainter, QPen, QPolygon
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -13,7 +13,6 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLabel,
-    QMessageBox,
     QPushButton,
     QSizeGrip,
     QSlider,
@@ -26,7 +25,7 @@ from PyQt6.QtWidgets import (
 
 from app import config
 from app.utils import new_id, now_iso, short_preview
-from ui.common import GridPanel, SortControls, add_card_actions, apply_manual_reorder, bump_usage, make_card
+from ui.common import GridPanel, SortControls, add_card_actions, apply_manual_reorder, apply_modern_dialog_style, bump_usage, make_card, make_icon_button, show_modern_warning
 
 
 MEMO_COLORS = {
@@ -52,6 +51,23 @@ def display_datetime(value: str, repeat: str = "none") -> str:
     return f"{text} ({repeat_label})" if repeat_label else text
 
 
+class CornerGrip(QSizeGrip):
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        color = QColor(47, 42, 20, 75)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        points = [
+            self.rect().bottomRight(),
+            self.rect().bottomLeft() + QPoint(self.width() // 2, 0),
+            self.rect().topRight() + QPoint(0, self.height() // 2),
+        ]
+        painter.drawPolygon(QPolygon(points))
+        painter.setPen(QPen(QColor(255, 255, 255, 130), 1))
+        painter.drawLine(self.width() - 12, self.height() - 3, self.width() - 3, self.height() - 12)
+
+
 class StickyMemoDialog(QDialog):
     def __init__(self, memo: dict, main=None, on_saved=None) -> None:
         super().__init__()
@@ -67,13 +83,17 @@ class StickyMemoDialog(QDialog):
         if memo.get("always_on_top", True):
             self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
-        layout.setSpacing(4)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        self.drag_bar = QLabel("")
+        self.drag_bar.setFixedHeight(12)
+        layout.addWidget(self.drag_bar)
         self.text = QTextEdit(memo.get("content", ""))
         self.text.textChanged.connect(self.schedule_save)
         layout.addWidget(self.text, 1)
         controls = QHBoxLayout()
-        controls.setContentsMargins(0, 0, 0, 0)
+        controls.setContentsMargins(6, 2, 6, 4)
+        controls.setSpacing(3)
         self.always_on_top = QCheckBox("항상 위")
         self.always_on_top.setChecked(bool(memo.get("always_on_top", True)))
         self.always_on_top.toggled.connect(self.toggle_always_on_top)
@@ -82,15 +102,18 @@ class StickyMemoDialog(QDialog):
         self.color.setCurrentText(memo.get("background", "노랑") if memo.get("background", "노랑") in MEMO_COLORS else "노랑")
         self.color.currentTextChanged.connect(self.apply_color)
         self.color.currentTextChanged.connect(self.schedule_save)
+        self.color.setFixedWidth(58)
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setRange(40, 100)
         self.slider.setValue(int(memo.get("opacity", 95)))
-        self.slider.setFixedWidth(110)
+        self.slider.setFixedWidth(64)
         self.slider.valueChanged.connect(lambda value: self.setWindowOpacity(value / 100))
         self.slider.valueChanged.connect(self.schedule_save)
-        self.close_button = QPushButton("X")
+        self.close_button = QPushButton("×")
+        self.close_button.setFixedSize(26, 22)
         self.close_button.clicked.connect(self.accept)
-        self.grip = QSizeGrip(self)
+        self.grip = CornerGrip(self)
+        self.grip.setFixedSize(18, 18)
         controls.addWidget(self.always_on_top)
         controls.addWidget(self.color)
         controls.addStretch(1)
@@ -102,15 +125,23 @@ class StickyMemoDialog(QDialog):
         self.setWindowOpacity(self.slider.value() / 100)
         self.set_controls_visible(False)
         self.resize(int(memo.get("width", 300)), int(memo.get("height", 240)))
+        if "x" in memo and "y" in memo:
+            self.move(int(memo.get("x", 0)), int(memo.get("y", 0)))
+        self.memo["sticker_open"] = True
 
     def apply_color(self, *_args) -> None:
         color = MEMO_COLORS.get(self.color.currentText(), "#FFF9C4")
         self.setStyleSheet(
             f"""
             QDialog {{ background: {color}; border: 1px solid #B8B08A; }}
+            QLabel {{ background: rgba(0,0,0,22); }}
             QTextEdit {{ background: transparent; border: 0; color: #2F2A14; padding: 6px; }}
-            QPushButton {{ background: rgba(255,255,255,190); border: 1px solid #B8B08A; border-radius: 4px; padding: 3px 7px; }}
-            QCheckBox, QComboBox {{ background: transparent; color: #2F2A14; }}
+            QPushButton {{ background: transparent; border: 0; color: #2F2A14; font-weight: 900; padding: 0; font-size: 15pt; }}
+            QCheckBox, QComboBox {{ background: transparent; color: #2F2A14; border: 0; }}
+            QComboBox::drop-down {{ border: 0; width: 0; }}
+            QSlider {{ background: transparent; }}
+            QSlider::groove:horizontal {{ height: 3px; background: rgba(47,42,20,70); border-radius: 2px; }}
+            QSlider::handle:horizontal {{ background: #2F2A14; width: 8px; margin: -4px 0; border-radius: 4px; }}
             """
         )
 
@@ -143,7 +174,7 @@ class StickyMemoDialog(QDialog):
         self.set_controls_visible(False)
 
     def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton and not self.text.geometry().contains(event.position().toPoint()):
+        if event.button() == Qt.MouseButton.LeftButton and event.position().y() <= self.drag_bar.height() + 4:
             self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
         super().mousePressEvent(event)
 
@@ -154,6 +185,7 @@ class StickyMemoDialog(QDialog):
 
     def mouseReleaseEvent(self, event) -> None:
         self.drag_position = None
+        self.schedule_save()
         super().mouseReleaseEvent(event)
 
     def persist(self) -> None:
@@ -163,6 +195,9 @@ class StickyMemoDialog(QDialog):
         self.memo["opacity"] = self.slider.value()
         self.memo["width"] = self.width()
         self.memo["height"] = self.height()
+        self.memo["x"] = self.x()
+        self.memo["y"] = self.y()
+        self.memo["sticker_open"] = bool(self.memo.get("sticker_open", self.isVisible()))
         self.memo["updated_at"] = now_iso()
         if self.main is not None:
             config.save_template(self.main.template_index, self.main.data)
@@ -170,6 +205,7 @@ class StickyMemoDialog(QDialog):
             self.on_saved()
 
     def accept(self) -> None:
+        self.memo["sticker_open"] = False
         self.persist()
         super().accept()
 
@@ -182,12 +218,14 @@ class MemoDialog(QDialog):
     def __init__(self, memo: dict | None = None) -> None:
         super().__init__()
         self.setWindowTitle("메모")
+        apply_modern_dialog_style(self)
         self.memo = memo or {}
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.title = QLineEdit(self.memo.get("title", ""))
         self.content = QTextEdit(self.memo.get("content", ""))
-        self.pinned = QCheckBox("목록에서 고정")
+        self.pinned = QCheckBox("메모 목록 상단에 고정")
+        self.pinned.setToolTip("체크하면 메모 탭 목록에서 이 메모가 위쪽에 먼저 표시됩니다.")
         self.pinned.setChecked(bool(self.memo.get("pinned")))
         self.always_on_top = QCheckBox("스티커 항상 위")
         self.always_on_top.setChecked(bool(self.memo.get("always_on_top", True)))
@@ -231,6 +269,7 @@ class ScheduleDialog(QDialog):
     def __init__(self, schedule: dict | None = None) -> None:
         super().__init__()
         self.setWindowTitle("일정")
+        apply_modern_dialog_style(self)
         self.schedule = schedule or {}
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 14, 14, 12)
@@ -387,18 +426,31 @@ class MemoListTab(QWidget):
         if not self.sort_controls.is_manual():
             memos = sorted(memos, key=lambda item: not item.get("pinned"))
         for memo in memos:
-            card = make_card(memo.get("title", "(제목 없음)"), short_preview(memo.get("content", ""), 160))
-            add_card_actions(
-                card,
-                [
-                    ("sticker", "스티커", lambda checked=False, value=memo: self.show_sticker(value), False),
-                    ("edit", "수정", lambda checked=False, value=memo: self.edit_memo(value), False),
-                    ("delete", "삭제", lambda checked=False, value=memo: self.delete_memo(value), True),
-                ],
-            )
+            card = make_card(memo.get("title", "(제목 없음)"), short_preview(memo.get("content", ""), 160), card_size="b")
+            self.add_memo_actions(card, memo)
             cards.append(card)
         callback = (lambda old, new: self.reorder_items(source_items, memos, old, new)) if self.sort_controls.is_manual() else None
         self.grid.add_cards(cards, on_reorder=callback)
+
+    def add_memo_actions(self, card: QWidget, memo: dict) -> None:
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 2, 0, 0)
+        row.addStretch(1)
+        pin = make_icon_button("pin", "목록 상단 고정/해제", lambda checked=False, value=memo: self.toggle_pin(value, pin))
+        if memo.get("pinned"):
+            pin.setStyleSheet("QToolButton#iconButton { color: #F5B301; font-size: 13pt; font-weight: 900; }")
+        row.addWidget(pin)
+        row.addWidget(make_icon_button("sticker", "스티커", lambda checked=False, value=memo: self.show_sticker(value)))
+        row.addWidget(make_icon_button("edit", "수정", lambda checked=False, value=memo: self.edit_memo(value)))
+        row.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=memo: self.delete_memo(value), True))
+        card.layout().addLayout(row)
+
+    def toggle_pin(self, memo: dict, button: QWidget | None = None) -> None:
+        memo["pinned"] = not bool(memo.get("pinned"))
+        if button is not None:
+            color = "#F5B301" if memo.get("pinned") else "#A3A8B3"
+            button.setStyleSheet(f"QToolButton#iconButton {{ color: {color}; font-size: 13pt; font-weight: 900; }}")
+        self.main.save_data()
 
     def reorder_items(self, source: list[dict], visible: list[dict], old: int, new: int) -> None:
         apply_manual_reorder(source, visible, old, new)
@@ -423,7 +475,7 @@ class MemoListTab(QWidget):
         while dialog.exec() == dialog.DialogCode.Accepted:
             value = dialog.value()
             if not value.get("title"):
-                QMessageBox.warning(dialog, "입력 확인", "이름을 지정해주세요.")
+                show_modern_warning(dialog, "입력 확인", "이름을 지정해주세요.")
                 continue
             items = self.main.data.setdefault("memos", [])
             if memo in items:
@@ -465,7 +517,7 @@ class ScheduleListTab(QWidget):
         visible_items = self.sort_controls.sort_items(source_items, lambda item: item.get("title") or item.get("memo", ""))
         for schedule in visible_items:
             subtitle = f"{display_datetime(schedule.get('datetime', ''), schedule.get('repeat', 'none'))}\n{short_preview(schedule.get('memo', ''), 120)}"
-            card = make_card(schedule.get("title", "(제목 없음)"), subtitle)
+            card = make_card(schedule.get("title", "(제목 없음)"), subtitle, card_size="b")
             add_card_actions(
                 card,
                 [
@@ -486,7 +538,7 @@ class ScheduleListTab(QWidget):
         while dialog.exec() == dialog.DialogCode.Accepted:
             value = dialog.value()
             if not value.get("title"):
-                QMessageBox.warning(dialog, "입력 확인", "이름을 지정해주세요.")
+                show_modern_warning(dialog, "입력 확인", "이름을 지정해주세요.")
                 continue
             items = self.main.data.setdefault("schedules", [])
             if schedule in items:

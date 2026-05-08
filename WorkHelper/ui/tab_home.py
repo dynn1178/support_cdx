@@ -14,7 +14,7 @@ class HomeTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.summary = GridPanel(columns=4)
-        self.summary.setFixedHeight(132)
+        self.summary.setFixedHeight(126)
         self.summary.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.hotkeys = GridPanel(columns=2)
         label = QLabel("등록된 단축키")
@@ -35,7 +35,7 @@ class HomeTab(QWidget):
             ("메모", len(data.get("memos", [])), "빠른 메모"),
             ("일정", len(data.get("schedules", [])), "알림"),
         ]
-        self.summary.add_cards([make_card(name, f"{count}개 · {desc}", compact=True) for name, count, desc in stats])
+        self.summary.add_cards([make_card(name, f"{count}개 · {desc}", compact=True, card_height=48) for name, count, desc in stats])
 
         hotkey_cards = []
         sections = [
@@ -50,11 +50,11 @@ class HomeTab(QWidget):
             for item in items:
                 key = display_hotkey(item.get("hotkey"))
                 if key:
-                    hotkey_cards.append(make_card(short_preview(content(item), 90), "", key, single_line=True))
+                    hotkey_cards.append(make_card(short_preview(content(item), 90), "", key, single_line=True, compact=True, card_height=46))
 
         popup_label = self.main.clipboard_popup_shortcut_label()
         if popup_label:
-            hotkey_cards.append(make_card("최근 복사 이력 미니팝업", "", popup_label, single_line=True))
+            hotkey_cards.append(make_card("최근 복사 이력 미니팝업", "", popup_label, single_line=True, compact=True, card_height=46))
         if not hotkey_cards:
-            hotkey_cards.append(make_card("등록된 단축키 없음", "각 기능 화면에서 단축키를 지정할 수 있습니다."))
+            hotkey_cards.append(make_card("등록된 단축키 없음", "각 기능 화면에서 단축키를 지정할 수 있습니다.", compact=True, card_height=56))
         self.hotkeys.add_cards(hotkey_cards)

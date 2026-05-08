@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPushButton,
     QTabWidget,
     QVBoxLayout,
@@ -25,7 +24,7 @@ from PyQt6.QtWidgets import (
 
 from app import config
 from app.utils import display_hotkey, new_id, now_iso, short_preview
-from ui.common import GridPanel, HotkeyFields, SortControls, apply_manual_reorder, bump_usage, confirm_shift_digit_hotkey, make_card, make_icon_button
+from ui.common import GridPanel, HotkeyFields, SortControls, apply_manual_reorder, apply_modern_dialog_style, ask_modern_question, bump_usage, confirm_shift_digit_hotkey, make_card, make_icon_button, show_modern_warning
 
 
 TYPE_LABELS = {"site": "사이트", "file": "파일", "folder": "폴더"}
@@ -40,6 +39,7 @@ class LauncherDialog(QDialog):
     def __init__(self, item: dict | None = None, launcher_type_value: str = "site") -> None:
         super().__init__()
         self.setWindowTitle("바로가기 편집")
+        apply_modern_dialog_style(self)
         self.setMinimumWidth(460)
         self.item = item or {"type": launcher_type_value}
         layout = QVBoxLayout(self)
@@ -192,7 +192,7 @@ class LauncherTab(QWidget):
         file_items = []
         for item in items:
             item_type = launcher_type(item.get("type"))
-            card = make_card(item.get("name", "(이름 없음)"), item.get("description", "") or short_preview(item.get("url") or item.get("path", "")), display_hotkey(item.get("hotkey")))
+            card = make_card(item.get("name", "(이름 없음)"), item.get("description", "") or short_preview(item.get("url") or item.get("path", "")), display_hotkey(item.get("hotkey")), card_size="b")
             self.add_launcher_actions(card, item)
             if item_type == "site":
                 site_items.append(item)
@@ -254,29 +254,39 @@ class LauncherTab(QWidget):
 
             path = item.get("path", "")
             if not path or not Path(path).exists():
-                QMessageBox.warning(self, "실행 실패", f"경로를 찾을 수 없습니다.\n{path}")
+                show_modern_warning(self, "실행 실패", f"경로를 찾을 수 없습니다.\n{path}")
                 return
             os.startfile(path)
             self.save_usage_only()
         except Exception as exc:
-            QMessageBox.warning(self, "실행 실패", str(exc))
+            show_modern_warning(self, "실행 실패", str(exc))
 
     def edit_launcher(self, item: dict | None = None) -> None:
         dialog = LauncherDialog(item)
         while dialog.exec() == dialog.DialogCode.Accepted:
             value = dialog.value()
             if not value.get("name"):
-                QMessageBox.warning(dialog, "입력 확인", "이름을 지정해주세요.")
+                show_modern_warning(dialog, "입력 확인", "이름을 지정해주세요.")
                 continue
             if value.get("type") == "site" and not value.get("url"):
-                QMessageBox.warning(dialog, "입력 확인", "URL을 지정해주세요.")
+                show_modern_warning(dialog, "입력 확인", "URL을 지정해주세요.")
                 continue
             if value.get("type") in {"file", "folder"} and not value.get("path"):
-                QMessageBox.warning(dialog, "입력 확인", "경로를 지정해주세요.")
+                show_modern_warning(dialog, "입력 확인", "경로를 지정해주세요.")
                 continue
+            if value.get("type") == "site" and (value.get("username") or value.get("password")):
+                if not ask_modern_question(
+                    dialog,
+                    "계정 정보 저장 주의",
+                    "입력한 아이디와 비밀번호는 별도 보안 작업 없이 저장됩니다.\n개인 계정 입력은 피하고 공용 계정 정보만 입력해주세요.\n\n그래도 등록할까요?",
+                    None,
+                    "등록",
+                    "취소",
+                ):
+                    continue
             conflict = self.main.first_hotkey_conflict(candidate=value, original=item)
             if conflict:
-                QMessageBox.warning(dialog, "단축키 충돌", conflict)
+                show_modern_warning(dialog, "단축키 충돌", conflict)
                 continue
             if not confirm_shift_digit_hotkey(dialog, value.get("hotkey")):
                 continue
@@ -294,7 +304,7 @@ class LauncherTab(QWidget):
             return
 
     def delete_launcher(self, item: dict) -> None:
-        if QMessageBox.question(self, "삭제", "선택한 바로가기를 삭제할까요?") != QMessageBox.StandardButton.Yes:
+        if not ask_modern_question(self, "삭제", "선택한 바로가기를 삭제할까요?", None, "삭제", "취소"):
             return
         self.main.data.get("launchers", []).remove(item)
         self.main.save_data()

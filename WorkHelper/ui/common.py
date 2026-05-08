@@ -23,7 +23,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-HOTKEY_KEYS = [str(i) for i in range(1, 10)] + ["0"] + [chr(i) for i in range(ord("A"), ord("Z") + 1)] + [f"F{i}" for i in range(1, 13)]
+from app.theme import THEMES
+
+HOTKEY_KEYS = [str(i) for i in range(1, 10)] + ["0"] + [";"] + [chr(i) for i in range(ord("A"), ord("Z") + 1)] + [f"F{i}" for i in range(1, 13)]
+DIALOG_THEME = "light"
+CARD_SIZE_A = 72
+CARD_SIZE_B = 108
 
 SORT_MODES = [
     ("등록", "created"),
@@ -38,12 +43,12 @@ SORT_ORDERS = [
 ACTION_ICONS = {
     "copy": "📋",
     "edit": "✏️",
-    "delete": "🗑️",
+    "delete": "✕",
     "play": "▶️",
     "view": "🔍",
-    "pin": "📌",
+    "pin": "★",
     "open": "↗️",
-    "sticker": "📝",
+    "sticker": "🗒️",
     "history": "📜",
 }
 
@@ -96,13 +101,31 @@ class ElidedMultilineLabel(QLabel):
             self.setText(text)
 
 
-def make_card(title: str, subtitle: str = "", hotkey: str = "", single_line: bool = False, hotkey_color: str = "", compact: bool = False) -> QWidget:
+def make_card(
+    title: str,
+    subtitle: str = "",
+    hotkey: str = "",
+    single_line: bool = False,
+    hotkey_color: str = "",
+    compact: bool = False,
+    card_height: int | None = None,
+    card_size: str | None = None,
+) -> QWidget:
     card = QWidget()
     card.setObjectName("card")
     card.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+    if card_size == "a":
+        card_height = CARD_SIZE_A
+        compact = True
+    elif card_size == "b":
+        card_height = CARD_SIZE_B
+        compact = False
+    elif card_height is None:
+        card_height = 56 if compact else CARD_SIZE_B
+    card.setFixedHeight(card_height)
     layout = QVBoxLayout(card)
-    layout.setContentsMargins(10, 6, 10, 6) if compact else layout.setContentsMargins(12, 10, 12, 10)
-    layout.setSpacing(4 if compact else 8)
+    layout.setContentsMargins(10, 6, 10, 6) if compact else layout.setContentsMargins(12, 8, 12, 10)
+    layout.setSpacing(4 if compact else 6)
     row = QHBoxLayout()
     row.setSpacing(10)
     title_label = ElidedLabel(title) if single_line else QLabel(title)
@@ -110,14 +133,28 @@ def make_card(title: str, subtitle: str = "", hotkey: str = "", single_line: boo
     title_label.setWordWrap(not single_line)
     title_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
     title_label.setMinimumWidth(0)
+    title_label.setFixedHeight(22)
     title_label.setToolTip(title)
     row.addWidget(title_label, 1)
-    if hotkey:
-        row.addWidget(make_hotkey_caps(hotkey, hotkey_color))
+    reserve_hotkey = bool(hotkey) or card_size in {"a", "b"}
+    if reserve_hotkey:
+        hotkey_slot = QWidget()
+        hotkey_slot.setObjectName("hotkeySlot")
+        hotkey_slot.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        hotkey_slot.setFixedSize(150, 22)
+        hotkey_slot.setStyleSheet("QWidget#hotkeySlot { background: transparent; border: 0; }")
+        hotkey_layout = QHBoxLayout(hotkey_slot)
+        hotkey_layout.setContentsMargins(0, 0, 0, 0)
+        hotkey_layout.setSpacing(0)
+        hotkey_layout.addStretch(1)
+        if hotkey:
+            hotkey_layout.addWidget(make_hotkey_caps(hotkey, hotkey_color))
+        row.addWidget(hotkey_slot)
     layout.addLayout(row)
-    if subtitle:
+    if subtitle or card_size == "b":
         sub = ElidedMultilineLabel(subtitle, max_lines=1 if compact else 2)
         sub.setObjectName("cardSubtitle")
+        sub.setFixedHeight(18 if compact else 24)
         layout.addWidget(sub)
     return card
 
@@ -135,7 +172,7 @@ def make_hotkey_caps(hotkey: str, hotkey_color: str = "") -> QWidget:
         cap.setObjectName("keyCap")
         cap.setAlignment(Qt.AlignmentFlag.AlignCenter)
         cap.setFixedHeight(20)
-        cap.setMinimumWidth(18)
+        cap.setFixedWidth(max(24, cap.fontMetrics().horizontalAdvance(part) + 14))
         cap.setContentsMargins(0, 0, 0, 0)
         if hotkey_color:
             cap.setStyleSheet(f"QLabel#keyCap {{ background: {hotkey_color}; color: #1F2937; border-color: rgba(31, 41, 55, 0.25); }}")
@@ -167,8 +204,123 @@ def make_icon_button(text: str, tooltip: str, callback, danger: bool = False) ->
     button.setText(ACTION_ICONS.get(text, text))
     button.setToolTip(tooltip)
     button.setFixedSize(QSize(30, 28))
+    if text == "pin":
+        button.setStyleSheet("QToolButton#iconButton { color: #A3A8B3; font-size: 13pt; font-weight: 900; }")
+    if danger:
+        button.setStyleSheet("QToolButton#dangerIconButton { color: #D7263D; font-size: 14pt; font-weight: 900; }")
     button.clicked.connect(callback)
     return button
+
+
+def dialog_palette(parent: QWidget | None, accent: str | None = None) -> dict[str, str]:
+    widget = parent
+    while widget is not None:
+        main = getattr(widget, "main", None)
+        if main is not None and hasattr(main, "settings"):
+            colors = dict(THEMES.get(main.settings.get("theme", "light"), THEMES["light"]))
+            if accent:
+                colors["accent"] = accent
+            return colors
+        if hasattr(widget, "settings"):
+            colors = dict(THEMES.get(widget.settings.get("theme", "light"), THEMES["light"]))
+            if accent:
+                colors["accent"] = accent
+            return colors
+        parent_obj = widget.parent()
+        widget = parent_obj if isinstance(parent_obj, QWidget) else None
+    colors = dict(THEMES.get(DIALOG_THEME, THEMES["light"]))
+    if accent:
+        colors["accent"] = accent
+    return colors
+
+
+def set_dialog_theme(theme: str) -> None:
+    global DIALOG_THEME
+    DIALOG_THEME = theme if theme in THEMES else "light"
+
+
+class ModernInfoDialog(QDialog):
+    def __init__(self, parent: QWidget, title: str, message: str, accent: str | None = None, buttons: tuple[str, ...] = ("확인",)) -> None:
+        super().__init__(parent)
+        colors = dialog_palette(parent, accent)
+        self.choice = ""
+        self.setWindowTitle(title)
+        self.setModal(True)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 14)
+        layout.setSpacing(12)
+        header = QLabel(title)
+        header.setObjectName("modernDialogTitle")
+        message_label = QLabel(message)
+        message_label.setWordWrap(True)
+        message_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        layout.addWidget(header)
+        layout.addWidget(message_label)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        for text in buttons:
+            button = QToolButton()
+            button.setText(text)
+            button.setFixedHeight(32)
+            button.clicked.connect(lambda checked=False, value=text: self.done_with_choice(value))
+            row.addWidget(button)
+        layout.addLayout(row)
+        self.setStyleSheet(
+            f"""
+            QDialog {{ background: {colors["panel"]}; border: 1px solid {colors["border"]}; border-radius: 10px; }}
+            QLabel {{ color: {colors["text"]}; }}
+            QLabel#modernDialogTitle {{ color: {colors["accent"]}; font-size: 14pt; font-weight: 900; }}
+            QToolButton {{ background: {colors["accent"]}; color: white; border: 0; border-radius: 6px; padding: 0 16px; font-weight: 800; }}
+            """
+        )
+        self.resize(360, 170)
+
+    def done_with_choice(self, choice: str) -> None:
+        self.choice = choice
+        self.accept()
+
+
+def show_modern_info(parent: QWidget, title: str, message: str, accent: str | None = None) -> None:
+    ModernInfoDialog(parent, title, message, accent).exec()
+
+
+def show_modern_warning(parent: QWidget, title: str, message: str) -> None:
+    colors = dialog_palette(parent)
+    ModernInfoDialog(parent, title, message, colors.get("danger", "#D7263D")).exec()
+
+
+def ask_modern_question(parent: QWidget, title: str, message: str, accent: str | None = None, yes_text: str = "확인", no_text: str = "취소") -> bool:
+    dialog = ModernInfoDialog(parent, title, message, accent, (no_text, yes_text))
+    dialog.exec()
+    return dialog.choice == yes_text
+
+
+def apply_modern_dialog_style(dialog: QDialog, accent: str = "#3B6CF5") -> None:
+    colors = dialog_palette(dialog, accent)
+    dialog.setStyleSheet(
+        f"""
+        QDialog {{ background: {colors["panel"]}; }}
+        QLineEdit, QTextEdit, QComboBox, QSpinBox, QDateEdit {{
+            border: 1px solid {colors["border"]};
+            border-radius: 7px;
+            padding: 6px;
+            background: {colors["field"]};
+            color: {colors["text"]};
+        }}
+        QPushButton {{
+            background: {colors["accent"]};
+            color: white;
+            border: 0;
+            border-radius: 7px;
+            padding: 7px 14px;
+            font-weight: 800;
+        }}
+        QPushButton:disabled {{ background: #CBD5E1; }}
+        QLabel {{ color: {colors["text"]}; }}
+        QLabel#cardTitle {{ color: {colors["accent"]}; font-weight: 900; }}
+        """
+    )
 
 
 def add_card_actions(card: QWidget, actions: list[tuple[str, str, object, bool]]) -> None:
@@ -435,6 +587,7 @@ class TextItemDialog(QDialog):
     def __init__(self, title: str, item: dict[str, Any] | None = None, code: bool = False, require_name: bool = True) -> None:
         super().__init__()
         self.setWindowTitle(title)
+        apply_modern_dialog_style(self)
         self.item = item or {}
         self.code = code
         self.require_name = require_name

@@ -19,6 +19,7 @@ DATA_DIR = BASE_DIR / "data"
 TEMPLATE_DIR = DATA_DIR / "templates"
 SETTINGS_PATH = DATA_DIR / "settings.json"
 CLIPBOARD_HISTORY_PATH = DATA_DIR / "clipboard_history.json"
+CLIPBOARD_IMAGE_DIR = DATA_DIR / "clipboard_images"
 VERSION_PATH = BASE_DIR / "version.txt"
 APP_ICON_PATH = BASE_DIR / "assets" / "icons" / "app.ico"
 BUNDLED_ICON_PATH = RESOURCE_DIR / "assets" / "icons" / "app.ico"
@@ -29,11 +30,23 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "clipboard_history_limit": 50,
     "clipboard_popup_hotkey": {"modifiers": ["ctrl", "shift"], "key": "v"},
     "clipboard_popup_double_ctrl": True,
+    "quick_memo_hotkey": {"modifiers": ["ctrl", "alt"], "key": "M"},
+    "quick_memo_double_alt": True,
+    "phrase_popup_hotkey": {"modifiers": ["ctrl"], "key": ";"},
     "hotkeys_enabled": True,
     "auto_update_check": False,
     "auto_update_install": False,
     "startup_with_windows": False,
     "active_preset": 1,
+    "color_presets": [],
+    "color_history": [],
+    "favorite_emojis": [],
+    "recent_emojis": [],
+    "emoji_usage": {},
+    "mouse_highlight_color": "#FFDD33",
+    "mouse_highlight_shape": "원",
+    "mouse_highlight_size": 70,
+    "mouse_highlight_opacity": 50,
 }
 
 
@@ -125,6 +138,17 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
             "last_notified_at": "",
         }
     ],
+    "hotstrings": [
+        {
+            "id": "hs_sample",
+            "trigger": "GR.",
+            "text": "안녕하세요~",
+            "case_sensitive": False,
+            "created_at": now_iso(),
+            "sort_order": 0,
+            "usage_count": 0,
+        }
+    ],
     "title_templates": [
         {
             "id": "tt_sample",
@@ -140,6 +164,7 @@ def ensure_data_files() -> None:
     TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
     (BASE_DIR / "assets" / "images").mkdir(parents=True, exist_ok=True)
     (BASE_DIR / "assets" / "icons").mkdir(parents=True, exist_ok=True)
+    CLIPBOARD_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     copy_bundled_file(RESOURCE_DIR / "assets" / "icons" / "app.ico", APP_ICON_PATH)
     if not VERSION_PATH.exists():
         if not copy_bundled_file(RESOURCE_DIR / "version.txt", VERSION_PATH):
@@ -225,14 +250,13 @@ def merge_template_defaults(data: dict[str, Any]) -> dict[str, Any]:
             merged[key].update(value)
         else:
             merged[key] = value
-    for collection in ["phrases", "snippets", "launchers", "images", "macros", "memos", "schedules"]:
+    for collection in ["phrases", "snippets", "launchers", "images", "macros", "memos", "schedules", "hotstrings", "title_templates", "phrase_popup_favorites"]:
         merged.setdefault(collection, [])
     merged.pop("settings", None)
     meta = merged.setdefault("meta", {})
     if not meta.get("preset_name"):
         meta["preset_name"] = meta.get("template_name") or "프리셋"
     meta.pop("template_name", None)
-    merged.setdefault("title_templates", [])
     return merged
 
 

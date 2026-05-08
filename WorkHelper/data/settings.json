@@ -5,7 +5,7 @@
     "height": 580,
     "always_on_top": false
   },
-  "clipboard_history_limit": 50,
+  "clipboard_history_limit": 30,
   "clipboard_popup_hotkey": {
     "modifiers": [
       "ctrl",
@@ -15,10 +15,55 @@
     "key": "1"
   },
   "clipboard_popup_double_ctrl": true,
+  "quick_memo_hotkey": {
+    "modifiers": [
+      "ctrl",
+      "alt"
+    ],
+    "key": "M"
+  },
+  "quick_memo_double_alt": true,
+  "phrase_popup_hotkey": {
+    "modifiers": [
+      "ctrl"
+    ],
+    "key": ";"
+  },
   "hotkeys_enabled": true,
   "auto_update_check": true,
   "auto_update_install": true,
   "startup_with_windows": true,
   "active_preset": 1,
+  "color_presets": [
+    {
+      "name": "#3B6CF5",
+      "hex": "#3B6CF5",
+      "rgb": "rgb(59, 108, 245)",
+      "hsl": "hsl(224, 90%, 60%)"
+    },
+    {
+      "name": "#FFAA00",
+      "hex": "#FFAA00",
+      "rgb": "rgb(255, 170, 0)",
+      "hsl": "hsl(40, 100%, 50%)"
+    }
+  ],
+  "color_history": [],
+  "favorite_emojis": [],
+  "recent_emojis": [
+    "📌",
+    "📎",
+    "💡",
+    "📝",
+    "📅",
+    "⏰",
+    "📞",
+    "😀"
+  ],
+  "emoji_usage": {},
+  "mouse_highlight_color": "#FF5500",
+  "mouse_highlight_shape": "채워진 원",
+  "mouse_highlight_size": 89,
+  "mouse_highlight_opacity": 45,
   "github_token": ""
 }
