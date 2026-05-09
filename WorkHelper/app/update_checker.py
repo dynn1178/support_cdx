@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -54,7 +55,8 @@ def fetch_latest_update(current_version: str, repo: str | None = None, token: st
         (
             asset
             for asset in assets
-            if str(asset.get("name", "")).lower().endswith(".exe") and "updater" not in str(asset.get("name", "")).lower()
+            if str(asset.get("name", "")).lower().endswith(".exe")
+            and "updater" not in str(asset.get("name", "")).lower()
         ),
         None,
     )
@@ -69,9 +71,34 @@ def fetch_latest_update(current_version: str, repo: str | None = None, token: st
     )
 
 
+def _resolve_updater() -> Path | None:
+    """
+    updater.exe 경로를 반환합니다.
+    1순위: BASE_DIR (exe 옆에 파일로 존재할 때)
+    2순위: _MEIPASS 번들 내부 → 임시 폴더에 추출
+    """
+    # 1) exe 옆에 updater.exe가 있으면 그대로 사용
+    side_by_side = config.BASE_DIR / "updater.exe"
+    if side_by_side.exists():
+        return side_by_side
+
+    # 2) 번들 내부(_MEIPASS)에서 추출
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        bundled = Path(sys._MEIPASS) / "updater.exe"
+        if bundled.exists():
+            tmp = Path(tempfile.gettempdir()) / "6pma_updater.exe"
+            shutil.copy2(str(bundled), str(tmp))
+            return tmp
+
+    return None
+
+
 def can_self_update(update: UpdateInfo) -> bool:
-    updater = config.BASE_DIR / "updater.exe"
-    return bool(getattr(sys, "frozen", False) and updater.exists() and update.download_url and update.asset_name.lower().endswith(".exe"))
+    if not getattr(sys, "frozen", False):
+        return False
+    if not update.download_url or not update.asset_name.lower().endswith(".exe"):
+        return False
+    return _resolve_updater() is not None
 
 
 def download_update(update: UpdateInfo, token: str | None = None) -> Path:
@@ -79,9 +106,9 @@ def download_update(update: UpdateInfo, token: str | None = None) -> Path:
     token_value = token or os.getenv("WORKHELPER_GITHUB_TOKEN", "").strip()
     if token_value:
         headers["Authorization"] = f"Bearer {token_value}"
-    response = requests.get(update.download_url, headers=headers, timeout=60)
+    response = requests.get(update.download_url, headers=headers, timeout=120)
     response.raise_for_status()
-    target = Path(tempfile.gettempdir()) / f"workhelper_update_{update.latest_version}.exe"
+    target = Path(tempfile.gettempdir()) / f"6pma_update_{update.latest_version}.exe"
     target.write_bytes(response.content)
     return target
 
@@ -89,9 +116,9 @@ def download_update(update: UpdateInfo, token: str | None = None) -> Path:
 def install_update(update: UpdateInfo, token: str | None = None) -> None:
     new_path = download_update(update, token)
     current_exe = Path(sys.executable)
-    updater = config.BASE_DIR / "updater.exe"
-    if not updater.exists():
-        raise FileNotFoundError("updater.exe 파일을 찾을 수 없습니다.")
+    updater = _resolve_updater()
+    if not updater:
+        raise FileNotFoundError("updater.exe를 찾을 수 없습니다.")
     subprocess.Popen([str(updater), str(current_exe), str(new_path), str(current_exe)])
     sys.exit(0)
 

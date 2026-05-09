@@ -7,18 +7,16 @@ on:
       - "v*"
 
 permissions:
-  contents: write   # Release 생성 및 assets 업로드에 필요
+  contents: write
 
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
-      # ── 소스 체크아웃 ────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── Python 설정 ──────────────────────────────────────────────
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -26,47 +24,45 @@ jobs:
           cache: "pip"
           cache-dependency-path: WorkHelper/requirements.txt
 
-      # ── 의존성 설치 ──────────────────────────────────────────────
       - name: Install dependencies
         working-directory: WorkHelper
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
-      # ── 메인 앱 빌드 ─────────────────────────────────────────────
+      # updater.exe 먼저 빌드 → 메인 exe 번들에 포함
+      - name: Build updater.exe
+        working-directory: WorkHelper
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build/_updater_dist | Out-Null
+          python -m PyInstaller --clean --noconfirm --onefile --name updater `
+            --distpath build/_updater_dist `
+            --workpath build/_updater_build `
+            updater.py
+
+      # 메인 앱 빌드 (updater.exe 번들 포함)
       - name: Build main exe
         working-directory: WorkHelper
         run: python -m PyInstaller --clean --noconfirm build/WorkHelper.spec
 
-      # ── updater.exe 빌드 ─────────────────────────────────────────
-      - name: Build updater.exe
+      - name: Verify build
         working-directory: WorkHelper
-        run: |
-          python -m PyInstaller --clean --noconfirm --onefile --name updater `
-            --distpath dist `
-            --workpath build/_updater_build `
-            updater.py
-
-      # ── 빌드 결과 확인 ───────────────────────────────────────────
-      - name: Verify build artifacts
-        working-directory: WorkHelper
+        shell: pwsh
         run: |
           if (-not (Test-Path "dist/6PM Assistant.exe")) { throw "메인 exe 없음" }
-          if (-not (Test-Path "dist/updater.exe"))       { throw "updater.exe 없음" }
-          $size = (Get-Item "dist/6PM Assistant.exe").length / 1MB
+          $size = (Get-Item "dist/6PM Assistant.exe").Length / 1MB
           Write-Host ("6PM Assistant.exe: {0:N1} MB" -f $size)
-        shell: pwsh
 
-      # ── 버전 읽기 ────────────────────────────────────────────────
       - name: Read version
         id: ver
         working-directory: WorkHelper
+        shell: pwsh
         run: |
           $v = (Get-Content version.txt -Raw).Trim()
           echo "version=$v" >> $env:GITHUB_OUTPUT
-        shell: pwsh
 
-      # ── GitHub Release 생성 & 업로드 ─────────────────────────────
+      # exe 1개만 업로드
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -75,13 +71,9 @@ jobs:
           body: |
             ## v${{ steps.ver.outputs.version }}
 
-            ### 설치 방법
-            1. `6PM Assistant.exe` 와 `updater.exe` 를 **같은 폴더**에 저장하세요.
-            2. `6PM Assistant.exe` 를 실행하세요.
-
-            > 이미 사용 중이라면 앱 내 **설정 → 업데이트 확인** 으로 자동 교체할 수 있습니다.
-          files: |
-            WorkHelper/dist/6PM Assistant.exe
-            WorkHelper/dist/updater.exe
+            ### 설치 / 업데이트 방법
+            1. `6PM Assistant.exe` 를 다운로드하세요.
+            2. 기존 파일이 있다면 덮어쓰거나, 앱 내 **설정 → 업데이트 확인** 버튼을 사용하세요.
+          files: WorkHelper/dist/6PM Assistant.exe
           draft: false
           prerelease: false
