@@ -1,22 +1,22 @@
 <#
 .SYNOPSIS
-    6PM Assistant 빌드 & GitHub Release 배포 스크립트
+    Build and release 6PM Assistant.
 
 .PARAMETER Version
-    배포할 버전 번호 (예: 1.2.0). 생략하면 현재 버전에서 패치 번호를 자동으로 +1합니다.
+    Version to release (e.g. 1.2.0). Auto-increments patch if omitted.
 
 .PARAMETER ReleaseNote
-    GitHub Release에 표시할 릴리즈 노트. 생략하면 버전 번호만 표시됩니다.
+    Release notes for GitHub Release.
 
 .PARAMETER SkipInstall
-    pip install 단계를 건너뜁니다. 이미 패키지가 설치되어 있을 때 사용합니다.
+    Skip pip install step.
 
 .PARAMETER SkipRelease
-    빌드만 수행하고 git 커밋/태그/GitHub Release 생성을 건너뜁니다.
+    Build only - skip git commit/tag/push and GitHub Release.
 
 .EXAMPLE
     .\build_release.ps1
-    .\build_release.ps1 -Version 1.2.0 -ReleaseNote "UI 개선 및 버그 수정"
+    .\build_release.ps1 -Version 1.2.0 -ReleaseNote "UI improvements"
     .\build_release.ps1 -SkipInstall -SkipRelease
 #>
 param(
@@ -29,19 +29,17 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$ProjectRoot     = Split-Path -Parent $MyInvocation.MyCommand.Path   # WorkHelper/
-$GitRoot         = Split-Path -Parent $ProjectRoot                    # support_cdx/
-$VersionFile     = Join-Path $ProjectRoot "version.txt"
-$SpecPath        = Join-Path $ProjectRoot "build\WorkHelper.spec"
-$DistDir         = Join-Path $ProjectRoot "dist"
-$UpdaterDistDir  = Join-Path $ProjectRoot "build\_updater_dist"       # spec이 참조하는 경로
-$ExePath         = Join-Path $DistDir "6PM Assistant.exe"
+$ProjectRoot    = Split-Path -Parent $MyInvocation.MyCommand.Path
+$GitRoot        = Split-Path -Parent $ProjectRoot
+$VersionFile    = Join-Path $ProjectRoot "version.txt"
+$SpecPath       = Join-Path $ProjectRoot "build\WorkHelper.spec"
+$DistDir        = Join-Path $ProjectRoot "dist"
+$UpdaterDistDir = Join-Path $ProjectRoot "build\_updater_dist"
+$ExePath        = Join-Path $DistDir "6PM Assistant.exe"
 
 Set-Location $ProjectRoot
 
-# ─────────────────────────────────────────────────────────────────────
-# 1. 버전 결정 및 version.txt 업데이트
-# ─────────────────────────────────────────────────────────────────────
+# --- 1. Version ---
 $currentVersion = (Get-Content $VersionFile -Raw -Encoding utf8).Trim()
 
 if (-not $Version) {
@@ -52,30 +50,26 @@ if (-not $Version) {
 
 Write-Host ""
 Write-Host "==========================================="
-Write-Host " 6PM Assistant 빌드 & 배포"
-Write-Host " $currentVersion  →  $Version"
+Write-Host " 6PM Assistant Build"
+Write-Host " $currentVersion  ->  $Version"
 Write-Host "==========================================="
 Write-Host ""
 
 Set-Content $VersionFile $Version -NoNewline -Encoding utf8
-Write-Host "[1/5] version.txt 업데이트: $Version"
+Write-Host "[1/5] version.txt updated: $Version"
 
-# ─────────────────────────────────────────────────────────────────────
-# 2. pip install
-# ─────────────────────────────────────────────────────────────────────
+# --- 2. pip install ---
 if (-not $SkipInstall) {
-    Write-Host "[2/5] 패키지 설치 중..."
+    Write-Host "[2/5] Installing packages..."
     python -m pip install --upgrade pip --quiet
     python -m pip install -r requirements.txt --quiet
-    Write-Host "[2/5] 패키지 설치 완료"
+    Write-Host "[2/5] Packages installed"
 } else {
-    Write-Host "[2/5] pip install 건너뜀 (-SkipInstall)"
+    Write-Host "[2/5] Skipping pip install (-SkipInstall)"
 }
 
-# ─────────────────────────────────────────────────────────────────────
-# 3. 빌드 (updater 먼저 → 메인 exe 번들에 포함)
-# ─────────────────────────────────────────────────────────────────────
-Write-Host "[3/5] updater.exe 빌드 중..."
+# --- 3. Build ---
+Write-Host "[3/5] Building updater.exe..."
 New-Item -ItemType Directory -Force -Path $UpdaterDistDir | Out-Null
 python -m PyInstaller --clean --noconfirm --onefile --name updater `
     --distpath $UpdaterDistDir `
@@ -83,29 +77,27 @@ python -m PyInstaller --clean --noconfirm --onefile --name updater `
     updater.py
 
 $UpdaterPath = Join-Path $UpdaterDistDir "updater.exe"
-if (-not (Test-Path $UpdaterPath)) { throw "updater.exe 빌드 실패" }
-Write-Host "[3/5] updater.exe 완료 → 메인 exe에 번들로 포함됩니다"
+if (-not (Test-Path $UpdaterPath)) { throw "updater.exe build failed" }
+Write-Host "[3/5] updater.exe built (will be bundled into main exe)"
 
-Write-Host "[3/5] 메인 앱 빌드 중 (시간이 걸릴 수 있습니다)..."
+Write-Host "[3/5] Building main app (this may take a few minutes)..."
 python -m PyInstaller --clean --noconfirm $SpecPath
 
-if (-not (Test-Path $ExePath)) { throw "빌드 실패: $ExePath 를 찾을 수 없습니다" }
+if (-not (Test-Path $ExePath)) { throw "Build failed: $ExePath not found" }
 
 $sizeMB = [math]::Round((Get-Item $ExePath).Length / 1MB, 1)
-Write-Host "[3/5] 빌드 완료 → $ExePath ($sizeMB MB)"
+Write-Host "[3/5] Build complete -> $ExePath ($sizeMB MB)"
 
 if ($SkipRelease) {
     Write-Host ""
-    Write-Host "빌드 완료 (-SkipRelease 지정으로 배포 단계를 건너뜁니다)"
-    Write-Host "배포 파일: $ExePath"
+    Write-Host "Build complete (-SkipRelease: skipping git and GitHub steps)"
+    Write-Host "Output: $ExePath"
     exit 0
 }
 
-# ─────────────────────────────────────────────────────────────────────
-# 4. git 커밋 + 태그 + 푸시
-# ─────────────────────────────────────────────────────────────────────
+# --- 4. git commit + tag + push ---
 $tag = "v$Version"
-Write-Host "[4/5] git 커밋 & 태그 ($tag) ..."
+Write-Host "[4/5] git commit, tag ($tag), push..."
 Set-Location $GitRoot
 
 git add "WorkHelper/version.txt"
@@ -114,35 +106,33 @@ git tag $tag
 git push origin main
 git push origin $tag
 
-Write-Host "[4/5] git 푸시 완료 (태그: $tag)"
+Write-Host "[4/5] git push done (tag: $tag)"
 
-# ─────────────────────────────────────────────────────────────────────
-# 5. GitHub Release 생성 — exe 1개만 업로드
-# ─────────────────────────────────────────────────────────────────────
-Write-Host "[5/5] GitHub Release 생성 중..."
+# --- 5. GitHub Release ---
+Write-Host "[5/5] Creating GitHub Release..."
 
 if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
     Write-Host ""
-    Write-Host "[알림] gh CLI가 없어 GitHub Release를 수동으로 생성해야 합니다."
-    Write-Host "  1. https://github.com/dynn1178/support_cdx/releases/new 접속"
-    Write-Host "  2. Tag: $tag 입력"
-    Write-Host "  3. 파일 업로드: $ExePath"
+    Write-Host "[INFO] gh CLI not found. Create the release manually:"
+    Write-Host "  1. https://github.com/dynn1178/support_cdx/releases/new"
+    Write-Host "  2. Tag: $tag"
+    Write-Host "  3. Upload: $ExePath"
     Write-Host ""
-    Write-Host "  gh CLI 설치: winget install --id GitHub.cli"
+    Write-Host "  Install gh CLI: winget install --id GitHub.cli"
 } else {
-    $notes = if ($ReleaseNote) { $ReleaseNote } else { "## v$Version`n`n변경 사항을 여기에 작성하세요." }
+    $notes = if ($ReleaseNote) { $ReleaseNote } else { "## $tag`n`nRelease notes here." }
     gh release create $tag `
         "$ExePath" `
         --repo "dynn1178/support_cdx" `
-        --title "v$Version" `
+        --title $tag `
         --notes $notes
 
-    Write-Host "[5/5] GitHub Release 생성 완료"
-    Write-Host "       https://github.com/dynn1178/support_cdx/releases/tag/$tag"
+    Write-Host "[5/5] GitHub Release created"
+    Write-Host "      https://github.com/dynn1178/support_cdx/releases/tag/$tag"
 }
 
 Write-Host ""
 Write-Host "==========================================="
-Write-Host " 배포 완료: v$Version"
-Write-Host " 사용자는 6PM Assistant.exe 1개만 받으면 됩니다."
+Write-Host " Done: $Version"
+Write-Host " Users only need 6PM Assistant.exe"
 Write-Host "==========================================="

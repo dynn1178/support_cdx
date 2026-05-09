@@ -44,6 +44,8 @@ def fetch_latest_update(current_version: str, repo: str | None = None, token: st
         headers["Authorization"] = f"Bearer {token_value}"
 
     response = requests.get(f"https://api.github.com/repos/{repo_name}/releases/latest", headers=headers, timeout=8)
+    if response.status_code == 404:
+        return None  # 릴리즈가 아직 없음 → 업데이트 없음으로 처리
     response.raise_for_status()
     payload = response.json()
     latest = payload.get("tag_name", "").lstrip("v")
