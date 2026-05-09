@@ -7,3 +7,4 @@ WorkHelper/build/build/
 WorkHelper/build/dist/
 WorkHelper/*.spec.bak
 *.png
+.claude/worktrees/vigilant-pascal-0b583d/
