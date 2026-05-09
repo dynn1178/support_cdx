@@ -27,15 +27,15 @@ BUNDLED_ICON_PATH = RESOURCE_DIR / "assets" / "icons" / "app.ico"
 DEFAULT_SETTINGS: dict[str, Any] = {
     "theme": "light",
     "window": {"width": 900, "height": 580, "always_on_top": False},
-    "clipboard_history_limit": 50,
+    "clipboard_history_limit": 30,
     "clipboard_popup_hotkey": {"modifiers": ["ctrl", "shift"], "key": "v"},
     "clipboard_popup_double_ctrl": True,
     "quick_memo_hotkey": {"modifiers": ["ctrl", "alt"], "key": "M"},
     "quick_memo_double_alt": True,
     "phrase_popup_hotkey": {"modifiers": ["ctrl"], "key": ";"},
     "hotkeys_enabled": True,
-    "auto_update_check": False,
-    "auto_update_install": False,
+    "auto_update_check": True,
+    "auto_update_install": True,
     "startup_with_windows": False,
     "active_preset": 1,
     "color_presets": [],
@@ -318,9 +318,12 @@ def ensure_data_files() -> None:
     (BASE_DIR / "assets" / "icons").mkdir(parents=True, exist_ok=True)
     CLIPBOARD_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     copy_bundled_file(RESOURCE_DIR / "assets" / "icons" / "app.ico", APP_ICON_PATH)
-    if not VERSION_PATH.exists():
-        if not copy_bundled_file(RESOURCE_DIR / "version.txt", VERSION_PATH):
-            VERSION_PATH.write_text(DEFAULT_VERSION, encoding="utf-8")
+    # version.txt는 항상 번들 버전으로 덮어씀 (이전 버전 exe가 남긴 파일 방지)
+    bundled_version = RESOURCE_DIR / "version.txt"
+    if bundled_version.exists():
+        VERSION_PATH.write_text(bundled_version.read_text(encoding="utf-8"), encoding="utf-8")
+    elif not VERSION_PATH.exists():
+        VERSION_PATH.write_text(DEFAULT_VERSION, encoding="utf-8")
     if not SETTINGS_PATH.exists():
         save_settings(load_legacy_settings() or DEFAULT_SETTINGS)
     for index in range(1, TEMPLATE_COUNT + 1):
