@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QSizeGrip,
     QSlider,
     QSpinBox,
+    QTabWidget,
     QTextEdit,
     QLineEdit,
     QVBoxLayout,
@@ -436,27 +437,45 @@ class MemoListTab(QWidget):
         self.sticky_windows: list[StickyMemoDialog] = []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        top = QHBoxLayout()
-        top.addStretch(1)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("검색...")
+        self.search.setFixedWidth(120)
+        self.search.setFixedHeight(26)
+        self.search.setStyleSheet("QLineEdit { padding: 1px 6px; font-size: 9pt; }")
+        self.search.textChanged.connect(self.refresh)
         self.sort_controls = SortControls(self.refresh)
-        top.addWidget(self.sort_controls)
+        corner = QWidget()
+        corner_layout = QHBoxLayout(corner)
+        corner_layout.setContentsMargins(0, 0, 4, 0)
+        corner_layout.setSpacing(4)
+        corner_layout.addWidget(self.search)
+        corner_layout.addWidget(self.sort_controls)
+        self.tabs = QTabWidget()
+        self.tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
         add_btn = QPushButton("+ 메모")
         add_btn.clicked.connect(lambda: self.edit_memo())
         self.grid = GridPanel(columns=2)
-        layout.addLayout(top)
-        layout.addWidget(self.grid, 1)
+        page = QWidget()
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.addWidget(self.grid, 1)
         bottom = QHBoxLayout()
         bottom.addStretch(1)
         bottom.addWidget(add_btn)
-        layout.addLayout(bottom)
+        page_layout.addLayout(bottom)
+        self.tabs.addTab(page, "메모")
+        layout.addWidget(self.tabs, 1)
 
     def refresh(self) -> None:
         cards = []
+        q = self.search.text().strip().lower()
         source_items = self.main.data.get("memos", [])
         memos = self.sort_controls.sort_items(source_items, lambda item: item.get("title") or item.get("content", ""))
         if not self.sort_controls.is_manual():
             memos = sorted(memos, key=lambda item: not item.get("pinned"))
         for memo in memos:
+            if q and q not in (memo.get("title", "") + " " + memo.get("content", "")).lower():
+                continue
             card = make_card(memo.get("title", "(제목 없음)"), short_preview(memo.get("content", ""), 160), card_size="b")
             self.add_memo_actions(card, memo)
             cards.append(card)
@@ -530,25 +549,43 @@ class ScheduleListTab(QWidget):
         self.main = main
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        top = QHBoxLayout()
-        top.addStretch(1)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("검색...")
+        self.search.setFixedWidth(120)
+        self.search.setFixedHeight(26)
+        self.search.setStyleSheet("QLineEdit { padding: 1px 6px; font-size: 9pt; }")
+        self.search.textChanged.connect(self.refresh)
         self.sort_controls = SortControls(self.refresh)
-        top.addWidget(self.sort_controls)
+        corner = QWidget()
+        corner_layout = QHBoxLayout(corner)
+        corner_layout.setContentsMargins(0, 0, 4, 0)
+        corner_layout.setSpacing(4)
+        corner_layout.addWidget(self.search)
+        corner_layout.addWidget(self.sort_controls)
+        self.tabs = QTabWidget()
+        self.tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
         add_btn = QPushButton("+ 일정")
         add_btn.clicked.connect(lambda: self.edit_schedule())
         self.grid = GridPanel(columns=2)
-        layout.addLayout(top)
-        layout.addWidget(self.grid, 1)
+        page = QWidget()
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.addWidget(self.grid, 1)
         bottom = QHBoxLayout()
         bottom.addStretch(1)
         bottom.addWidget(add_btn)
-        layout.addLayout(bottom)
+        page_layout.addLayout(bottom)
+        self.tabs.addTab(page, "일정 알림")
+        layout.addWidget(self.tabs, 1)
 
     def refresh(self) -> None:
         cards = []
+        q = self.search.text().strip().lower()
         source_items = self.main.data.get("schedules", [])
         visible_items = self.sort_controls.sort_items(source_items, lambda item: item.get("title") or item.get("memo", ""))
         for schedule in visible_items:
+            if q and q not in (schedule.get("title", "") + " " + schedule.get("memo", "")).lower():
+                continue
             subtitle = f"{display_datetime(schedule.get('datetime', ''), schedule.get('repeat', 'none'))}\n{short_preview(schedule.get('memo', ''), 120)}"
             card = make_card(schedule.get("title", "(제목 없음)"), subtitle, card_size="c")
             add_card_actions(

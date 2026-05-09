@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -152,28 +153,46 @@ class MacroTab(QWidget):
         self.stop_recording_requested.connect(self.stop_recording)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        top = QHBoxLayout()
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("검색...")
+        self.search.setFixedWidth(120)
+        self.search.setFixedHeight(26)
+        self.search.setStyleSheet("QLineEdit { padding: 1px 6px; font-size: 9pt; }")
+        self.search.textChanged.connect(self.refresh)
         self.sort_controls = SortControls(self.refresh)
-        top.addStretch(1)
-        top.addWidget(self.sort_controls)
-        layout.addLayout(top)
-        row = QHBoxLayout()
+        corner = QWidget()
+        corner_layout = QHBoxLayout(corner)
+        corner_layout.setContentsMargins(0, 0, 4, 0)
+        corner_layout.setSpacing(4)
+        corner_layout.addWidget(self.search)
+        corner_layout.addWidget(self.sort_controls)
+        self.tabs = QTabWidget()
+        self.tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
+        self.list = GridPanel(columns=2)
         record_btn = QPushButton("녹화")
         stop_btn = QPushButton("정지")
         record_btn.clicked.connect(self.start_recording)
         stop_btn.clicked.connect(self.stop_recording)
+        page = QWidget()
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.addWidget(self.list, 1)
+        row = QHBoxLayout()
         row.addStretch(1)
         row.addWidget(record_btn)
         row.addWidget(stop_btn)
-        self.list = GridPanel(columns=2)
-        layout.addWidget(self.list, 1)
-        layout.addLayout(row)
+        page_layout.addLayout(row)
+        self.tabs.addTab(page, "매크로")
+        layout.addWidget(self.tabs, 1)
 
     def refresh(self) -> None:
         cards = []
+        q = self.search.text().strip().lower()
         source_items = self.main.data.get("macros", [])
         visible_items = self.sort_controls.sort_items(source_items, lambda value: value.get("name", ""))
         for macro in visible_items:
+            if q and q not in macro.get("name", "").lower():
+                continue
             card = make_card(macro.get("name", "(이름 없음)"), f"{len(macro.get('actions', []))}개 액션", display_hotkey(macro.get("hotkey")), card_size="b")
             add_card_actions(
                 card,

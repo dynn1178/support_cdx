@@ -130,8 +130,20 @@ class PhraseTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.sort_controls = SortControls(self.refresh)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("검색...")
+        self.search.setFixedWidth(120)
+        self.search.setFixedHeight(26)
+        self.search.setStyleSheet("QLineEdit { padding: 1px 6px; font-size: 9pt; }")
+        self.search.textChanged.connect(self.refresh)
+        corner = QWidget()
+        corner_layout = QHBoxLayout(corner)
+        corner_layout.setContentsMargins(0, 0, 4, 0)
+        corner_layout.setSpacing(4)
+        corner_layout.addWidget(self.search)
+        corner_layout.addWidget(self.sort_controls)
         self.tabs = QTabWidget()
-        self.tabs.setCornerWidget(self.sort_controls, Qt.Corner.TopRightCorner)
+        self.tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
         self.phrase_list = GridPanel(columns=2)
         self.snippet_list = GridPanel(columns=1)
         self.hotstring_list = GridPanel(columns=2)
@@ -177,9 +189,12 @@ class PhraseTab(QWidget):
 
     def _fill(self, list_widget: GridPanel, collection: str, code: bool) -> None:
         cards = []
+        q = self.search.text().strip().lower()
         collection_items = self.main.data.get(collection, [])
         items = self.sort_controls.sort_items(collection_items, lambda value: value.get("name") or value.get("text", ""))
         for item in items:
+            if q and q not in (item.get("name", "") + " " + item.get("text", "")).lower():
+                continue
             if collection == "phrases":
                 card = make_card(self.single_line_preview(item.get("text", ""), 160), "", display_hotkey(item.get("hotkey")), card_size="a")
             else:
@@ -191,9 +206,12 @@ class PhraseTab(QWidget):
 
     def _fill_hotstrings(self) -> None:
         cards = []
+        q = self.search.text().strip().lower()
         collection_items = self.main.data.get("hotstrings", [])
         items = self.sort_controls.sort_items(collection_items, lambda value: value.get("trigger", ""))
         for item in items:
+            if q and q not in (item.get("trigger", "") + " " + item.get("text", "")).lower():
+                continue
             trigger = item.get("trigger", "")
             card = make_card(short_preview(item.get("text", ""), 160), "", f"[{trigger.lower()}]", single_line=True, card_size="a")
             add_card_actions(
@@ -210,9 +228,12 @@ class PhraseTab(QWidget):
 
     def _fill_titles(self) -> None:
         cards = []
+        q = self.search.text().strip().lower()
         collection_items = self.main.data.get("title_templates", [])
         items = self.sort_controls.sort_items(collection_items, lambda value: value.get("template", ""))
         for item in items:
+            if q and q not in (item.get("name", "") + " " + item.get("template", "")).lower():
+                continue
             rendered = render_date_template(item.get("template", ""), business_days=bool(item.get("business_days", False)))
             card = make_card(rendered, "", display_hotkey(item.get("hotkey")), card_size="a")
             self.add_title_actions(card, item)

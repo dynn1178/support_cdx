@@ -50,20 +50,12 @@
   ],
   "color_history": [],
   "favorite_emojis": [],
-  "recent_emojis": [
-    "📌",
-    "📎",
-    "💡",
-    "📝",
-    "📅",
-    "⏰",
-    "📞",
-    "😀"
-  ],
+  "recent_emojis": [],
   "emoji_usage": {},
   "mouse_highlight_color": "#FF5500",
   "mouse_highlight_shape": "채워진 원",
   "mouse_highlight_size": 89,
   "mouse_highlight_opacity": 45,
-  "github_token": ""
+  "github_token": "",
+  "special_char_usage": {}
 }

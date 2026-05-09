@@ -2,64 +2,83 @@
   "meta": {
     "preset_name": "프리셋 2",
     "version": "1.0.0",
-    "saved_at": "2026-05-09T00:53:53"
+    "saved_at": "2026-05-10T02:18:10"
   },
   "phrases": [
     {
       "id": "ph_sample",
-      "name": "인사말",
-      "text": "안녕하세요. 노랑풍선 CRM팀입니다.",
+      "name": "안녕하세요. 6PM ASSIST 육땡이입니다.",
+      "text": "안녕하세요. 6PM ASSIST 육땡이입니다.",
       "hotkey": {
         "modifiers": [
-          "ctrl",
           "alt"
         ],
-        "key": "1"
+        "key": "F1"
       },
       "type": "text",
       "sort_order": 0,
+      "usage_count": 0
+    },
+    {
+      "id": "ph_sample2",
+      "name": "★ 즐겨찾기시 상용구 (ctrl+;) 로도 호출 가능해",
+      "text": "★ 즐겨찾기시 상용구 (ctrl+;) 로도 호출 가능해요. \n단축키 변경은 설정에서 할 수 있어요",
+      "hotkey": null,
+      "type": "text",
+      "sort_order": 1,
       "usage_count": 0
     }
   ],
   "snippets": [
     {
       "id": "sn_sample",
-      "name": "RFM 기본 쿼리",
-      "text": "SELECT customer_id, COUNT(*) AS frequency FROM orders GROUP BY customer_id",
+      "name": "자주 사용하는 쿼리",
+      "text": "SELECT \n\tcustomer_id, \n\tCOUNT(*) AS frequency \nFROM SIX_PM \nGROUP BY customer_id",
       "language": "sql",
-      "hotkey": {
-        "modifiers": [
-          "ctrl",
-          "shift"
-        ],
-        "key": "1"
-      },
+      "hotkey": null,
       "type": "code",
       "sort_order": 0,
+      "usage_count": 0
+    },
+    {
+      "id": "sn_sample2",
+      "name": "월간 보고 양식",
+      "text": "📋 [6PM 혁신팀] 2026년 5월 월간 업무 보고\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n보고일자 : 2026. 05. 30 (금)\n작  성  자 : 육땡\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n■ 1. 이달의 주요 성과\n\n  [Project #1]\n  · \n  · \n  [Project #2]\n  · \n  · \n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n■ 2. 이슈 및 대응\n\n  · [이슈 #1] \n  · [이슈 #2] \n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n■ 3. 다음 달 예정 업무\n\n  · \n  · \n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n■ 4. 기타 / 공유 사항\n\n  · 없음\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+      "language": "other",
+      "hotkey": null,
+      "type": "code",
+      "sort_order": 1,
       "usage_count": 0
     }
   ],
   "launchers": [
     {
       "id": "ln_sample_site",
-      "name": "Tableau",
-      "description": "BI 대시보드 시스템",
+      "name": "네이버",
+      "description": "",
       "type": "site",
-      "url": "https://tableau.company.com",
-      "username": "shared_id@company.com",
+      "url": "https://naver.com",
+      "username": "",
       "password": "",
       "browser_path": "",
       "hotkey": null,
       "sort_order": 0,
-      "usage_count": 0
+      "usage_count": 0,
+      "path": "",
+      "show_credentials_on_card": false
     },
     {
-      "id": "ln_sample_file",
-      "name": "주간보고서",
-      "description": "매주 월요일 업데이트",
-      "type": "file",
-      "path": "D:\\reports\\weekly.xlsx",
+      "id": "ln_sample_site2",
+      "name": "배포 사이트",
+      "description": "",
+      "type": "site",
+      "url": "https://6pma.vercel.app/",
+      "username": "finishwork",
+      "password": "ontime",
+      "browser_path": "",
+      "show_credentials_on_card": true,
       "hotkey": null,
+      "path": "",
       "sort_order": 1,
       "usage_count": 0
     }
@@ -67,8 +86,8 @@
   "images": [
     {
       "id": "img_sample",
-      "name": "세그먼트 맵",
-      "path": "assets/images/segment_map.png",
+      "name": "엑셀 단축키",
+      "path": "assets/images/capture_e05542b42c.png",
       "path_type": "relative",
       "hotkey": {
         "modifiers": [
@@ -78,65 +97,45 @@
         "key": "F1"
       },
       "sort_order": 0,
-      "usage_count": 0
+      "usage_count": 0,
+      "display_scale": 100
     }
   ],
-  "macros": [
-    {
-      "id": "mc_sample",
-      "name": "일별 리포트 복사",
-      "hotkey": {
-        "modifiers": [
-          "ctrl",
-          "alt"
-        ],
-        "key": "F5"
-      },
-      "actions": [
-        {
-          "type": "click",
-          "x": 540,
-          "y": 320,
-          "delay": 0.5
-        },
-        {
-          "type": "hotkey",
-          "keys": [
-            "ctrl",
-            "c"
-          ],
-          "delay": 0.3
-        },
-        {
-          "type": "type",
-          "text": "입력할 텍스트",
-          "delay": 0.2
-        }
-      ],
-      "sort_order": 0,
-      "usage_count": 0
-    }
-  ],
+  "macros": [],
   "memos": [
     {
       "id": "mm_sample",
-      "title": "메모 제목",
-      "content": "내용",
+      "title": "메모를 저장하세요",
+      "content": "스티커 버튼을 누르면 바탕화면에 띄울 수 있어요.",
       "pinned": false,
-      "created_at": "2026-05-09T00:36:27",
-      "updated_at": "2026-05-09T00:36:27",
+      "created_at": "2026-05-10T02:15:57",
+      "updated_at": "2026-05-10T02:15:57",
       "sort_order": 0,
+      "usage_count": 0,
+      "always_on_top": true,
+      "background": "노랑"
+    },
+    {
+      "id": "mm_sample2",
+      "title": "ALT를 2번 빠르게 눌러보세요",
+      "content": "빠르게 메모 입력이 가능합니다. (단축키는 설정에서 변경 가능)",
+      "pinned": false,
+      "always_on_top": true,
+      "background": "노랑",
+      "created_at": "2026-05-10T02:15:57",
+      "updated_at": "2026-05-10T02:15:57",
+      "sort_order": 1,
       "usage_count": 0
     }
   ],
   "schedules": [
     {
       "id": "sc_sample",
-      "title": "캠페인 발송",
-      "datetime": "2026-05-10T14:00:00",
+      "title": "알람 등록하기",
+      "datetime": "2030-12-31T09:00:00",
       "repeat": "none",
-      "notify_before_minutes": 30,
-      "memo": "5월 멤버십 대상",
+      "notify_before_minutes": 0,
+      "memo": "",
       "last_notified_at": "",
       "sort_order": 0,
       "usage_count": 0
@@ -145,21 +144,99 @@
   "hotstrings": [
     {
       "id": "hs_sample",
-      "trigger": "GR.",
-      "text": "안녕하세요~",
+      "trigger": "gg.",
+      "text": "google.com",
       "case_sensitive": false,
-      "created_at": "2026-05-09T00:36:27",
+      "created_at": "2026-05-10T02:15:57",
       "sort_order": 0,
+      "usage_count": 0
+    },
+    {
+      "id": "hs_sample2",
+      "trigger": "req;",
+      "text": "위와 같이 요청 드립니다. 확인 부탁드립니다.",
+      "case_sensitive": false,
+      "created_at": "2026-05-10T02:15:57",
+      "sort_order": 1,
+      "usage_count": 0
+    },
+    {
+      "id": "hs_sample3",
+      "trigger": "ack;",
+      "text": "확인했습니다. 검토 후 회신 드리겠습니다.",
+      "case_sensitive": false,
+      "created_at": "2026-05-10T02:15:57",
+      "sort_order": 2,
+      "usage_count": 0
+    },
+    {
+      "id": "hs_sample4",
+      "trigger": "sel;",
+      "text": "SELECT * FROM WHERE ROWNUM <= 100",
+      "case_sensitive": false,
+      "created_at": "2026-05-10T02:15:57",
+      "sort_order": 3,
+      "usage_count": 0
+    },
+    {
+      "id": "hs_sample5",
+      "trigger": "tx;",
+      "text": "감사합니다.",
+      "case_sensitive": false,
+      "created_at": "2026-05-10T02:15:57",
+      "sort_order": 4,
+      "usage_count": 0
+    },
+    {
+      "id": "hs_sample6",
+      "trigger": "hi;",
+      "text": "안녕하세요. 6PM ASSIST 육땡이입니다.",
+      "case_sensitive": false,
+      "created_at": "2026-05-10T02:15:57",
+      "sort_order": 5,
       "usage_count": 0
     }
   ],
   "title_templates": [
     {
       "id": "tt_sample",
-      "name": "일별 제목",
-      "template": "리포트 {yyyy-mm-dd}",
+      "name": "금일 {yyyy-mm-dd}",
+      "template": "금일 {yyyy-mm-dd}",
       "business_days": false,
+      "hotkey": {
+        "modifiers": [
+          "shift"
+        ],
+        "key": "F1"
+      },
       "sort_order": 0,
+      "usage_count": 0
+    },
+    {
+      "id": "tt_sample2",
+      "name": "{yymmdd}_데일리 세일즈 리포트",
+      "template": "{yymmdd}_데일리 세일즈 리포트 ({m-1d}월 {d-1d}일 ({ddd-1d}) 기준)",
+      "business_days": true,
+      "hotkey": null,
+      "sort_order": 1,
+      "usage_count": 0
+    },
+    {
+      "id": "tt_sample3",
+      "name": "주간 동향",
+      "template": "{yyyy-7d}.{mm-7d}.{dd-7d}~{yyyy}.{mm}.{dd} 주간 동향",
+      "business_days": false,
+      "hotkey": null,
+      "sort_order": 2,
+      "usage_count": 0
+    },
+    {
+      "id": "tt_sample4",
+      "name": "{yyyy}년 {m}월 월간성과 보고",
+      "template": "{yyyy}년 {m}월 월간성과 보고",
+      "business_days": false,
+      "hotkey": null,
+      "sort_order": 3,
       "usage_count": 0
     }
   ],

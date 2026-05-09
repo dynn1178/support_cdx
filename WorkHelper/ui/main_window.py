@@ -433,7 +433,7 @@ class MainWindow(QMainWindow):
             self.stack.addWidget(tab)
         content_layout.addWidget(self.stack, 1)
 
-        names = ["홈", "상용구/코드", "바로가기", "컨닝페이퍼", "매크로", "클립보드", "계산기", "텍스트 변환", "메모", "일정", "기타", "설정"]
+        names = ["홈", "상용구/코드", "바로가기", "컨닝페이퍼", "매크로", "클립보드", "계산기", "텍스트 변환", "메모", "일정 알림", "기타", "설정"]
         self.buttons: list[QToolButton] = []
         for i, name in enumerate(names):
             button = QToolButton()
@@ -475,24 +475,27 @@ class MainWindow(QMainWindow):
         for i, button in enumerate(self.buttons):
             button.setChecked(i == index)
         subtitles = [
-            self.numbered_home_tip(),
-            f"자주 쓰는 문구, 코드 스니펫, 핫스트링, 날짜 제목을 관리합니다.\nTip! 상용구 미니팝업({display_hotkey(self.settings.get('phrase_popup_hotkey')) or 'Ctrl+;'}) : ★ 항목을 최대 10개까지 빠르게 불러올 수 있어요.",
-            "사이트, 파일, 폴더를 빠르게 엽니다.\nTip! 사이트 주소에 계정 정보를 입력하면 바로가기 실행 시 아이디와 비밀번호가 클립보드에 저장됩니다.",
-            "업무 참고 이미지를 확인합니다.",
-            "마우스와 키보드 동작을 녹화하고 재생합니다.",
-            f"복사한 텍스트를 검색하고 고정합니다.\nTip! {self.clipboard_popup_shortcut_label()} 누르면, 복사한 내역을 바로 불러올 수 있어요.",
-            "수식과 날짜를 계산하고 결과를 복사합니다.",
-            "URL, UTM, 줄바꿈, 따옴표 변환을 처리합니다.",
-            f"메모 스티커를 관리합니다.\nTip! {self.quick_memo_shortcut_label()} 누르면 어디서든 빠른 메모를 등록할 수 있어요.",
-            "알림 일정을 관리합니다.",
-            "컬러, 마우스 하이라이트, 이모지를 관리합니다.",
-            "일반, 단축키, 테마 옵션을 설정합니다.",
+            "🔹" + self.numbered_home_tip(),
+            f"🔹자주 쓰는 문구나 코드, 날짜 형식, 핫스트링을 저장하고 쉽게 불러오세요.\n💡즐겨찾기(★)로 상용구 호출도 가능합니다. (기본 단축키 {display_hotkey(self.settings.get('phrase_popup_hotkey')) or 'Ctrl+;'})",
+            "🔹자주 찾는 사이트나 폴더, 파일을 단축키로 바로 불러올 수 있어요.\n💡사이트를 불러오면 함께 저장한 아이디와 비밀번호를 복사해줘요! (개인 계정은 보안상 사용하지 마세요)",
+            "🔹원하는 이미지를 파일, URL, 캡처 방식으로 저장하고 불러올 수 있어요\n💡자주 참고하는 자료를 등록해보세요. (단축키, 조직도, KPI 등)",
+            "🔹마우스와 키보드 동작을 녹화하고 그대로 반복&재생시킬 수 있어요.\n💡편집 화면에서 직접 편집하는 것도 가능해요.",
+            "🔹복사했던 항목들을 보관하고 불러옵니다.\n💡Ctrl을 두 번 누르면 복사했던 이력을 미니 팝업으로 바로 확인하고 가져올 수 있어요",
+            "🔹수식과 날짜를 계산하고 결과를 복사합니다.",
+            "🔹URL, UTM, 줄바꿈, 따옴표 변환을 처리합니다.",
+            "🔹메모를 저장할 수 있어요.\n💡Alt를 두 번 누르면 어디서든 빠른 메모를 등록할 수 있어요.",
+            "🔹일정 알림을 관리합니다.",
+            "🔹컬러, 마우스 하이라이트, 이모지를 관리합니다.",
+            "🔹일반, 단축키, 테마 옵션을 설정합니다.",
         ]
         subtitle = subtitles[index]
         if index == 0:
             subtitle = self.numbered_home_tip()
         self.prev_tip_button.setVisible(index == 0)
         self.next_tip_button.setVisible(index == 0)
+        if "\n" in subtitle:
+            first, second = subtitle.split("\n", 1)
+            subtitle = f'<p style="margin:0 0 6px 0">{first}</p><p style="margin:0">{second}</p>'
         self.screen_subtitle.setText(subtitle)
 
     def rotate_home_tip(self) -> None:

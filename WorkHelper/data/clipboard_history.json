@@ -1,94 +1,11 @@
 {
   "history": [
     {
-      "id": "cb_338150b0c3",
+      "id": "cb_9f401329bd",
       "type": "text",
-      "text": "샘플",
-      "copied_at": "2026-05-09T03:26:47",
-      "created_at": "2026-05-09T03:26:47",
-      "sort_order": 8,
-      "usage_count": 0,
-      "pinned": false
-    },
-    {
-      "id": "cb_2b72dec02a",
-      "type": "text",
-      "text": "예시 일정",
-      "copied_at": "2026-05-09T03:26:33",
-      "created_at": "2026-05-09T03:26:33",
-      "sort_order": 7,
-      "usage_count": 0,
-      "pinned": false
-    },
-    {
-      "id": "cb_ba45d48f2b",
-      "type": "text",
-      "text": "excel_shortcut",
-      "copied_at": "2026-05-09T03:23:50",
-      "created_at": "2026-05-09T03:23:50",
-      "sort_order": 6,
-      "usage_count": 0,
-      "pinned": false
-    },
-    {
-      "id": "cb_44b6675962",
-      "type": "text",
-      "text": "C:\\Users\\kjh\\Documents\\GitHub\\support_cdx",
-      "copied_at": "2026-05-09T03:23:41",
-      "created_at": "2026-05-09T03:23:41",
-      "sort_order": 5,
-      "usage_count": 0,
-      "pinned": false
-    },
-    {
-      "id": "cb_990522ea81",
-      "type": "text",
-      "text": "엑셀에서 유용한 단축키를 이미지 한장으로 제작해줘",
-      "copied_at": "2026-05-09T03:21:24",
-      "created_at": "2026-05-09T03:21:24",
-      "sort_order": 4,
-      "usage_count": 0,
-      "pinned": false
-    },
-    {
-      "id": "cb_0b1a0dfb94",
-      "type": "text",
-      "text": "google.com",
-      "copied_at": "2026-05-09T03:18:09",
-      "created_at": "2026-05-09T03:18:09",
-      "sort_order": 3,
-      "usage_count": 0,
-      "pinned": false
-    },
-    {
-      "id": "cb_ccf148e2e7",
-      "type": "text",
-      "text": "안녕하세요. 6PM ASSIST 육땡이입니다.",
-      "copied_at": "2026-05-09T03:18:05",
-      "created_at": "2026-05-09T03:18:05",
-      "sort_order": 2,
-      "usage_count": 0,
-      "pinned": false
-    },
-    {
-      "id": "cbimg_93dfa3e2c0",
-      "type": "image",
-      "path": "C:\\Users\\kjh\\Documents\\GitHub\\support_cdx\\WorkHelper\\data\\clipboard_images\\cbimg_93dfa3e2c0.png",
-      "copied_at": "2026-05-09T03:17:23",
-      "created_at": "2026-05-09T03:17:23",
-      "sort_order": 1,
-      "usage_count": 0,
-      "pinned": false,
-      "image_signature": "672x508:e0be22c7fb666e47d85cf23d310d4c54fd2c8745",
-      "width": 672,
-      "height": 508
-    },
-    {
-      "id": "cb_a7e87ff88a",
-      "type": "text",
-      "text": "프로그램 업데이트",
-      "copied_at": "2026-05-09T03:15:25",
-      "created_at": "2026-05-09T03:15:25",
+      "text": "git에 올리고 ",
+      "copied_at": "2026-05-10T02:19:07",
+      "created_at": "2026-05-10T02:19:07",
       "sort_order": 0,
       "usage_count": 0,
       "pinned": false

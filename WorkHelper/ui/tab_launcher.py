@@ -163,7 +163,19 @@ class LauncherTab(QWidget):
         self.tabs.addTab(self.site_list, "사이트")
         self.tabs.addTab(self.file_list, "파일/폴더")
         self.sort_controls = SortControls(self.refresh)
-        self.tabs.setCornerWidget(self.sort_controls, Qt.Corner.TopRightCorner)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("검색...")
+        self.search.setFixedWidth(120)
+        self.search.setFixedHeight(26)
+        self.search.setStyleSheet("QLineEdit { padding: 1px 6px; font-size: 9pt; }")
+        self.search.textChanged.connect(self.refresh)
+        corner = QWidget()
+        corner_layout = QHBoxLayout(corner)
+        corner_layout.setContentsMargins(0, 0, 4, 0)
+        corner_layout.setSpacing(4)
+        corner_layout.addWidget(self.search)
+        corner_layout.addWidget(self.sort_controls)
+        self.tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
         layout.addWidget(self.tabs, 1)
         self.add_site_btn = QPushButton("+ 사이트 등록")
         self.add_site_btn.clicked.connect(lambda: self.edit_launcher(launcher_type_value="site"))
@@ -200,9 +212,12 @@ class LauncherTab(QWidget):
             source_items,
             lambda value: value.get("name") or value.get("description") or value.get("url") or value.get("path", ""),
         )
+        q = self.search.text().strip().lower()
         site_items = []
         file_items = []
         for item in items:
+            if q and q not in (item.get("name", "") + " " + item.get("url", "") + " " + item.get("path", "")).lower():
+                continue
             item_type = launcher_type(item.get("type"))
             card = make_card(item.get("name", "(이름 없음)"), self.site_card_subtitle(item), display_hotkey(item.get("hotkey")), card_size="c") if item_type == "site" else make_card(item.get("name", "(이름 없음)"), short_preview(item.get("path", "")), display_hotkey(item.get("hotkey")), card_size="b")
             self.add_launcher_actions(card, item)

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PyQt6.QtCore import QAbstractNativeEventFilter, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QCursor, QImage, QKeyEvent, QPixmap
-from PyQt6.QtWidgets import QApplication, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QApplication, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QTabWidget, QVBoxLayout, QWidget
 
 from app import config
 from app.clipboard_watcher import ClipboardWatcher
@@ -270,25 +270,34 @@ class ClipboardTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("검색")
-        self.search.setFixedHeight(28)
+        self.search.setPlaceholderText("검색...")
+        self.search.setFixedWidth(120)
+        self.search.setFixedHeight(26)
+        self.search.setStyleSheet("QLineEdit { padding: 1px 6px; font-size: 9pt; }")
         self.search.textChanged.connect(self.refresh)
         self.sort_controls = SortControls(self.refresh)
+        corner = QWidget()
+        corner_layout = QHBoxLayout(corner)
+        corner_layout.setContentsMargins(0, 0, 4, 0)
+        corner_layout.setSpacing(4)
+        corner_layout.addWidget(self.search)
+        corner_layout.addWidget(self.sort_controls)
+        self.tabs = QTabWidget()
+        self.tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
         self.list = GridPanel(columns=2)
-        top = QHBoxLayout()
-        top.setContentsMargins(10, 10, 10, 0)
-        top.addWidget(self.search)
-        top.addStretch(1)
-        top.addWidget(self.sort_controls)
-        layout.addLayout(top)
-        layout.addWidget(self.list, 1)
+        clear_btn = QPushButton("클립보드 초기화")
+        clear_btn.clicked.connect(self.clear_history)
+        page = QWidget()
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.addWidget(self.list, 1)
         bottom = QHBoxLayout()
         bottom.setContentsMargins(10, 0, 10, 10)
         bottom.addStretch(1)
-        clear_btn = QPushButton("클립보드 초기화")
-        clear_btn.clicked.connect(self.clear_history)
         bottom.addWidget(clear_btn)
-        layout.addLayout(bottom)
+        page_layout.addLayout(bottom)
+        self.tabs.addTab(page, "클립보드")
+        layout.addWidget(self.tabs, 1)
         self.watcher = ClipboardWatcher()
         self.watcher.new_item.connect(self.add_history)
         self.watcher.start()
@@ -297,20 +306,6 @@ class ClipboardTab(QWidget):
         self.image_timer = QTimer(self)
         self.image_timer.timeout.connect(self.check_image_clipboard)
         self.image_timer.start(700)
-        QTimer.singleShot(0, self.update_search_width)
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self.update_search_width()
-
-    def update_search_width(self) -> None:
-        viewport_width = self.list.viewport().width()
-        if viewport_width <= 0:
-            return
-        margins = self.list.grid.contentsMargins()
-        spacing = self.list.grid.horizontalSpacing()
-        card_width = (viewport_width - margins.left() - margins.right() - spacing) // 2
-        self.search.setFixedWidth(max(180, card_width))
 
     def stop(self) -> None:
         self.watcher.stop()

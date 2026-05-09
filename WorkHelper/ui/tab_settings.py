@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QButtonGroup,
@@ -48,6 +50,7 @@ class SettingsTab(QWidget):
         self.main = main
         self._refreshing = False
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
         self.tabs = QTabWidget()
         self.general_tab = QWidget()
         self.hotkey_tab = QWidget()
@@ -61,7 +64,9 @@ class SettingsTab(QWidget):
         self.build_theme()
 
         preset_buttons = QHBoxLayout()
+        preset_buttons.setContentsMargins(10, 4, 10, 0)
         action_buttons = QHBoxLayout()
+        action_buttons.setContentsMargins(10, 4, 10, 8)
         save_btn = QPushButton("설정 저장")
         update_btn = QPushButton("업데이트 확인")
         export_btn = QPushButton("현재 프리셋 내보내기")
@@ -299,7 +304,10 @@ class SettingsTab(QWidget):
         )
 
     def export_template(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(self, "현재 프리셋 내보내기", f"preset_{self.main.template_index}.json", "JSON (*.json)")
+        preset_name = self.main.data.get("meta", {}).get("preset_name", f"프리셋 {self.main.template_index}")
+        safe_name = re.sub(r'[\\/:*?"<>|]', "", preset_name).strip()
+        default_filename = f"preset_{self.main.template_index}_{safe_name}.json" if safe_name else f"preset_{self.main.template_index}.json"
+        path, _ = QFileDialog.getSaveFileName(self, "현재 프리셋 내보내기", default_filename, "JSON (*.json)")
         if not path:
             return
         try:
@@ -318,16 +326,41 @@ class SettingsTab(QWidget):
             self.main.data["settings"] = self.main.settings
             self.main.register_hotkeys()
             self.main.refresh_all_tabs()
-            show_modern_info(self, "완료", "현재 프리셋으로 가져왔습니다.")
+            self.refresh_template_combo()
+            imported_name = self.main.data.get("meta", {}).get("preset_name", "")
+            msg = f'"{imported_name}" 프리셋을 가져왔습니다.' if imported_name else "현재 프리셋으로 가져왔습니다."
+            show_modern_info(self, "완료", msg)
         except Exception as exc:
             show_modern_warning(self, "가져오기 실패", str(exc))
 
     def reset_template(self) -> None:
         if not ask_modern_question(self, "프리셋 초기화", "현재 프리셋에 등록된 항목을 기본값으로 초기화할까요?", None, "초기화", "취소"):
             return
+        # 템플릿 항목 초기화 (상용구·바로가기·매크로 등 + 홈 화면 사용이력)
         config.save_template(self.main.template_index, config.default_template(self.main.template_index))
         self.main.data = config.load_template(self.main.template_index)
         self.main.data["settings"] = self.main.settings
+        # 색상 최근 사용이력 초기화
+        self.main.settings["color_history"] = []
+        # 이모지 최근 사용이력 초기화
+        self.main.settings["emoji_usage"] = {}
+        self.main.settings["recent_emojis"] = []
+        # 특수문자 최근 사용이력 초기화
+        self.main.settings["special_char_usage"] = {}
+        config.save_settings(self.main.settings)
+        # 클립보드 이력 초기화 (메모리 + 디스크)
+        for tab in self.main.tabs:
+            if hasattr(tab, "history"):
+                tab.history["history"] = []
+                break
+        config.save_clipboard_history({"history": []})
+        # 클립보드 이미지 파일 삭제
+        if config.CLIPBOARD_IMAGE_DIR.exists():
+            for img_path in config.CLIPBOARD_IMAGE_DIR.glob("*.png"):
+                try:
+                    img_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
         self.main.register_hotkeys()
         self.main.refresh_all_tabs()
         self.refresh_template_combo()

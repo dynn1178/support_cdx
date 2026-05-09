@@ -459,6 +459,7 @@ class EmojiTab(QWidget):
             title.setObjectName("cardTitle")
             box_layout.addWidget(title)
             grid_holder = QWidget()
+            grid_holder.setStyleSheet("background: transparent;")
             grid = QGridLayout(grid_holder)
             grid.setContentsMargins(0, 0, 0, 0)
             is_usage = name == "사용 이력"
@@ -492,6 +493,178 @@ class EmojiTab(QWidget):
         self.refresh()
 
 
+class SpecialCharTab(QWidget):
+    CATEGORIES: dict[str, list[str]] = {
+        "사용 이력": [],
+        "일반 기호": [
+            "★", "☆", "♥", "♡", "◆", "◇", "●", "○", "■", "□", "▲", "△", "▼", "▽",
+            "✓", "✔", "✕", "✖", "✗", "✘", "✚", "✦", "✧", "※", "〒", "☎", "☏",
+            "☑", "☐", "⚠", "⚡", "♠", "♣", "♦", "♪", "♫", "♩", "♬", "♭", "♮", "♯",
+            "☀", "☁", "☂", "☃", "☄", "☞", "☜", "☝", "☟",
+            "♈", "♉", "♊", "♋", "♌", "♍", "♎", "♏", "♐", "♑", "♒", "♓", "⛎",
+        ],
+        "화살표": [
+            "←", "→", "↑", "↓", "↔", "↕", "↖", "↗", "↘", "↙",
+            "⇐", "⇒", "⇑", "⇓", "⇔", "⇕", "⇖", "⇗", "⇘", "⇙",
+            "⟵", "⟶", "⟷", "⟸", "⟹", "⟺",
+            "➡", "⬅", "⬆", "⬇", "⬈", "⬉", "⬊", "⬋",
+            "▸", "◂", "▹", "◃", "➤", "➢", "➣", "➥", "➦", "➧", "➨",
+            "↩", "↪", "↫", "↬", "↭",
+        ],
+        "수학 기호": [
+            "±", "×", "÷", "≠", "≈", "≤", "≥", "≪", "≫", "∞",
+            "√", "∑", "∏", "∂", "∫", "∮", "∴", "∵", "∝",
+            "∈", "∉", "∋", "∌", "⊂", "⊃", "⊄", "⊅", "⊆", "⊇",
+            "∩", "∪", "∀", "∃", "∄", "∅", "∧", "∨", "¬",
+            "⊕", "⊗", "≡", "≢", "≅", "≇", "≃", "≄", "∇", "∆",
+        ],
+        "단위/통화": [
+            "°", "℃", "℉", "%", "‰", "‱",
+            "㎝", "㎞", "㎡", "㎥", "㎎", "㎏", "㎖", "㎗", "㎘", "㎜", "㎛", "㎚", "㏄",
+            "½", "⅓", "¼", "¾", "⅔", "⅛", "⅜", "⅝", "⅞",
+            "¹", "²", "³", "⁴", "₁", "₂", "₃", "₄",
+            "™", "©", "®", "§", "¶", "†", "‡", "№", "℗",
+            "₩", "¥", "£", "€", "$", "¢", "₦", "₹", "₫", "₱",
+        ],
+        "문장부호": [
+            "·", "…", "‥", "‐", "‑", "‒", "–", "—", "―",
+            "¡", "¿", "‼", "⁉",
+            "′", "″", "‵", "‶", "‷", "〝", "〞",
+            "「", "」", "『", "』", "〔", "〕", "【", "】",
+            "《", "》", "〈", "〉", "〖", "〗", "〘", "〙", "〚", "〛",
+            "‹", "›", "«", "»",
+        ],
+        "원문자/로마자": [
+            "①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩",
+            "⑪", "⑫", "⑬", "⑭", "⑮", "⑯", "⑰", "⑱", "⑲", "⑳",
+            "Ⅰ", "Ⅱ", "Ⅲ", "Ⅳ", "Ⅴ", "Ⅵ", "Ⅶ", "Ⅷ", "Ⅸ", "Ⅹ", "Ⅺ", "Ⅻ",
+            "ⅰ", "ⅱ", "ⅲ", "ⅳ", "ⅴ", "ⅵ", "ⅶ", "ⅷ", "ⅸ", "ⅹ",
+            "⑴", "⑵", "⑶", "⑷", "⑸", "⑹", "⑺", "⑻", "⑼", "⑽", "⑾", "⑿", "⒀", "⒁", "⒂",
+            "㉠", "㉡", "㉢", "㉣", "㉤", "㉥", "㉦", "㉧", "㉨", "㉩",
+            "㉪", "㉫", "㉬", "㉭", "㉮", "㉯", "㉰", "㉱", "㉲", "㉳",
+            "㉴", "㉵", "㉶", "㉷", "㉸", "㉹", "㉺", "㉻",
+        ],
+        "도형/선": [
+            "─", "│", "┌", "┐", "└", "┘", "├", "┤", "┬", "┴", "┼",
+            "━", "┃", "┏", "┓", "┗", "┛", "┣", "┫", "┳", "┻", "╋",
+            "╔", "╗", "╚", "╝", "╠", "╣", "╦", "╩", "╬", "═", "║",
+            "▀", "▄", "█", "░", "▒", "▓",
+            "◤", "◥", "◢", "◣", "◰", "◱", "◲", "◳",
+        ],
+        "그리스 문자": [
+            "Α", "Β", "Γ", "Δ", "Ε", "Ζ", "Η", "Θ", "Ι", "Κ", "Λ", "Μ",
+            "Ν", "Ξ", "Ο", "Π", "Ρ", "Σ", "Τ", "Υ", "Φ", "Χ", "Ψ", "Ω",
+            "α", "β", "γ", "δ", "ε", "ζ", "η", "θ", "ι", "κ", "λ", "μ",
+            "ν", "ξ", "ο", "π", "ρ", "σ", "τ", "υ", "φ", "χ", "ψ", "ω",
+        ],
+        "히라가나": [
+            "あ", "い", "う", "え", "お", "か", "き", "く", "け", "こ",
+            "さ", "し", "す", "せ", "そ", "た", "ち", "つ", "て", "と",
+            "な", "に", "ぬ", "ね", "の", "は", "ひ", "ふ", "へ", "ほ",
+            "ま", "み", "む", "め", "も", "や", "ゆ", "よ", "ら", "り",
+            "る", "れ", "ろ", "わ", "を", "ん", "ぁ", "ぃ", "ぅ", "ぇ", "ぉ",
+            "っ", "ゃ", "ゅ", "ょ",
+            "が", "ぎ", "ぐ", "げ", "ご", "ざ", "じ", "ず", "ぜ", "ぞ",
+            "だ", "ぢ", "づ", "で", "ど", "ば", "び", "ぶ", "べ", "ぼ",
+            "ぱ", "ぴ", "ぷ", "ぺ", "ぽ",
+        ],
+        "가타카나": [
+            "ア", "イ", "ウ", "エ", "オ", "カ", "キ", "ク", "ケ", "コ",
+            "サ", "シ", "ス", "セ", "ソ", "タ", "チ", "ツ", "テ", "ト",
+            "ナ", "ニ", "ヌ", "ネ", "ノ", "ハ", "ヒ", "フ", "ヘ", "ホ",
+            "マ", "ミ", "ム", "メ", "モ", "ヤ", "ユ", "ヨ", "ラ", "リ",
+            "ル", "レ", "ロ", "ワ", "ヲ", "ン", "ァ", "ィ", "ゥ", "ェ", "ォ",
+            "ッ", "ャ", "ュ", "ョ",
+            "ガ", "ギ", "グ", "ゲ", "ゴ", "ザ", "ジ", "ズ", "ゼ", "ゾ",
+            "ダ", "ヂ", "ヅ", "デ", "ド", "バ", "ビ", "ブ", "ベ", "ボ",
+            "パ", "ピ", "プ", "ペ", "ポ",
+        ],
+        "키릴 문자": [
+            "А", "Б", "В", "Г", "Д", "Е", "Ё", "Ж", "З", "И", "Й", "К",
+            "Л", "М", "Н", "О", "П", "Р", "С", "Т", "У", "Ф", "Х", "Ц",
+            "Ч", "Ш", "Щ", "Ъ", "Ы", "Ь", "Э", "Ю", "Я",
+            "а", "б", "в", "г", "д", "е", "ё", "ж", "з", "и", "й", "к",
+            "л", "м", "н", "о", "п", "р", "с", "т", "у", "ф", "х", "ц",
+            "ч", "ш", "щ", "ъ", "ы", "ь", "э", "ю", "я",
+        ],
+    }
+
+    def __init__(self, main) -> None:
+        super().__init__()
+        self.main = main
+        layout = QVBoxLayout(self)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        container = QWidget()
+        self.rows = QVBoxLayout(container)
+        self.rows.setContentsMargins(6, 6, 6, 6)
+        self.rows.setSpacing(8)
+        scroll.setWidget(container)
+        layout.addWidget(scroll, 1)
+        bottom = QHBoxLayout()
+        bottom.addStretch(1)
+        clear = QPushButton("최근 특수문자 초기화")
+        clear.clicked.connect(self.clear_usage)
+        bottom.addWidget(clear)
+        layout.addLayout(bottom)
+        self.refresh()
+
+    def refresh(self) -> None:
+        while self.rows.count():
+            item = self.rows.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        usage = self.main.settings.setdefault("special_char_usage", {})
+        used = sorted(usage, key=lambda ch: int(usage.get(ch, 0)), reverse=True)
+        categories = dict(self.CATEGORIES)
+        categories["사용 이력"] = used
+        for name, chars in categories.items():
+            if name == "사용 이력" and not chars:
+                continue
+            box = QWidget()
+            box.setObjectName("card")
+            box_layout = QVBoxLayout(box)
+            box_layout.setContentsMargins(8, 6, 8, 8)
+            box_layout.setSpacing(4)
+            title = QLabel(name)
+            title.setObjectName("cardTitle")
+            box_layout.addWidget(title)
+            grid_holder = QWidget()
+            grid_holder.setStyleSheet("background: transparent;")
+            grid = QGridLayout(grid_holder)
+            grid.setContentsMargins(0, 0, 0, 0)
+            is_usage = name == "사용 이력"
+            grid.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            grid.setHorizontalSpacing(4 if is_usage else 0)
+            grid.setVerticalSpacing(0)
+            for index, ch in enumerate(chars):
+                button = QPushButton(ch)
+                button.setFlat(True)
+                button.setFixedSize(26 if is_usage else 22, 24 if is_usage else 22)
+                button.setStyleSheet("QPushButton { border: 0; padding: 0; font-size: 11pt; background: transparent; } QPushButton:hover { background: rgba(59,108,245,35); }")
+                button.clicked.connect(lambda checked=False, value=ch: self.copy_char(value))
+                row, col = (0, index) if is_usage else divmod(index, 28)
+                grid.addWidget(button, row, col)
+            box_layout.addWidget(grid_holder, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            self.rows.addWidget(box)
+        self.rows.addStretch(1)
+
+    def copy_char(self, ch: str) -> None:
+        self.main.app.clipboard().setText(ch)
+        usage = self.main.settings.setdefault("special_char_usage", {})
+        usage[ch] = int(usage.get(ch, 0)) + 1
+        config.save_settings(self.main.settings)
+        QTimer.singleShot(60, self.refresh)
+
+    def clear_usage(self) -> None:
+        if not ask_modern_question(self, "최근 특수문자 초기화", "최근 특수문자 사용 이력을 모두 지울까요?", None, "초기화", "취소"):
+            return
+        self.main.settings["special_char_usage"] = {}
+        config.save_settings(self.main.settings)
+        self.refresh()
+
+
 class MiscTab(QWidget):
     def __init__(self, main) -> None:
         super().__init__()
@@ -501,4 +674,5 @@ class MiscTab(QWidget):
         tabs.addTab(ColorToolsTab(main), "컬러")
         tabs.addTab(MouseHighlightTab(main), "마우스 하이라이트")
         tabs.addTab(EmojiTab(main), "이모지")
+        tabs.addTab(SpecialCharTab(main), "특수문자")
         layout.addWidget(tabs, 1)

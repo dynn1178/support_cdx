@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QRubberBand,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -209,25 +210,43 @@ class ImageTab(QWidget):
         self.main = main
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("검색...")
+        self.search.setFixedWidth(120)
+        self.search.setFixedHeight(26)
+        self.search.setStyleSheet("QLineEdit { padding: 1px 6px; font-size: 9pt; }")
+        self.search.textChanged.connect(self.refresh)
+        self.sort_controls = SortControls(self.refresh)
+        corner = QWidget()
+        corner_layout = QHBoxLayout(corner)
+        corner_layout.setContentsMargins(0, 0, 4, 0)
+        corner_layout.setSpacing(4)
+        corner_layout.addWidget(self.search)
+        corner_layout.addWidget(self.sort_controls)
+        self.tabs = QTabWidget()
+        self.tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
+        self.list = GridPanel(columns=2)
         add_btn = QPushButton("+ 이미지")
         add_btn.clicked.connect(self.edit_image)
-        top = QHBoxLayout()
-        self.sort_controls = SortControls(self.refresh)
-        top.addStretch(1)
-        top.addWidget(self.sort_controls)
-        layout.addLayout(top)
-        self.list = GridPanel(columns=2)
-        layout.addWidget(self.list, 1)
+        page = QWidget()
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.addWidget(self.list, 1)
         row = QHBoxLayout()
         row.addStretch(1)
         row.addWidget(add_btn)
-        layout.addLayout(row)
+        page_layout.addLayout(row)
+        self.tabs.addTab(page, "컨닝페이퍼")
+        layout.addWidget(self.tabs, 1)
 
     def refresh(self) -> None:
         cards = []
+        q = self.search.text().strip().lower()
         source_items = self.main.data.get("images", [])
         visible_items = self.sort_controls.sort_items(source_items, lambda value: value.get("name") or value.get("path", ""))
         for item in visible_items:
+            if q and q not in (item.get("name", "") + " " + item.get("path", "")).lower():
+                continue
             card = make_card(item.get("name", "(이름 없음)"), "", display_hotkey(item.get("hotkey")), card_size="a")
             add_card_actions(
                 card,
