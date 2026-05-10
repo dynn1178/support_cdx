@@ -495,7 +495,11 @@ class ImageTab(QWidget):
         bump_usage(item)
         item["last_used_at"] = now_iso()
         self.main.save_usage_data()
-        SteelCutViewerDialog(path, item.get("window_title", "스틸 컷")).exec()
+        # 참조를 self에 보관해 GC 충돌 방지, WA_DeleteOnClose로 Qt가 직접 정리
+        self._steel_cut_viewer = SteelCutViewerDialog(path, item.get("window_title", "스틸 컷"))
+        self._steel_cut_viewer.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self._steel_cut_viewer.show()
+        self._steel_cut_viewer.raise_()
 
     def delete_steel_cut_file(self, item: dict) -> None:
         try:
