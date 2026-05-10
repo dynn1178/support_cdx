@@ -10,9 +10,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import requests
-from PyQt6.QtWidgets import QMessageBox, QWidget
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtWidgets import QDialog, QLabel, QMessageBox, QProgressBar, QVBoxLayout, QWidget
 
 from app import config
+
+JUST_UPDATED_FLAG = Path(tempfile.gettempdir()) / "6pma_just_updated.txt"
 
 
 @dataclass
@@ -34,6 +37,18 @@ def parse_version(version: str) -> tuple[int, ...]:
     return tuple(parts)
 
 
+def check_just_updated() -> str | None:
+    """업데이트 완료 플래그 확인. 새 버전 문자열 반환 후 파일 삭제."""
+    if JUST_UPDATED_FLAG.exists():
+        try:
+            version = JUST_UPDATED_FLAG.read_text(encoding="utf-8").strip()
+            JUST_UPDATED_FLAG.unlink(missing_ok=True)
+            return version or "최신"
+        except Exception:
+            pass
+    return None
+
+
 def fetch_latest_update(current_version: str, repo: str | None = None, token: str | None = None) -> UpdateInfo | None:
     repo_name = repo or os.getenv("WORKHELPER_GITHUB_REPO", "").strip() or config.GITHUB_REPO
     if not repo_name:
@@ -45,7 +60,7 @@ def fetch_latest_update(current_version: str, repo: str | None = None, token: st
 
     response = requests.get(f"https://api.github.com/repos/{repo_name}/releases/latest", headers=headers, timeout=8)
     if response.status_code == 404:
-        return None  # 릴리즈가 아직 없음 → 업데이트 없음으로 처리
+        return None
     response.raise_for_status()
     payload = response.json()
     latest = payload.get("tag_name", "").lstrip("v")
@@ -74,24 +89,15 @@ def fetch_latest_update(current_version: str, repo: str | None = None, token: st
 
 
 def _resolve_updater() -> Path | None:
-    """
-    updater.exe 경로를 반환합니다.
-    1순위: BASE_DIR (exe 옆에 파일로 존재할 때)
-    2순위: _MEIPASS 번들 내부 → 임시 폴더에 추출
-    """
-    # 1) exe 옆에 updater.exe가 있으면 그대로 사용
     side_by_side = config.BASE_DIR / "updater.exe"
     if side_by_side.exists():
         return side_by_side
-
-    # 2) 번들 내부(_MEIPASS)에서 추출
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
         bundled = Path(sys._MEIPASS) / "updater.exe"
         if bundled.exists():
             tmp = Path(tempfile.gettempdir()) / "6pma_updater.exe"
             shutil.copy2(str(bundled), str(tmp))
             return tmp
-
     return None
 
 
@@ -103,25 +109,145 @@ def can_self_update(update: UpdateInfo) -> bool:
     return _resolve_updater() is not None
 
 
-def download_update(update: UpdateInfo, token: str | None = None) -> Path:
-    headers = {}
-    token_value = token or os.getenv("WORKHELPER_GITHUB_TOKEN", "").strip()
-    if token_value:
-        headers["Authorization"] = f"Bearer {token_value}"
-    response = requests.get(update.download_url, headers=headers, timeout=120)
-    response.raise_for_status()
-    target = Path(tempfile.gettempdir()) / f"6pma_update_{update.latest_version}.exe"
-    target.write_bytes(response.content)
-    return target
+# ── 다운로드 스레드 ──────────────────────────────────────────────────────────
+
+class _DownloadThread(QThread):
+    progress = pyqtSignal(int)      # 0-100
+    finished = pyqtSignal(object)   # Path
+    failed = pyqtSignal(str)
+
+    def __init__(self, update: UpdateInfo, token: str | None = None) -> None:
+        super().__init__()
+        self.update = update
+        self.token = token
+
+    def run(self) -> None:
+        try:
+            headers: dict = {}
+            token_value = self.token or os.getenv("WORKHELPER_GITHUB_TOKEN", "").strip()
+            if token_value:
+                headers["Authorization"] = f"Bearer {token_value}"
+            with requests.get(self.update.download_url, headers=headers, timeout=120, stream=True) as resp:
+                resp.raise_for_status()
+                total = int(resp.headers.get("content-length", 0))
+                target = Path(tempfile.gettempdir()) / f"6pma_update_{self.update.latest_version}.exe"
+                downloaded = 0
+                with target.open("wb") as f:
+                    for chunk in resp.iter_content(chunk_size=65536):
+                        if chunk:
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total > 0:
+                                self.progress.emit(int(downloaded * 100 / total))
+            self.progress.emit(100)
+            self.finished.emit(target)
+        except Exception as exc:
+            self.failed.emit(str(exc))
 
 
-def install_update(update: UpdateInfo, token: str | None = None) -> None:
-    new_path = download_update(update, token)
+# ── 다운로드 진행 다이얼로그 ─────────────────────────────────────────────────
+
+class DownloadProgressDialog(QDialog):
+    def __init__(self, parent: QWidget, update: UpdateInfo, token: str | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("업데이트 다운로드")
+        self.setModal(True)
+        self.setFixedSize(400, 130)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        self._path: Path | None = None
+        self._error: str | None = None
+
+        # 스타일 (dialog_palette 지연 import)
+        try:
+            from ui.common import dialog_palette
+            colors = dialog_palette(parent)
+        except Exception:
+            colors = {"panel": "#ffffff", "border": "#dddddd", "text": "#222222",
+                      "accent": "#3B6CF5", "field": "#f5f5f5"}
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(22, 20, 22, 20)
+        layout.setSpacing(12)
+
+        self._label = QLabel(f"v{update.latest_version} 다운로드 중...")
+        self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self._bar = QProgressBar()
+        self._bar.setRange(0, 100)
+        self._bar.setValue(0)
+        self._bar.setTextVisible(True)
+        self._bar.setFixedHeight(18)
+
+        layout.addWidget(self._label)
+        layout.addWidget(self._bar)
+
+        self.setStyleSheet(f"""
+            QDialog {{
+                background: {colors["panel"]};
+                border: 1px solid {colors["border"]};
+                border-radius: 10px;
+            }}
+            QLabel {{
+                color: {colors["text"]};
+                font-size: 10pt;
+            }}
+            QProgressBar {{
+                border: 1px solid {colors["border"]};
+                border-radius: 6px;
+                background: {colors["field"]};
+                text-align: center;
+                color: {colors["text"]};
+            }}
+            QProgressBar::chunk {{
+                background: {colors["accent"]};
+                border-radius: 5px;
+            }}
+        """)
+
+        self._thread = _DownloadThread(update, token)
+        self._thread.progress.connect(self._bar.setValue)
+        self._thread.finished.connect(self._on_finished)
+        self._thread.failed.connect(self._on_failed)
+        self._thread.start()
+
+    def _on_finished(self, path: Path) -> None:
+        self._path = path
+        self._label.setText("다운로드 완료! 설치를 시작합니다...")
+        self.accept()
+
+    def _on_failed(self, error: str) -> None:
+        self._error = error
+        self.reject()
+
+    @property
+    def result_path(self) -> Path | None:
+        return self._path
+
+    @property
+    def error(self) -> str | None:
+        return self._error
+
+
+# ── 설치 / 다이얼로그 함수 ────────────────────────────────────────────────────
+
+def install_update(parent: QWidget, update: UpdateInfo, token: str | None = None) -> None:
+    """진행 바를 보여주면서 다운로드 후 updater 실행."""
+    dlg = DownloadProgressDialog(parent, update, token)
+    if dlg.exec() != QDialog.DialogCode.Accepted:
+        if dlg.error:
+            raise RuntimeError(dlg.error)
+        return
+
+    new_path = dlg.result_path
+    if not new_path:
+        raise RuntimeError("다운로드된 파일을 찾을 수 없습니다.")
+
     current_exe = Path(sys.executable)
     updater = _resolve_updater()
     if not updater:
         raise FileNotFoundError("updater.exe를 찾을 수 없습니다.")
-    subprocess.Popen([str(updater), str(current_exe), str(new_path), str(current_exe)])
+
+    subprocess.Popen([str(updater), str(current_exe), str(new_path), str(current_exe), update.latest_version])
     sys.exit(0)
 
 
@@ -158,7 +284,7 @@ def check_update_dialog(
     if choice == QMessageBox.StandardButton.Yes:
         if auto_install and can_self_update(update):
             try:
-                install_update(update, token=token)
+                install_update(parent, update, token=token)
             except Exception as exc:
                 QMessageBox.warning(parent, "업데이트 설치 실패", str(exc))
                 if update.release_url or update.download_url:

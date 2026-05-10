@@ -15,7 +15,7 @@ from app import config
 from app.date_tools import render_date_template
 from app.hotkey_manager import HotkeyManager, USER32, WM_HOTKEY
 from app.theme import apply_theme
-from app.update_checker import check_update_dialog
+from app.update_checker import check_just_updated, check_update_dialog
 from app.utils import display_hotkey, normalize_hotkey
 from ui.tab_clipboard import ClipboardTab
 from ui.tab_calculator import CalculatorTab
@@ -321,6 +321,7 @@ class MainWindow(QMainWindow):
         self.tip_timer = QTimer(self)
         self.tip_timer.timeout.connect(self.rotate_home_tip)
         self.tip_timer.start(300_000)
+        QTimer.singleShot(800, self._show_just_updated_notice)
         QTimer.singleShot(1500, self.check_update_on_startup)
         QTimer.singleShot(300, self.restore_open_stickers)
 
@@ -663,6 +664,12 @@ class MainWindow(QMainWindow):
         self.hotkey_toggle.setText("단축키 ON" if enabled else "단축키 OFF")
         bg = "#2EA672" if enabled else "#9CA3AF"
         self.hotkey_toggle.setStyleSheet(f"QPushButton {{ color: {bg}; font-weight: 800; }}")
+
+    def _show_just_updated_notice(self) -> None:
+        version = check_just_updated()
+        if version:
+            from ui.common import show_modern_info
+            show_modern_info(self, "업데이트 완료!", f"v{version} 으로 업데이트 되었습니다. 🎉")
 
     def check_update_on_startup(self) -> None:
         settings = self.settings
