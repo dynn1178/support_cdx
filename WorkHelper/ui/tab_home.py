@@ -6,6 +6,7 @@ from typing import Callable
 from PyQt6.QtWidgets import QLabel, QHBoxLayout, QVBoxLayout, QWidget
 
 from app import config
+from app.theme import THEMES
 from app.utils import display_hotkey, short_preview
 from ui.common import GridPanel, make_card
 
@@ -20,6 +21,8 @@ COLLECTION_META: dict[str, tuple[str, str, Callable[[dict], str], Callable[[dict
     "macros": ("매크로", "매크로", lambda item: f"{len(item.get('actions', []))}개 액션", lambda item: item.get("name", "")),
     "memos": ("메모", "메모", lambda item: short_preview(item.get("content", ""), 30) or item.get("title", "메모"), lambda item: item.get("title", "")),
 }
+
+MAX_SECTION_ROWS = 6
 
 
 class HomeTab(QWidget):
@@ -42,7 +45,7 @@ class HomeTab(QWidget):
 
         top_holder = QWidget()
         top_holder.setLayout(top)
-        top_holder.setFixedHeight(148)
+        top_holder.setFixedHeight(164)
 
         hotkey_label = QLabel("등록 단축키")
         hotkey_label.setObjectName("cardTitle")
@@ -95,6 +98,7 @@ class HomeTab(QWidget):
 
     def usage_row(self, entry: dict, right_text: str) -> QWidget:
         row = QWidget()
+        row.setStyleSheet("background: transparent;")
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(5)
@@ -128,23 +132,12 @@ class HomeTab(QWidget):
             return f"{hours}시간"
         return f"{hours // 24}일"
 
-    def schedule_right_text(self, target: datetime) -> str:
-        if target.date() == datetime.now().date():
-            minutes = int((target - datetime.now()).total_seconds() // 60)
-            if minutes >= 60:
-                return f"{minutes // 60}h"
-            if minutes >= 0:
-                return f"{minutes}m"
-            return "지남"
-        days = (target.date() - datetime.now().date()).days
-        return f"D-{days}" if days >= 0 else f"D+{abs(days)}"
-
     def refresh_recent(self, items: list[dict]) -> None:
         recent = sorted(
             [entry for entry in items if entry["item"].get("last_used_at")],
             key=lambda entry: entry["item"].get("last_used_at", ""),
             reverse=True,
-        )[:5]
+        )[:MAX_SECTION_ROWS]
         if not recent:
             self.recent_body.addWidget(self.empty_row("사용 기록 없음"))
             return
@@ -161,46 +154,69 @@ class HomeTab(QWidget):
         if not today_items:
             self.frequent_body.addWidget(self.empty_row("오늘 기록 없음"))
             return
-        for index, entry in enumerate(today_items[:5], start=1):
+        for index, entry in enumerate(today_items[:MAX_SECTION_ROWS], start=1):
             count = int(entry["item"].get("used_today_count", 0) or 0)
             self.frequent_body.addWidget(self.usage_row(entry, f"{index}위 {count}회"))
 
     def refresh_schedules(self) -> None:
+        now = datetime.now()
         parsed = []
         for schedule in self.main.data.get("schedules", []):
+            if schedule.get("completed"):
+                continue
             try:
                 target = datetime.fromisoformat(schedule.get("datetime", ""))
             except Exception:
                 continue
             parsed.append((target, schedule))
-        parsed.sort(key=lambda pair: pair[0], reverse=True)
+        parsed.sort(key=lambda pair: abs((pair[0] - now).total_seconds()))
         if not parsed:
             self.schedule_body.addWidget(self.empty_row("등록 일정 없음"))
             return
-        for target, schedule in parsed[:5]:
+        for target, schedule in parsed[:MAX_SECTION_ROWS]:
             entry = {
                 "collection": "schedules",
                 "label": "일정",
                 "badge": "일정",
-                "title": short_preview(schedule.get("memo", ""), 30) or schedule.get("title") or "일정",
+                "title": short_preview(schedule.get("title", ""), 20) or "일정",
                 "desc": schedule.get("title", ""),
                 "item": schedule,
             }
-            when = target.strftime("%m-%d %H:%M")
-            self.schedule_body.addWidget(self.usage_row(entry, f"{when} {self.schedule_right_text(target)}"))
+            when = target.strftime("%m/%d")
+            self.schedule_body.addWidget(self.usage_row(entry, when))
+
+    def _theme(self) -> dict:
+        theme_name = getattr(self.main, "settings", {}).get("theme", "light")
+        return THEMES.get(theme_name, THEMES["light"])
 
     def setting_hotkey_cards(self) -> list[QWidget]:
         settings = self.main.settings
+        colors = self._theme()
+        content = colors.get("content", "#F7F8FA")
+        border = colors.get("border", "#B9C0CC")
+        text = colors.get("text", "#1F2433")
         cards = []
+
+        def system_card(label: str, hotkey_label: str) -> QWidget:
+            card = make_card(label, "", hotkey_label, single_line=True, compact=True, card_height=46)
+            card.setStyleSheet(
+                f"QWidget#card {{ background: {content}; border: 1px solid {border}; }}"
+                f"QLabel#keyCap {{ background: {content}; border: 1px solid {border}; color: {text}; }}"
+            )
+            return card
+
         clipboard_label = self.main.clipboard_popup_shortcut_label()
         if clipboard_label:
-            cards.append(make_card("클립보드 미니팝업", "", clipboard_label, single_line=True, compact=True, card_height=46))
+            cards.append(system_card("클립보드 미니팝업", clipboard_label))
         quick_memo_label = self.main.quick_memo_shortcut_label()
         if quick_memo_label:
-            cards.append(make_card("빠른 메모", "", quick_memo_label, single_line=True, compact=True, card_height=46))
+            cards.append(system_card("빠른 메모", quick_memo_label))
         phrase_popup_label = display_hotkey(settings.get("phrase_popup_hotkey"))
         if phrase_popup_label:
-            cards.append(make_card("상용구 미니팝업", "", phrase_popup_label, single_line=True, compact=True, card_height=46))
+            cards.append(system_card("상용구 미니팝업", phrase_popup_label))
+        steel_cut_label = display_hotkey(settings.get("steel_cut_hotkey"))
+        if steel_cut_label:
+            cards.append(system_card("스틸컷 촬영", steel_cut_label))
         return cards
 
     def single_line_preview(self, text: str, limit: int = 90) -> str:
@@ -225,7 +241,7 @@ class HomeTab(QWidget):
             for item in items:
                 key = display_hotkey(item.get("hotkey"))
                 if key:
-                    hotkey_cards.append(make_card(self.single_line_preview(content(item), 90), "", key, single_line=True, compact=True, card_height=46))
+                    hotkey_cards.append(make_card(self.single_line_preview(content(item), 90), "", key, single_line=True, compact=True, card_height=46, title_bold=False))
         if not hotkey_cards:
             hotkey_cards.append(make_card("등록된 단축키 없음", "각 기능 화면에서 단축키를 지정할 수 있습니다.", compact=True, card_height=56))
         self.hotkeys.add_cards(hotkey_cards)

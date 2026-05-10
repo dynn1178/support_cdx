@@ -31,6 +31,7 @@ from ui.common import (
     add_card_actions,
     apply_manual_reorder,
     bump_usage,
+    confirm_delete,
     confirm_shift_digit_hotkey,
     make_card,
     make_icon_button,
@@ -150,9 +151,9 @@ class PhraseTab(QWidget):
         self.hotstring_list = GridPanel(columns=2)
         self.title_list = GridPanel(columns=1)
         self.tabs.addTab(self.tab_page(self.phrase_list, "+ 텍스트", lambda: self.edit_item("phrases")), "일반 텍스트")
-        self.tabs.addTab(self.tab_page(self.snippet_list, "+ 스니펫", lambda: self.edit_item("snippets")), "코드 스니펫")
-        self.tabs.addTab(self.tab_page(self.title_list, "+ 제목", lambda: self.edit_title()), "제목 생성")
+        self.tabs.addTab(self.tab_page(self.snippet_list, "+ 스니펫", lambda: self.edit_item("snippets")), "스니펫")
         self.tabs.addTab(self.tab_page(self.hotstring_list, "+ 핫스트링", lambda: self.edit_hotstring()), "핫스트링")
+        self.tabs.addTab(self.tab_page(self.title_list, "+ 제목", lambda: self.edit_title()), "날짜/보고 양식")
         layout.addWidget(self.tabs, 1)
         self.status_label = QLabel("")
         self.status_label.setObjectName("mutedText")
@@ -402,19 +403,19 @@ class PhraseTab(QWidget):
             return
 
     def delete_item(self, collection: str, item: dict) -> None:
-        if not ask_modern_question(self, "삭제", "선택한 항목을 삭제할까요?", "#D7263D", "삭제", "취소"):
+        if not confirm_delete(self, "선택한 항목을 삭제할까요?"):
             return
         self.main.data.get(collection, []).remove(item)
         self.main.save_data()
 
     def delete_title(self, item: dict) -> None:
-        if not ask_modern_question(self, "삭제", "선택한 제목 템플릿을 삭제할까요?", "#D7263D", "삭제", "취소"):
+        if not confirm_delete(self, "선택한 날짜/보고 양식을 삭제할까요?"):
             return
         self.main.data.get("title_templates", []).remove(item)
         self.main.save_data()
 
     def delete_hotstring(self, item: dict) -> None:
-        if not ask_modern_question(self, "삭제", "선택한 핫스트링을 삭제할까요?", "#D7263D", "삭제", "취소"):
+        if not confirm_delete(self, "선택한 핫스트링을 삭제할까요?"):
             return
         self.main.data.get("hotstrings", []).remove(item)
         self.main.save_data()

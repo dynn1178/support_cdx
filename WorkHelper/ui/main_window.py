@@ -28,7 +28,7 @@ from ui.tab_misc import MiscTab, MouseHighlightOverlay
 from ui.tab_phrase import PhraseTab
 from ui.tab_settings import SettingsTab
 from ui.tab_text_tools import TextToolsTab
-from ui.common import apply_modern_dialog_style, ask_modern_question, bump_usage, fit_combo_to_contents, normalize_todo_groups, set_dialog_theme, show_modern_info, show_modern_warning
+from ui.common import apply_modern_dialog_style, ask_modern_question, bump_usage, fit_combo_to_contents, flash_taskbar, normalize_todo_groups, set_dialog_theme, show_modern_info, show_modern_warning
 
 
 MINI_COPY_BUTTON_WIDTH = 64
@@ -586,7 +586,7 @@ class QuickActionPopup(QDialog):
         self.owner.save_data()
         if self.memo_sticky.isChecked():
             memo["sticker_open"] = True
-            self.owner.tabs[8].show_sticker(memo)
+            self.owner.tabs[6].show_sticker(memo)
         self.memo_text.clear()
         self.reject()
 
@@ -673,7 +673,7 @@ class MainWindow(QMainWindow):
         self.hotstring_expand_requested.connect(self.expand_hotstring)
         self._notified_schedule_ids: set[str] = set()
         self._quick_timers: list = []
-        self.setWindowTitle(f"{config.APP_NAME} {self.version}")
+        self.setWindowTitle(config.APP_NAME)
         icon2_path = config.BASE_DIR / "icon2.png" if (config.BASE_DIR / "icon2.png").exists() else config.RESOURCE_DIR / "icon2.png"
         icon_path = icon2_path if icon2_path.exists() else config.APP_ICON_PATH if config.APP_ICON_PATH.exists() else config.BUNDLED_ICON_PATH
         if icon_path.exists():
@@ -787,24 +787,24 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.clipboard_tab = ClipboardTab(self)
         self.tabs = [
-            HomeTab(self),
-            PhraseTab(self),
-            LauncherTab(self),
-            ImageTab(self),
-            MacroTab(self),
-            self.clipboard_tab,
-            CalculatorTab(self),
-            TextToolsTab(self),
-            MemoListTab(self),
-            TodoListTab(self),
-            MiscTab(self),
-            SettingsTab(self),
+            HomeTab(self),          # 0 홈
+            PhraseTab(self),        # 1 상용구
+            LauncherTab(self),      # 2 바로가기
+            self.clipboard_tab,     # 3 클립보드
+            ImageTab(self),         # 4 컨닝페이퍼
+            TodoListTab(self),      # 5 일정 관리
+            MemoListTab(self),      # 6 메모
+            MacroTab(self),         # 7 매크로
+            CalculatorTab(self),    # 8 계산기
+            TextToolsTab(self),     # 9 텍스트 변환
+            MiscTab(self),          # 10 피커/기타
+            SettingsTab(self),      # 11 설정
         ]
         for tab in self.tabs:
             self.stack.addWidget(tab)
         content_layout.addWidget(self.stack, 1)
 
-        names = ["홈", "상용구/코드", "바로가기", "컨닝페이퍼", "매크로", "클립보드", "계산기", "텍스트 변환", "메모", "일정 관리", "피커 · 기타", "설정"]
+        names = ["홈", "상용구", "바로가기", "클립보드", "컨닝페이퍼", "일정 관리", "메모", "매크로", "계산기", "텍스트 변환", "피커 · 기타", "설정"]
         self.buttons: list[QToolButton] = []
         for i, name in enumerate(names):
             button = QToolButton()
@@ -846,18 +846,18 @@ class MainWindow(QMainWindow):
         for i, button in enumerate(self.buttons):
             button.setChecked(i == index)
         subtitles = [
-            "🔹" + self.numbered_home_tip(),
-            f"🔹자주 쓰는 문구나 코드, 날짜 형식, 핫스트링을 저장하고 쉽게 불러오세요.\n💡즐겨찾기(★)로 상용구 호출도 가능합니다. (기본 단축키 {display_hotkey(self.settings.get('phrase_popup_hotkey')) or 'Ctrl+;'})",
-            "🔹자주 찾는 사이트나 폴더, 파일을 단축키로 바로 불러올 수 있어요.\n💡사이트를 불러오면 함께 저장한 아이디와 비밀번호를 복사해줘요! (개인 계정은 보안상 사용하지 마세요)",
-            "🔹원하는 이미지를 파일, URL, 캡처 방식으로 저장하고 불러올 수 있어요\n💡자주 참고하는 자료를 등록해보세요. (단축키, 조직도, KPI 등)",
-            "🔹마우스와 키보드 동작을 녹화하고 그대로 반복&재생시킬 수 있어요.\n💡편집 화면에서 직접 편집하는 것도 가능해요.",
-            "🔹복사했던 항목들을 보관하고 불러옵니다.\n💡Ctrl을 두 번 누르면 복사했던 이력을 미니 팝업으로 바로 확인하고 가져올 수 있어요",
-            "🔹수식과 날짜를 계산하고 결과를 복사합니다.",
-            "🔹URL, UTM, 줄바꿈, 따옴표 변환을 처리합니다.",
-            "🔹메모를 저장할 수 있어요.\n💡Alt를 두 번 누르면 할 일/메모/일정을 빠르게 등록할 수 있어요.",
-            "🔹할 일을 체크리스트로 관리합니다.\n💡우선순위·마감기한·알림을 설정하고, 완료 체크로 목록에서 제거하세요.",
-            "🔹컬러, 마우스 하이라이트, 이모지를 관리합니다.",
-            "🔹일반, 단축키, 테마 옵션을 설정합니다.",
+            "🔹" + self.numbered_home_tip(),                                                                                                                                                             # 0 홈
+            f"🔹자주 쓰는 문구나 코드, 날짜 형식, 핫스트링을 저장하고 쉽게 불러오세요.\n💡즐겨찾기(★)로 상용구 호출도 가능합니다. (기본 단축키 {display_hotkey(self.settings.get('phrase_popup_hotkey')) or 'Ctrl+;'})",  # 1 상용구
+            "🔹자주 찾는 사이트나 폴더, 파일을 단축키로 바로 불러올 수 있어요.\n💡사이트를 불러오면 함께 저장한 아이디와 비밀번호를 복사해줘요! (개인 계정은 보안상 사용하지 마세요)",                             # 2 바로가기
+            "🔹복사했던 항목들을 보관하고 불러옵니다.\n💡Ctrl을 두 번 누르면 복사했던 이력을 미니 팝업으로 바로 확인하고 가져올 수 있어요",                                                                     # 3 클립보드
+            "🔹원하는 이미지를 파일, URL, 캡처 방식으로 저장하고 불러올 수 있어요\n💡자주 참고하는 자료를 등록해보세요. (단축키, 조직도, KPI 등)",                                                              # 4 컨닝페이퍼
+            "🔹할 일을 체크리스트로 관리합니다.\n💡우선순위·마감기한·알림을 설정하고, 완료 체크로 목록에서 제거하세요.",                                                                                           # 5 일정 관리
+            "🔹메모를 저장할 수 있어요.\n💡Alt를 두 번 누르면 할 일/메모/일정을 빠르게 등록할 수 있어요.",                                                                                                        # 6 메모
+            "🔹마우스와 키보드 동작을 녹화하고 그대로 반복&재생시킬 수 있어요.\n💡편집 화면에서 직접 편집하는 것도 가능해요.",                                                                                    # 7 매크로
+            "🔹수식과 날짜를 계산하고 결과를 복사합니다.",                                                                                                                                                    # 8 계산기
+            "🔹URL, UTM, 줄바꿈, 따옴표 변환을 처리합니다.",                                                                                                                                                  # 9 텍스트 변환
+            "🔹컬러, 마우스 하이라이트, 이모지를 관리합니다.",                                                                                                                                                # 10 피커/기타
+            "🔹일반, 단축키, 테마 옵션을 설정합니다.",                                                                                                                                                       # 11 설정
         ]
         subtitle = subtitles[index]
         if index == 0:
@@ -1000,11 +1000,11 @@ class MainWindow(QMainWindow):
         for item in self.data.get("images", []):
             hotkey = item.get("hotkey")
             if hotkey:
-                self.hotkeys.register(hotkey.get("modifiers", []), hotkey.get("key", ""), lambda value=item: self.tabs[3].view_image(value), item.get("id", ""))
+                self.hotkeys.register(hotkey.get("modifiers", []), hotkey.get("key", ""), lambda value=item: self.tabs[4].view_image(value), item.get("id", ""))
         for item in self.data.get("macros", []):
             hotkey = item.get("hotkey")
             if hotkey:
-                self.hotkeys.register(hotkey.get("modifiers", []), hotkey.get("key", ""), lambda value=item: self.tabs[4].play_macro(value), item.get("id", ""))
+                self.hotkeys.register(hotkey.get("modifiers", []), hotkey.get("key", ""), lambda value=item: self.tabs[7].play_macro(value), item.get("id", ""))
         settings = self.settings
         popup_hotkey = settings.get("clipboard_popup_hotkey")
         if popup_hotkey and not settings.get("clipboard_popup_double_ctrl", True):
@@ -1018,7 +1018,7 @@ class MainWindow(QMainWindow):
             self.hotkeys.register(phrase_popup_hotkey.get("modifiers", []), phrase_popup_hotkey.get("key", ""), self.show_phrase_popup, "phrase_popup")
         steel_cut_hotkey = settings.get("steel_cut_hotkey")
         if steel_cut_hotkey:
-            self.hotkeys.register(steel_cut_hotkey.get("modifiers", []), steel_cut_hotkey.get("key", ""), self.tabs[3].capture_steel_cut, "steel_cut")
+            self.hotkeys.register(steel_cut_hotkey.get("modifiers", []), steel_cut_hotkey.get("key", ""), self.tabs[4].capture_steel_cut, "steel_cut")
         self.update_hotkey_status()
         self.update_hotkey_toggle_button()
 
@@ -1154,7 +1154,7 @@ class MainWindow(QMainWindow):
         self.save_data()
         if dialog.sticky.isChecked():
             memo["sticker_open"] = True
-            self.tabs[8].show_sticker(memo)
+            self.tabs[6].show_sticker(memo)
 
     def copy_title_template(self, item: dict) -> None:
         bump_usage(item)
@@ -1273,7 +1273,7 @@ class MainWindow(QMainWindow):
             return
         for memo in self.data.get("memos", []):
             if memo.get("sticker_open"):
-                self.tabs[8].show_sticker(memo, track_usage=False, raise_window=False)
+                self.tabs[6].show_sticker(memo, track_usage=False, raise_window=False)
 
     def wait_for_modifier_release(self, timeout: float = 1.0) -> None:
         deadline = time.monotonic() + timeout
@@ -1367,6 +1367,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+        flash_taskbar(self)
         accent_map = {"상": "#DC2626", "중": "#4338CA"}
         accent = accent_map.get(priority)
         show_modern_info(self, f"🔔 {title}", message, accent=accent)

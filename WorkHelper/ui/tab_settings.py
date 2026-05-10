@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
 from app import config
 from app.theme import THEMES
 from app.update_checker import check_update_dialog
-from app.utils import set_startup_enabled
+from app.utils import resolve_image_path, set_startup_enabled
 from ui.common import HotkeyFields, ask_modern_question, confirm_shift_digit_hotkey, show_modern_info, show_modern_warning
 
 
@@ -393,6 +393,15 @@ class SettingsTab(QWidget):
     def reset_template(self) -> None:
         if not ask_modern_question(self, "프리셋 초기화", "현재 프리셋에 등록된 항목을 기본값으로 초기화할까요?", None, "초기화", "취소"):
             return
+        # 스틸컷 이미지 파일 삭제
+        for item in self.main.data.get("steel_cuts", []):
+            try:
+                from pathlib import Path
+                path = Path(resolve_image_path(item.get("path", ""), config.BASE_DIR))
+                if path.exists() and config.BASE_DIR.resolve() in path.resolve().parents:
+                    path.unlink(missing_ok=True)
+            except Exception:
+                pass
         # 템플릿 항목 초기화 (상용구·바로가기·매크로 등 + 홈 화면 사용이력)
         config.save_template(self.main.template_index, config.default_template(self.main.template_index))
         self.main.data = config.load_template(self.main.template_index)

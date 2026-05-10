@@ -168,6 +168,7 @@ def make_card(
     card_height: int | None = None,
     card_size: str | None = None,
     word_wrap: bool = False,
+    title_bold: bool = True,
 ) -> QWidget:
     card = QWidget()
     card.setObjectName("card")
@@ -183,10 +184,7 @@ def make_card(
         compact = False
     elif card_height is None:
         card_height = 56 if compact else CARD_SIZE_B
-    if word_wrap:
-        card.setMinimumHeight(card_height)
-    else:
-        card.setFixedHeight(card_height)
+    card.setFixedHeight(card_height)
     layout = QVBoxLayout(card)
     if compact:
         layout.setContentsMargins(10, 6, 10, 6)
@@ -203,7 +201,7 @@ def make_card(
         title_label = QLabel(title)
         title_label.setObjectName("cardTitle")
         title_label.setWordWrap(True)
-        title_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        title_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         title_label.setMinimumWidth(0)
     else:
         title_display = title.splitlines()[0] + "..." if "\n" in title or "\r" in title else title
@@ -214,6 +212,8 @@ def make_card(
         title_label.setMinimumWidth(0)
         title_label.setFixedHeight(22)
         title_label.setToolTip(title)
+    if not title_bold:
+        title_label.setStyleSheet("font-weight: 400;")
     row.addWidget(title_label, 1)
     reserve_hotkey = bool(hotkey)
     if reserve_hotkey:
@@ -367,6 +367,62 @@ class ModernInfoDialog(QDialog):
     def done_with_choice(self, choice: str) -> None:
         self.choice = choice
         self.accept()
+
+
+def flash_taskbar(widget: QWidget, msec: int = 4000) -> None:
+    """작업표시줄 아이콘을 msec 밀리초 동안 깜빡입니다."""
+    from PyQt6.QtWidgets import QApplication
+    window = widget.window()
+    if window:
+        QApplication.alert(window, msec)
+
+
+def confirm_delete(parent: QWidget, message: str = "이 항목을 삭제하시겠습니까?") -> bool:
+    colors = dialog_palette(parent)
+    dialog = QDialog(parent)
+    dialog.setWindowTitle("삭제 확인")
+    dialog.setModal(True)
+    dialog.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+    layout = QVBoxLayout(dialog)
+    layout.setContentsMargins(18, 18, 18, 14)
+    layout.setSpacing(12)
+    header = QLabel("삭제 확인")
+    header.setObjectName("modernDialogTitle")
+    msg_label = QLabel(message)
+    msg_label.setWordWrap(True)
+    layout.addWidget(header)
+    layout.addWidget(msg_label)
+    row = QHBoxLayout()
+    row.addStretch(1)
+    cancel_btn = QToolButton()
+    cancel_btn.setText("취소")
+    cancel_btn.setFixedHeight(32)
+    cancel_btn.clicked.connect(dialog.reject)
+    delete_btn = QToolButton()
+    delete_btn.setText("삭제")
+    delete_btn.setFixedHeight(32)
+    delete_btn.clicked.connect(dialog.accept)
+    row.addWidget(cancel_btn)
+    row.addWidget(delete_btn)
+    layout.addLayout(row)
+    danger = colors.get("danger", "#D7263D")
+    bg = colors.get("bg", "#F8FAFC")
+    text_color = colors.get("text", "#1F2433")
+    border = colors.get("border", "#E5E7EB")
+    panel = colors.get("panel", "#FFFFFF")
+    dialog.setStyleSheet(
+        f"QDialog {{ background: {panel}; border: 1px solid {border}; border-radius: 10px; }}"
+        f"QLabel {{ color: {text_color}; }}"
+        f"QLabel#modernDialogTitle {{ color: {danger}; font-size: 14pt; font-weight: 900; }}"
+    )
+    cancel_btn.setStyleSheet(
+        f"QToolButton {{ background: {bg}; color: {text_color}; border: 1px solid {border}; border-radius: 6px; padding: 0 16px; font-weight: 600; }}"
+    )
+    delete_btn.setStyleSheet(
+        f"QToolButton {{ background: {danger}; color: white; border: 0; border-radius: 6px; padding: 0 16px; font-weight: 800; }}"
+    )
+    dialog.resize(360, 150)
+    return dialog.exec() == QDialog.DialogCode.Accepted
 
 
 def show_modern_info(parent: QWidget, title: str, message: str, accent: str | None = None) -> None:
@@ -746,7 +802,7 @@ class TextItemDialog(QDialog):
 
     def value(self) -> dict[str, Any]:
         data = dict(self.item)
-        name = self.name.text().strip() if self.require_name else self.text.toPlainText().splitlines()[0][:30].strip()
+        name = self.name.text().strip() if self.require_name else (self.text.toPlainText().splitlines() or [""])[0][:30].strip()
         data.update({"name": name, "text": self.text.toPlainText(), "hotkey": self.hotkey.value()})
         if self.code:
             language = "other" if self.language.currentText() == "기타" else self.language.currentText()

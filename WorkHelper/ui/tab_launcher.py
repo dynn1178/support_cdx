@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
 
 from app import config
 from app.utils import display_hotkey, new_id, now_iso, short_preview
-from ui.common import GridPanel, HotkeyFields, SortControls, apply_manual_reorder, apply_modern_dialog_style, ask_modern_question, bump_usage, confirm_shift_digit_hotkey, make_card, make_icon_button, show_modern_warning
+from ui.common import GridPanel, HotkeyFields, SortControls, apply_manual_reorder, apply_modern_dialog_style, ask_modern_question, bump_usage, confirm_delete, confirm_shift_digit_hotkey, make_card, make_icon_button, show_modern_warning
 
 
 TYPE_ALIASES = {"사이트": "site", "파일": "file", "폴더": "folder", "site": "site", "file": "file", "folder": "folder"}
@@ -347,7 +347,7 @@ class LauncherTab(QWidget):
             return
 
     def delete_custom_search(self, item: dict) -> None:
-        if not ask_modern_question(self, "삭제", "선택한 검색 바로가기를 삭제할까요?", None, "삭제", "취소"):
+        if not confirm_delete(self, "선택한 검색 바로가기를 삭제할까요?"):
             return
         items = self.main.data.get("custom_searches", [])
         if item in items:
@@ -499,7 +499,7 @@ class LauncherTab(QWidget):
             return
 
     def delete_launcher(self, item: dict) -> None:
-        if not ask_modern_question(self, "삭제", "선택한 바로가기를 삭제할까요?", None, "삭제", "취소"):
+        if not confirm_delete(self, "선택한 바로가기를 삭제할까요?"):
             return
         self.main.data.get("launchers", []).remove(item)
         self.main.save_data()

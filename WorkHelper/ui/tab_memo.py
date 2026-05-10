@@ -49,6 +49,7 @@ from ui.common import (
     apply_modern_dialog_style,
     ask_modern_question,
     bump_usage,
+    confirm_delete,
     fit_combo_to_contents,
     make_card,
     make_icon_button,
@@ -610,6 +611,8 @@ class MemoListTab(QWidget):
             return
 
     def delete_memo(self, memo: dict) -> None:
+        if not confirm_delete(self, "선택한 메모를 삭제할까요?"):
+            return
         self.main.data.get("memos", []).remove(memo)
         self.main.save_data()
 
@@ -694,6 +697,8 @@ class ScheduleListTab(QWidget):
             return
 
     def delete_schedule(self, schedule: dict) -> None:
+        if not confirm_delete(self, "선택한 일정을 삭제할까요?"):
+            return
         self.main.data.get("schedules", []).remove(schedule)
         self.main.save_data()
 
@@ -1025,12 +1030,20 @@ class CompletedItemsDialog(QDialog):
                 cb.setChecked(True)
                 cb.toggled.connect(lambda checked, i=item, r=row: self._handle_toggle(i, checked, r))
                 rl.addWidget(cb)
-                grp = item.get("group", item.get("priority", ""))
+                priority = item.get("priority", "하") or "하"
+                p_colors = {"상": ("#FEE2E2", "#DC2626"), "중": ("#DBEAFE", "#1D4ED8"), "하": ("#F3F4F6", "#6B7280")}
+                p_bg, p_fg = p_colors.get(priority, p_colors["하"])
+                p_lbl = QLabel(priority)
+                p_lbl.setFixedSize(22, 18)
+                p_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                p_lbl.setStyleSheet(f"background:{p_bg};color:{p_fg};border-radius:3px;font-size:8pt;font-weight:800;")
+                rl.addWidget(p_lbl)
+                grp = item.get("group", "")
                 if grp:
-                    g_lbl = QLabel(grp[:4])
-                    g_lbl.setFixedSize(32, 18)
+                    g_lbl = QLabel(grp[:5])
+                    g_lbl.setFixedHeight(18)
                     g_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                    g_lbl.setStyleSheet("background:#9CA3AF;color:white;border-radius:3px;font-size:8pt;font-weight:800;")
+                    g_lbl.setStyleSheet("background:#9CA3AF;color:white;border-radius:3px;font-size:8pt;font-weight:700;padding:0 4px;")
                     rl.addWidget(g_lbl)
                 title_lbl = QLabel(item.get("title", "(제목 없음)"))
                 title_lbl.setStyleSheet("text-decoration:line-through;color:#9CA3AF;")
@@ -1402,6 +1415,8 @@ class TodoListTab(QWidget):
             return
 
     def delete_item(self, item: dict) -> None:
+        if not confirm_delete(self, "선택한 항목을 삭제할까요?"):
+            return
         self.main.data.get("schedules", []).remove(item)
         self.main.save_data()
 
@@ -1771,6 +1786,8 @@ class TodoListTab(QWidget):
             self._timer_active_mode = ""
 
     def _execute_timer_action(self) -> None:
+        from ui.common import flash_taskbar
+        flash_taskbar(self.main)
         action = self._timer_action.currentText()
         if action == "알림":
             msg = self._timer_msg.text().strip() or "타이머가 완료되었습니다!"

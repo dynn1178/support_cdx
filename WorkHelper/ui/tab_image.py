@@ -30,7 +30,7 @@ from PyQt6.QtWidgets import (
 
 from app import config
 from app.utils import display_hotkey, new_id, now_iso, resolve_image_path
-from ui.common import GridPanel, HotkeyFields, SortControls, add_card_actions, apply_manual_reorder, bump_usage, confirm_shift_digit_hotkey, make_card, make_icon_button
+from ui.common import GridPanel, HotkeyFields, SortControls, add_card_actions, apply_manual_reorder, bump_usage, confirm_delete, confirm_shift_digit_hotkey, make_card, make_icon_button, show_modern_info
 
 
 def active_window_title() -> str:
@@ -300,7 +300,6 @@ class ImageTab(QWidget):
         row.addStretch(1)
         row.addWidget(add_btn)
         page_layout.addLayout(row)
-        self.tabs.addTab(page, "컨닝페이퍼")
         steel_page = QWidget()
         steel_layout = QVBoxLayout(steel_page)
         steel_layout.setContentsMargins(0, 0, 0, 0)
@@ -321,6 +320,7 @@ class ImageTab(QWidget):
         reset_row.addWidget(reset_btn)
         steel_layout.addLayout(reset_row)
         self.tabs.addTab(steel_page, "스틸 컷")
+        self.tabs.addTab(page, "컨닝페이퍼")
         layout.addWidget(self.tabs, 1)
 
     def refresh(self) -> None:
@@ -516,7 +516,7 @@ class ImageTab(QWidget):
             pass
 
     def delete_steel_cut(self, item: dict) -> None:
-        if QMessageBox.question(self, "삭제", "선택한 스틸 컷을 삭제할까요?") != QMessageBox.StandardButton.Yes:
+        if not confirm_delete(self, "선택한 스틸 컷을 삭제할까요?"):
             return
         items = self.main.data.get("steel_cuts", [])
         if item in items:
@@ -527,9 +527,9 @@ class ImageTab(QWidget):
     def clear_steel_cuts(self) -> None:
         items = self.main.data.get("steel_cuts", [])
         if not items:
-            QMessageBox.information(self, "초기화", "삭제할 스틸 컷이 없습니다.")
+            show_modern_info(self, "초기화", "삭제할 스틸 컷이 없습니다.")
             return
-        if QMessageBox.question(self, "초기화", f"스틸 컷 {len(items)}개를 모두 삭제할까요?") != QMessageBox.StandardButton.Yes:
+        if not confirm_delete(self, f"스틸 컷 {len(items)}개를 모두 삭제할까요?"):
             return
         for item in list(items):
             self.delete_steel_cut_file(item)
@@ -566,7 +566,7 @@ class ImageTab(QWidget):
             return
 
     def delete_image(self, item: dict) -> None:
-        if QMessageBox.question(self, "삭제", "선택한 이미지를 삭제할까요?") != QMessageBox.StandardButton.Yes:
+        if not confirm_delete(self, "선택한 이미지를 삭제할까요?"):
             return
         self.main.data.get("images", []).remove(item)
         self.main.save_data()

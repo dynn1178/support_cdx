@@ -68,7 +68,6 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
             "hotkey": {"modifiers": ["alt"], "key": "F1"},
             "type": "text",
             "sort_order": 0,
-            "usage_count": 0,
         },
         {
             "id": "ph_sample2",
@@ -77,7 +76,6 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
             "hotkey": None,
             "type": "text",
             "sort_order": 1,
-            "usage_count": 0,
         },
     ],
     "snippets": [
@@ -89,34 +87,6 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
             "hotkey": None,
             "type": "code",
             "sort_order": 0,
-            "usage_count": 0,
-        },
-        {
-            "id": "sn_sample2",
-            "name": "월간 보고 양식",
-            "text": (
-                "📋 [6PM 혁신팀] 2026년 5월 월간 업무 보고\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "보고일자 : 2026. 05. 30 (금)\n"
-                "작  성  자 : 육땡\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                "■ 1. 이달의 주요 성과\n\n"
-                "  [Project #1]\n  · \n  · \n"
-                "  [Project #2]\n  · \n  · \n\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                "■ 2. 이슈 및 대응\n\n"
-                "  · [이슈 #1] \n  · [이슈 #2] \n\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                "■ 3. 다음 달 예정 업무\n\n  · \n  · \n\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                "■ 4. 기타 / 공유 사항\n\n  · 없음\n\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            ),
-            "language": "other",
-            "hotkey": None,
-            "type": "code",
-            "sort_order": 1,
-            "usage_count": 0,
         },
     ],
     "launchers": [
@@ -131,13 +101,12 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
             "browser_path": "",
             "hotkey": None,
             "sort_order": 0,
-            "usage_count": 0,
             "path": "",
             "show_credentials_on_card": False,
         },
         {
             "id": "ln_sample_site2",
-            "name": "배포 사이트",
+            "name": "6PM Assistant 사이트",
             "description": "",
             "type": "site",
             "url": "https://6pma.vercel.app/",
@@ -148,7 +117,6 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
             "hotkey": None,
             "path": "",
             "sort_order": 1,
-            "usage_count": 0,
         },
     ],
     "images": [
@@ -159,12 +127,27 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
             "path_type": "relative",
             "hotkey": {"modifiers": ["ctrl", "alt"], "key": "F1"},
             "sort_order": 0,
-            "usage_count": 0,
             "display_scale": 100,
         }
     ],
     "steel_cuts": [],
-    "macros": [],
+    "macros": [
+        {
+            "id": "mc_sample",
+            "name": "자리비움 방지",
+            "hotkey": None,
+            "actions": [
+                {
+                    "type": "click",
+                    "x": None,
+                    "y": None,
+                    "delay": 60.0,
+                }
+            ],
+            "sort_order": 0,
+            "repeat": 100,
+        },
+    ],
     "memos": [
         {
             "id": "mm_sample",
@@ -174,7 +157,6 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
             "created_at": now_iso(),
             "updated_at": now_iso(),
             "sort_order": 0,
-            "usage_count": 0,
             "always_on_top": True,
             "background": "노랑",
         },
@@ -188,13 +170,12 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
             "created_at": now_iso(),
             "updated_at": now_iso(),
             "sort_order": 1,
-            "usage_count": 0,
         },
     ],
     "schedules": [
         {
             "id": "sc_sample",
-            "title": "할 일을 등록해보세요",
+            "title": "할 일 등록",
             "priority": "중",
             "deadline": "2030-12-31",
             "datetime": "2030-12-31T09:00:00",
@@ -205,8 +186,23 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
             "memo": "체크박스로 완료 표시, 우선순위·마감기한·알림 설정 가능",
             "last_notified_at": "",
             "sort_order": 0,
-            "usage_count": 0,
-        }
+            "group": "그룹 2",
+        },
+        {
+            "id": "sc_sample2",
+            "title": "칼퇴 하기",
+            "group": "그룹 1",
+            "priority": "상",
+            "deadline": "2029-05-05",
+            "datetime": "2029-05-05T18:00:00",
+            "notify_before_minutes": 10,
+            "repeat": "none",
+            "memo": "",
+            "last_notified_at": "",
+            "completed": False,
+            "completed_at": None,
+            "sort_order": 1,
+        },
     ],
     "hotstrings": [
         {
@@ -216,7 +212,6 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
             "case_sensitive": False,
             "created_at": now_iso(),
             "sort_order": 0,
-            "usage_count": 0,
         },
         {
             "id": "hs_sample2",
@@ -225,7 +220,6 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
             "case_sensitive": False,
             "created_at": now_iso(),
             "sort_order": 1,
-            "usage_count": 0,
         },
         {
             "id": "hs_sample3",
@@ -234,7 +228,6 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
             "case_sensitive": False,
             "created_at": now_iso(),
             "sort_order": 2,
-            "usage_count": 0,
         },
         {
             "id": "hs_sample4",
@@ -243,7 +236,6 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
             "case_sensitive": False,
             "created_at": now_iso(),
             "sort_order": 3,
-            "usage_count": 0,
         },
         {
             "id": "hs_sample5",
@@ -252,7 +244,6 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
             "case_sensitive": False,
             "created_at": now_iso(),
             "sort_order": 4,
-            "usage_count": 0,
         },
         {
             "id": "hs_sample6",
@@ -261,27 +252,16 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
             "case_sensitive": False,
             "created_at": now_iso(),
             "sort_order": 5,
-            "usage_count": 0,
         },
     ],
     "title_templates": [
-        {
-            "id": "tt_sample",
-            "name": "금일 {yyyy-mm-dd}",
-            "template": "금일 {yyyy-mm-dd}",
-            "business_days": False,
-            "hotkey": {"modifiers": ["shift"], "key": "F1"},
-            "sort_order": 0,
-            "usage_count": 0,
-        },
         {
             "id": "tt_sample2",
             "name": "{yymmdd}_데일리 세일즈 리포트",
             "template": "{yymmdd}_데일리 세일즈 리포트 ({m-1d}월 {d-1d}일 ({ddd-1d}) 기준)",
             "business_days": True,
             "hotkey": None,
-            "sort_order": 1,
-            "usage_count": 0,
+            "sort_order": 0,
         },
         {
             "id": "tt_sample3",
@@ -289,22 +269,57 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
             "template": "{yyyy-7d}.{mm-7d}.{dd-7d}~{yyyy}.{mm}.{dd} 주간 동향",
             "business_days": False,
             "hotkey": None,
-            "sort_order": 2,
-            "usage_count": 0,
+            "sort_order": 1,
         },
         {
             "id": "tt_sample4",
-            "name": "{yyyy}년 {m}월 월간성과 보고",
-            "template": "{yyyy}년 {m}월 월간성과 보고",
+            "name": "[{yyyy}년 {m}월] 월간 성과 보고서",
+            "template": (
+                "[{yyyy}년 {m}월] 월간 성과 보고서\n"
+                "─────────────────────\n"
+                "보고일자 : {yyyy}년 {m}월 {d}일 {dddd}\n"
+                "담당자 : 육땡\n"
+                "─────────────────────\n\n"
+                "1. 당월 업무 총평\n\n"
+                "2. 주요 성과 (Key Achievements)\n\n"
+                " - 핵심 KPI 달성 현황\n"
+                " - 주요 프로젝트 성과\n"
+                " - 정량적 데이터 요약\n\n"
+                "3. 세부 업무 추진 현황\n\n"
+                " - 완료 업무\n"
+                " - 진행 업무 및 진척도\n"
+                " - 이월/보류 업무\n\n"
+                "4. 문제점 및 개선 방안 (Issue & Solution)\n\n"
+                " - 발생 이슈 및 원인 분석\n"
+                " - 조치 사항 및 대응 결과\n"
+                " - 향후 재발 방지 대책\n\n"
+                "5. 익월(6월) 주요 계획\n\n"
+                " - 차기 달 핵심 목표\n"
+                " - 주요 일정 및 마일스톤\n"
+                " - 리소스 투입 계획\n\n"
+                "6. 건의 및 지원 요청 사항\n \n"
+                "[첨부 자료]"
+            ),
+            "business_days": True,
+            "hotkey": None,
+            "sort_order": 2,
+        },
+        {
+            "id": "tt_sample5",
+            "name": "날짜 변수로 Date값을 쉽게 호출하세요.",
+            "template": "날짜 변수로 Date값을 쉽게 호출하세요.",
             "business_days": False,
             "hotkey": None,
             "sort_order": 3,
-            "usage_count": 0,
         },
     ],
     "phrase_popup_favorites": ["ph_sample2"],
     "todo_groups": ["그룹 1", "그룹 2", "그룹 3"],
+    "custom_searches": [],
 }
+
+EXPORT_STRIP_ITEM_FIELDS = ("last_used_at", "used_today_date", "used_today_count", "usage_count")
+EXPORT_EXCLUDED_COLLECTIONS = frozenset({"steel_cuts"})
 
 PRESET_COLLECTION_KEYS = (
     "phrases",
@@ -312,6 +327,7 @@ PRESET_COLLECTION_KEYS = (
     "hotstrings",
     "title_templates",
     "launchers",
+    "custom_searches",
     "images",
     "steel_cuts",
     "macros",
@@ -497,8 +513,21 @@ def save_clipboard_history(data: dict[str, Any]) -> None:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+def _strip_for_export(data: dict[str, Any]) -> dict[str, Any]:
+    result = copy.deepcopy(data)
+    for collection in EXPORT_EXCLUDED_COLLECTIONS:
+        result.pop(collection, None)
+    for collection in PRESET_COLLECTION_KEYS:
+        if collection in EXPORT_EXCLUDED_COLLECTIONS:
+            continue
+        for item in result.get(collection, []):
+            for field in EXPORT_STRIP_ITEM_FIELDS:
+                item.pop(field, None)
+    return result
+
+
 def export_template(template_index: int, export_path: str | Path) -> None:
-    data = load_template(template_index)
+    data = _strip_for_export(load_template(template_index))
     with Path(export_path).open("w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 

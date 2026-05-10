@@ -51,32 +51,13 @@ def check_just_updated() -> str | None:
     return None
 
 
-def fetch_latest_update(current_version: str, repo: str | None = None, token: str | None = None) -> UpdateInfo | None:
-    repo_name = repo or os.getenv("WORKHELPER_GITHUB_REPO", "").strip() or config.GITHUB_REPO
-    if not repo_name:
-        return None
-    headers = {"Accept": "application/vnd.github+json"}
-    token_value = token or os.getenv("WORKHELPER_GITHUB_TOKEN", "").strip()
-    if token_value:
-        headers["Authorization"] = f"Bearer {token_value}"
-
-    response = requests.get(f"https://api.github.com/repos/{repo_name}/releases/latest", headers=headers, timeout=8)
-    if response.status_code == 404:
-        return None
-    response.raise_for_status()
-    payload = response.json()
+def _build_update_info(payload: dict, current_version: str) -> UpdateInfo | None:
     latest = payload.get("tag_name", "").lstrip("v")
     if not latest or parse_version(latest) <= parse_version(current_version):
         return None
-
     assets = payload.get("assets", [])
     exe_asset = next(
-        (
-            asset
-            for asset in assets
-            if str(asset.get("name", "")).lower().endswith(".exe")
-            and "updater" not in str(asset.get("name", "")).lower()
-        ),
+        (a for a in assets if str(a.get("name", "")).lower().endswith(".exe") and "updater" not in str(a.get("name", "")).lower()),
         None,
     )
     asset = exe_asset or (assets[0] if assets else {})
@@ -88,6 +69,38 @@ def fetch_latest_update(current_version: str, repo: str | None = None, token: st
         body=payload.get("body", "") or "",
         asset_name=asset.get("name", "") if asset else "",
     )
+
+
+def _fetch_release_payload(repo: str | None = None, token: str | None = None) -> dict | None:
+    repo_name = repo or os.getenv("WORKHELPER_GITHUB_REPO", "").strip() or config.GITHUB_REPO
+    if not repo_name:
+        return None
+    headers = {"Accept": "application/vnd.github+json"}
+    token_value = token or os.getenv("WORKHELPER_GITHUB_TOKEN", "").strip()
+    if token_value:
+        headers["Authorization"] = f"Bearer {token_value}"
+    response = requests.get(f"https://api.github.com/repos/{repo_name}/releases/latest", headers=headers, timeout=8)
+    if response.status_code == 404:
+        return None
+    response.raise_for_status()
+    return response.json()
+
+
+def fetch_latest_update(current_version: str, repo: str | None = None, token: str | None = None) -> UpdateInfo | None:
+    payload = _fetch_release_payload(repo, token)
+    if not payload:
+        return None
+    return _build_update_info(payload, current_version)
+
+
+def fetch_latest_info(current_version: str, repo: str | None = None, token: str | None = None) -> tuple[str | None, UpdateInfo | None]:
+    """(최신버전 문자열, 업데이트 정보) 반환. 업데이트 없으면 update_info=None."""
+    payload = _fetch_release_payload(repo, token)
+    if not payload:
+        return None, None
+    latest = payload.get("tag_name", "").lstrip("v") or None
+    update = _build_update_info(payload, current_version)
+    return latest, update
 
 
 def _resolve_updater() -> Path | None:
@@ -253,10 +266,10 @@ def install_update(parent: QWidget, update: UpdateInfo, token: str | None = None
     sys.exit(0)
 
 
-class _UpdateConfirmDialog(QDialog):
-    """모던 스타일 업데이트 확인 다이얼로그."""
+class _UpdateStatusDialog(QDialog):
+    """버전 정보 + 업데이트 상태를 통합 표시하는 다이얼로그."""
 
-    def __init__(self, parent: QWidget, update: UpdateInfo, auto_install: bool) -> None:
+    def __init__(self, parent: QWidget, current_version: str, latest_version: str | None, update: UpdateInfo | None) -> None:
         super().__init__(parent)
         self.setWindowTitle("업데이트 확인")
         self.setModal(True)
@@ -268,31 +281,56 @@ class _UpdateConfirmDialog(QDialog):
             colors = dialog_palette(parent)
         except Exception:
             colors = {"panel": "#ffffff", "border": "#dddddd", "text": "#222222",
-                      "accent": "#3B6CF5", "field": "#f5f5f5"}
+                      "accent": "#3B6CF5", "field": "#f5f5f5", "danger": "#E05353", "bg": "#F0F2F5"}
 
-        self_install = can_self_update(update)
-        yes_label = "지금 업데이트" if self_install else "업데이트 불가"
+        has_update = update is not None
+        self_install = has_update and can_self_update(update)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 20, 22, 16)
         layout.setSpacing(10)
 
         title_lbl = QLabel("업데이트 확인")
-        title_lbl.setObjectName("updateDialogTitle")
-
-        desc_lbl = QLabel(f"새 버전 <b>{update.latest_version}</b> 이 사용 가능합니다.")
-        desc_lbl.setWordWrap(True)
-
+        title_lbl.setObjectName("usd_title")
         layout.addWidget(title_lbl)
-        layout.addWidget(desc_lbl)
 
-        # 릴리즈 노트
-        body = update.body.strip()
+        # 버전 정보 그리드
+        info_widget = QWidget()
+        info_widget.setObjectName("usd_info_box")
+        info_layout = QVBoxLayout(info_widget)
+        info_layout.setContentsMargins(12, 10, 12, 10)
+        info_layout.setSpacing(6)
+
+        def info_row(label: str, value: str, value_object_name: str = "") -> None:
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            lbl = QLabel(label)
+            lbl.setObjectName("usd_key")
+            lbl.setFixedWidth(72)
+            val = QLabel(value)
+            if value_object_name:
+                val.setObjectName(value_object_name)
+            row.addWidget(lbl)
+            row.addWidget(val, 1)
+            info_layout.addLayout(row)
+
+        info_row("현재 버전", f"v{current_version}")
+        if latest_version:
+            info_row("최신 버전", f"v{latest_version}")
+        if has_update:
+            info_row("상태", "새 버전이 출시되었습니다", "usd_status_update")
+        else:
+            info_row("상태", "최신 버전을 사용 중입니다  ✓", "usd_status_ok")
+
+        layout.addWidget(info_widget)
+
+        # 릴리즈 노트 (업데이트 있을 때만)
+        body = (update.body or "").strip() if update else ""
         if body:
             if len(body) > 800:
                 body = body[:800].rstrip() + "\n..."
             notes_label = QLabel("업데이트 내용")
-            notes_label.setObjectName("updateNotesTitle")
+            notes_label.setObjectName("usd_notes_title")
             scroll = QScrollArea()
             scroll.setWidgetResizable(True)
             scroll.setFixedHeight(110)
@@ -307,20 +345,30 @@ class _UpdateConfirmDialog(QDialog):
         # 버튼 행
         btn_row = QHBoxLayout()
         btn_row.addStretch(1)
-        no_btn = QToolButton()
-        no_btn.setText("나중에")
-        no_btn.setFixedHeight(32)
-        no_btn.setObjectName("updateBtnSecondary")
-        no_btn.clicked.connect(self.reject)
-        yes_btn = QToolButton()
-        yes_btn.setText(yes_label)
-        yes_btn.setFixedHeight(32)
-        yes_btn.setEnabled(self_install)
-        yes_btn.clicked.connect(self._on_confirm)
-        btn_row.addWidget(no_btn)
-        btn_row.addWidget(yes_btn)
+        if has_update:
+            cancel_btn = QToolButton()
+            cancel_btn.setText("나중에")
+            cancel_btn.setFixedHeight(32)
+            cancel_btn.setObjectName("usd_btn_secondary")
+            cancel_btn.clicked.connect(self.reject)
+            btn_row.addWidget(cancel_btn)
+            confirm_btn = QToolButton()
+            confirm_btn.setText("지금 업데이트" if self_install else "업데이트 불가")
+            confirm_btn.setFixedHeight(32)
+            confirm_btn.setEnabled(self_install)
+            confirm_btn.clicked.connect(self._on_confirm)
+            btn_row.addWidget(confirm_btn)
+        else:
+            ok_btn = QToolButton()
+            ok_btn.setText("확인")
+            ok_btn.setFixedHeight(32)
+            ok_btn.clicked.connect(self.accept)
+            btn_row.addWidget(ok_btn)
         layout.addLayout(btn_row)
 
+        accent = colors.get("accent", "#3B6CF5")
+        ok_color = "#2BA05A"
+        update_color = colors.get("danger", "#E05353")
         self.setStyleSheet(f"""
             QDialog {{
                 background: {colors["panel"]};
@@ -328,12 +376,24 @@ class _UpdateConfirmDialog(QDialog):
                 border-radius: 10px;
             }}
             QLabel {{ color: {colors["text"]}; font-size: 10pt; }}
-            QLabel#updateDialogTitle {{
-                color: {colors["accent"]};
+            QLabel#usd_title {{
+                color: {accent};
                 font-size: 14pt;
                 font-weight: 900;
             }}
-            QLabel#updateNotesTitle {{
+            QWidget#usd_info_box {{
+                background: {colors.get("field", colors.get("bg", "#F0F2F5"))};
+                border: 1px solid {colors["border"]};
+                border-radius: 7px;
+            }}
+            QLabel#usd_key {{
+                color: {colors["text"]};
+                font-size: 9pt;
+                opacity: 0.7;
+            }}
+            QLabel#usd_status_ok {{ color: {ok_color}; font-weight: 700; }}
+            QLabel#usd_status_update {{ color: {update_color}; font-weight: 700; }}
+            QLabel#usd_notes_title {{
                 color: {colors["text"]};
                 font-weight: 700;
                 font-size: 9pt;
@@ -341,26 +401,29 @@ class _UpdateConfirmDialog(QDialog):
             QScrollArea {{
                 border: 1px solid {colors["border"]};
                 border-radius: 6px;
-                background: {colors["field"]};
+                background: {colors.get("field", "#f5f5f5")};
             }}
             QScrollArea QLabel {{
-                background: {colors["field"]};
+                background: {colors.get("field", "#f5f5f5")};
                 font-size: 9pt;
             }}
             QToolButton {{
-                background: {colors["accent"]};
+                background: {accent};
                 color: white;
                 border: 0;
                 border-radius: 6px;
                 padding: 0 16px;
                 font-weight: 800;
             }}
-            QToolButton#updateBtnSecondary {{
+            QToolButton#usd_btn_secondary {{
                 background: {colors["border"]};
                 color: {colors["text"]};
             }}
         """)
-        self.resize(400, 240 if not body else 380)
+        base_height = 220
+        if body:
+            base_height += 140
+        self.resize(400, base_height)
 
     def _on_confirm(self) -> None:
         self.confirmed = True
@@ -376,20 +439,22 @@ def check_update_dialog(
     token: str | None = None,
 ) -> bool:
     try:
-        update = fetch_latest_update(current_version, repo=repo, token=token)
+        if silent_no_update:
+            update = fetch_latest_update(current_version, repo=repo, token=token)
+            latest_version = update.latest_version if update else None
+        else:
+            latest_version, update = fetch_latest_info(current_version, repo=repo, token=token)
     except Exception as exc:
         if not silent_no_update:
             QMessageBox.warning(parent, "업데이트 확인 실패", str(exc))
         return False
 
-    if not update:
-        if not silent_no_update:
-            QMessageBox.information(parent, "업데이트 확인", "현재 최신 버전을 사용 중입니다.")
+    if silent_no_update and not update:
         return False
 
-    dlg = _UpdateConfirmDialog(parent, update, auto_install)
+    dlg = _UpdateStatusDialog(parent, current_version, latest_version, update)
     dlg.exec()
-    if dlg.confirmed:
+    if dlg.confirmed and update:
         if can_self_update(update):
             try:
                 install_update(parent, update, token=token)
@@ -402,4 +467,4 @@ def check_update_dialog(
                 "현재 실행 환경에서는 자동 업데이트를 진행할 수 없습니다.\n"
                 "배포된 exe에서 다시 시도해주세요.",
             )
-    return True
+    return update is not None

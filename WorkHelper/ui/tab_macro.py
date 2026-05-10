@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -22,10 +22,81 @@ from PyQt6.QtWidgets import (
 )
 
 from app.utils import display_hotkey, new_id, now_iso
-from ui.common import GridPanel, HotkeyFields, SortControls, add_card_actions, apply_manual_reorder, bump_usage, confirm_shift_digit_hotkey, make_card
+from ui.common import GridPanel, HotkeyFields, SortControls, add_card_actions, apply_manual_reorder, bump_usage, confirm_delete, confirm_shift_digit_hotkey, make_card
 
 
 MODIFIER_NAMES = {"ctrl", "ctrl_l", "ctrl_r", "alt", "alt_l", "alt_r", "shift", "shift_l", "shift_r"}
+
+
+class MacroPlayerThread(QThread):
+    error = pyqtSignal(str)
+    completed = pyqtSignal(bool)  # True = 정상 완료, False = 중간 중지
+
+    def __init__(self, macro: dict) -> None:
+        super().__init__()
+        self.macro = macro
+        self._stop_flag = False
+
+    def stop(self) -> None:
+        self._stop_flag = True
+
+    def run(self) -> None:
+        try:
+            import pyautogui
+            from pynput import mouse as pynput_mouse
+
+            def on_middle_click(x, y, button, pressed):
+                if pressed and str(button).lower().endswith("middle"):
+                    self._stop_flag = True
+                    return False
+
+            listener = pynput_mouse.Listener(on_click=on_middle_click)
+            listener.start()
+
+            repeat = max(1, int(self.macro.get("repeat", 1)))
+            time.sleep(1.0)
+            stopped = False
+            for _ in range(repeat):
+                if self._stop_flag:
+                    stopped = True
+                    break
+                for action in self.macro.get("actions", []):
+                    if self._stop_flag:
+                        stopped = True
+                        break
+                    delay = float(action.get("delay", 0))
+                    # 0.1초 단위로 나눠 슬립해 stop_flag 빠르게 감지
+                    elapsed = 0.0
+                    while elapsed < delay:
+                        if self._stop_flag:
+                            stopped = True
+                            break
+                        chunk = min(0.1, delay - elapsed)
+                        time.sleep(chunk)
+                        elapsed += chunk
+                    if stopped:
+                        break
+                    if action.get("type") == "click":
+                        x, y = action.get("x"), action.get("y")
+                        if x is None or y is None:
+                            pyautogui.click()
+                        else:
+                            pyautogui.click(int(x), int(y))
+                    elif action.get("type") == "hotkey":
+                        pyautogui.hotkey(*action.get("keys", []))
+                    elif action.get("type") == "type":
+                        pyautogui.typewrite(action.get("text", ""), interval=0.05)
+                if stopped:
+                    break
+
+            try:
+                listener.stop()
+            except Exception:
+                pass
+
+            self.completed.emit(not stopped)
+        except Exception as exc:
+            self.error.emit(str(exc))
 
 
 class MacroActionsDialog(QDialog):
@@ -381,29 +452,28 @@ class MacroTab(QWidget):
         return name
 
     def play_macro(self, macro: dict) -> None:
-        try:
-            import pyautogui
+        msg = QMessageBox(self)
+        msg.setWindowTitle("매크로 재생")
+        msg.setText("매크로를 멈추려면 마우스 가운데 버튼을 눌러주세요.")
+        msg.exec()
+        bump_usage(macro)
+        self.main.save_usage_data()
+        self._player = MacroPlayerThread(macro)
+        self._player.error.connect(lambda err: QMessageBox.warning(self, "매크로 실행 실패", err))
+        self._player.completed.connect(self._on_macro_completed)
+        self._player.finished.connect(self._player.deleteLater)
+        self._player.start()
 
-            bump_usage(macro)
-            self.main.save_usage_data()
-            repeat = max(1, int(macro.get("repeat", 1)))
-            time.sleep(1.0)
-            for _ in range(repeat):
-                for action in macro.get("actions", []):
-                    time.sleep(float(action.get("delay", 0)))
-                    if action.get("type") == "click":
-                        x, y = action.get("x"), action.get("y")
-                        if x is None or y is None:
-                            pyautogui.click()
-                        else:
-                            pyautogui.click(int(x), int(y))
-                    elif action.get("type") == "hotkey":
-                        pyautogui.hotkey(*action.get("keys", []))
-                    elif action.get("type") == "type":
-                        pyautogui.typewrite(action.get("text", ""), interval=0.05)
-        except Exception as exc:
-            QMessageBox.warning(self, "매크로 실행 실패", str(exc))
+    def _on_macro_completed(self, finished_normally: bool) -> None:
+        from ui.common import flash_taskbar
+        flash_taskbar(self)
+        if finished_normally:
+            QMessageBox.information(self, "매크로 완료", "매크로 실행이 완료되었습니다.")
+        else:
+            QMessageBox.information(self, "매크로 중지", "매크로 실행이 중지되었습니다.")
 
     def delete_macro(self, macro: dict) -> None:
+        if not confirm_delete(self, "선택한 매크로를 삭제할까요?"):
+            return
         self.main.data.get("macros", []).remove(macro)
         self.main.save_data()

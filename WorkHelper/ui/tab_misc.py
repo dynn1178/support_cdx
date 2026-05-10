@@ -672,7 +672,7 @@ class MiscTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         tabs = QTabWidget()
         tabs.addTab(ColorToolsTab(main), "컬러")
-        tabs.addTab(MouseHighlightTab(main), "마우스 하이라이트")
         tabs.addTab(EmojiTab(main), "이모지")
         tabs.addTab(SpecialCharTab(main), "특수문자")
+        tabs.addTab(MouseHighlightTab(main), "마우스 하이라이트")
         layout.addWidget(tabs, 1)
