@@ -253,12 +253,8 @@ class SteelCutViewerDialog(QDialog):
         if pixmap.isNull():
             self.image_label.setText("이미지를 불러오지 못했습니다.")
         else:
-            screen = QApplication.primaryScreen()
-            max_w = int(screen.geometry().width() * 0.85)
-            max_h = int(screen.geometry().height() * 0.85)
-            scaled = pixmap.scaled(max_w, max_h, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-            self.image_label.setPixmap(scaled)
-            self.resize(scaled.width() + 24, scaled.height() + 64)
+            self.image_label.setPixmap(pixmap)
+            self.resize(pixmap.width() + 24, pixmap.height() + 64)
         layout.addWidget(self.image_label)
 
     def _toggle_pin(self, checked: bool) -> None:
@@ -293,7 +289,7 @@ class ImageTab(QWidget):
         self.tabs = QTabWidget()
         self.tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
         self.list = GridPanel(columns=2)
-        self.steel_cut_list = GridPanel(columns=1)
+        self.steel_cut_list = GridPanel(columns=2)
         add_btn = QPushButton("+ 이미지")
         add_btn.clicked.connect(self.edit_image)
         page = QWidget()

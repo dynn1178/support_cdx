@@ -205,6 +205,7 @@ class CaseCycleTab(QWidget):
         text = self.input.toPlainText()
         result = re.sub(r"[A-Za-z][A-Za-z0-9_]*", lambda match: self.cycle_token(match.group(0)), text)
         self.output.setPlainText(result)
+        self.input.setPlainText(result)
 
 
 class TextToolsTab(QWidget):
