@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
 
-from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import QComboBox, QFormLayout, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTabWidget, QTextEdit, QVBoxLayout, QWidget
 
 
@@ -165,7 +164,7 @@ class CaseCycleTab(QWidget):
         super().__init__()
         self.main = main
         layout = QVBoxLayout(self)
-        hint = QLabel("SER_ID ↔ userId ↔ UserId 형식을 순환 변환합니다. 단축키: Ctrl+Shift+U")
+        hint = QLabel("UPPER_CASE ↔ camelCase ↔ PascalCase 형식을 순환 변환합니다.")
         hint.setObjectName("mutedText")
         layout.addWidget(hint)
         self.input = PlainTextEdit()
@@ -183,7 +182,6 @@ class CaseCycleTab(QWidget):
         layout.addLayout(row)
         layout.addWidget(QLabel("결과"))
         layout.addWidget(self.output, 1)
-        QShortcut(QKeySequence("Ctrl+Shift+U"), self, activated=self.convert)
 
     def words(self, text: str) -> list[str]:
         if "_" in text:
@@ -194,10 +192,13 @@ class CaseCycleTab(QWidget):
         parts = self.words(token)
         if not parts:
             return token
-        if "_" in token and token.upper() == token:
-            return parts[0] + "".join(part.capitalize() for part in parts[1:])
+        # UPPER_CASE (USER_ID) 또는 단일 대문자 단어(ABC) → camelCase
+        if token.upper() == token:
+            return parts[0].lower() + "".join(part.capitalize() for part in parts[1:])
+        # camelCase (소문자 시작, 언더스코어 없음) → PascalCase
         if token[:1].islower() and "_" not in token:
             return "".join(part.capitalize() for part in parts)
+        # PascalCase 또는 기타 → UPPER_CASE
         return "_".join(part.upper() for part in parts)
 
     def convert(self) -> None:
