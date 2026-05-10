@@ -301,6 +301,7 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
         },
     ],
     "phrase_popup_favorites": ["ph_sample2"],
+    "todo_groups": ["그룹 1", "그룹 2", "그룹 3"],
 }
 
 PRESET_COLLECTION_KEYS = (

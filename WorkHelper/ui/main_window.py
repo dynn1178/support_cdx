@@ -4,7 +4,7 @@ import threading
 import time
 import calendar
 from ctypes import wintypes
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from PyQt6.QtCore import QAbstractNativeEventFilter, QDate, QDateTime, QTime, QTimer, Qt, pyqtSignal
@@ -252,7 +252,7 @@ class QuickMemoPopup(QDialog):
 
 
 class QuickActionPopup(QDialog):
-    """Alt 더블 탭 시 나타나는 빠른 작업 팝업 (할 일 / 메모 / 일정 3탭)."""
+    """Alt 더블 탭 시 나타나는 빠른 작업 팝업 (할 일 / 메모 / 타이머 3탭)."""
 
     def __init__(self, owner: "MainWindow") -> None:
         super().__init__(None)
@@ -261,7 +261,7 @@ class QuickActionPopup(QDialog):
         self.setWindowFlag(Qt.WindowType.Tool, True)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         apply_modern_dialog_style(self)
-        self.setFixedWidth(430)
+        self.setFixedWidth(400)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -270,7 +270,7 @@ class QuickActionPopup(QDialog):
         self.tab_widget = QTabWidget()
         self._build_todo_tab()
         self._build_memo_tab()
-        self._build_schedule_tab()
+        self._build_timer_tab()
         layout.addWidget(self.tab_widget)
 
         btn_row = QHBoxLayout()
@@ -283,161 +283,114 @@ class QuickActionPopup(QDialog):
         btn_row.addWidget(self.save_btn)
         layout.addLayout(btn_row)
 
-        self.resize(430, 320)
+        self.tab_widget.currentChanged.connect(self._on_tab_changed)
+        self.resize(400, 260)
         QTimer.singleShot(0, self._activate)
+
+    def _on_tab_changed(self, idx: int) -> None:
+        self.save_btn.setText("시작" if idx == 2 else "저장")
 
     # ── 탭 1 : 할 일 ───────────────────────────────────────────────────────
 
     def _build_todo_tab(self) -> None:
         tab = QWidget()
         fl = QFormLayout(tab)
-        fl.setContentsMargins(6, 10, 6, 6)
-        fl.setSpacing(8)
+        fl.setContentsMargins(6, 8, 6, 6)
+        fl.setSpacing(5)
         fl.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
+        # 그룹 콤보
+        self.todo_group = QComboBox()
+        groups = [g for g in self.owner.data.get("todo_groups", ["그룹 1", "그룹 2", "그룹 3"]) if g]
+        for g in groups:
+            self.todo_group.addItem(g)
+        if self.todo_group.count() == 0:
+            self.todo_group.addItem("그룹 1")
+
+        # 제목
         self.todo_title = QLineEdit()
         self.todo_title.setPlaceholderText("할 일 제목...")
 
-        priority_row = QHBoxLayout()
-        self.todo_priority = QComboBox()
-        self.todo_priority.addItems(["하", "중", "상"])
-        priority_row.addWidget(self.todo_priority)
-        priority_row.addStretch(1)
-        priority_widget = QWidget()
-        priority_widget.setLayout(priority_row)
-
-        self.todo_deadline = QDateEdit()
-        self.todo_deadline.setCalendarPopup(True)
-        self.todo_deadline.setDate(QDate.currentDate())
-
-        # 알림 시간
-        self._todo_time = QTime(9, 0)
-        self.todo_time_lbl = QLabel("09:00")
-        self.todo_time_lbl.setObjectName("cardTitle")
-        alarm_row = QHBoxLayout()
-        alarm_row.setSpacing(4)
-        alarm_row.addWidget(self.todo_deadline)
-        alarm_row.addWidget(QLabel("알림"))
-        alarm_row.addWidget(self.todo_time_lbl)
-        for h in [9, 12, 15, 18]:
-            btn = QPushButton(f"{h}시")
-            btn.setFixedHeight(28)
-            btn.clicked.connect(lambda checked=False, hour=h: self._set_todo_hour(hour))
-            alarm_row.addWidget(btn)
-        alarm_row.addStretch(1)
-        alarm_widget = QWidget()
-        alarm_widget.setLayout(alarm_row)
-
-        self.todo_notify = QSpinBox()
-        self.todo_notify.setRange(0, 10080)
-        self.todo_notify.setValue(30)
-        self.todo_notify.setVisible(False)
-        notify_row = QHBoxLayout()
-        notify_row.setSpacing(4)
-        for lbl, mins in [("정각", 0), ("30분 전", 30), ("1시간 전", 60), ("전일 9시", -1)]:
-            btn = QPushButton(lbl)
-            btn.setFixedHeight(28)
-            if mins >= 0:
-                btn.clicked.connect(lambda checked=False, m=mins: self.todo_notify.setValue(m))
+        # 날짜/시간 드롭다운 (년월일 / 시 / 10분 단위)
+        dt_row = QHBoxLayout()
+        dt_row.setSpacing(3)
+        self.todo_day_combo = QComboBox()
+        today = date.today()
+        for i in range(31):
+            d = today + timedelta(days=i)
+            if i == 0:
+                label = f"오늘 ({d.strftime('%m/%d')})"
+            elif i == 1:
+                label = f"내일 ({d.strftime('%m/%d')})"
             else:
-                btn.clicked.connect(self._todo_prev_day_notify)
-            notify_row.addWidget(btn)
-        notify_row.addStretch(1)
-        notify_widget = QWidget()
-        notify_widget.setLayout(notify_row)
+                label = d.strftime("%m/%d (%a)").replace("Mon", "월").replace("Tue", "화").replace("Wed", "수").replace("Thu", "목").replace("Fri", "금").replace("Sat", "토").replace("Sun", "일")
+            self.todo_day_combo.addItem(label)
+        self.todo_hour_combo = QComboBox()
+        for h in range(24):
+            self.todo_hour_combo.addItem(f"{h:02d}시")
+        self.todo_hour_combo.setCurrentIndex(9)
+        self.todo_min_combo = QComboBox()
+        for m in range(0, 60, 10):
+            self.todo_min_combo.addItem(f"{m:02d}분")
+        dt_row.addWidget(self.todo_day_combo, 4)
+        dt_row.addWidget(self.todo_hour_combo, 2)
+        dt_row.addWidget(self.todo_min_combo, 2)
+        dt_widget = QWidget()
+        dt_widget.setLayout(dt_row)
 
+        # 알림 콤보
+        self.todo_notify_combo = QComboBox()
+        self.todo_notify_combo.addItems(["알림 없음", "10분 전", "30분 전", "1시간 전"])
+        self.todo_notify_combo.setCurrentIndex(2)  # 30분 전 기본
+
+        fl.addRow("그룹", self.todo_group)
         fl.addRow("제목", self.todo_title)
-        fl.addRow("중요도", priority_widget)
-        fl.addRow("마감/알림", alarm_widget)
-        fl.addRow("알림 방식", notify_widget)
+        fl.addRow("일정", dt_widget)
+        fl.addRow("알림", self.todo_notify_combo)
         self.tab_widget.addTab(tab, "할 일")
-
-    def _set_todo_hour(self, hour: int) -> None:
-        self._todo_time = QTime(hour, 0)
-        self.todo_time_lbl.setText(f"{hour}:00")
-
-    def _todo_prev_day_notify(self) -> None:
-        from datetime import datetime, timedelta
-        target = datetime.combine(self.todo_deadline.date().toPyDate(), self._todo_time.toPyTime())
-        from datetime import time as dt_time
-        notify_at = datetime.combine(target.date() - timedelta(days=1), dt_time(9, 0))
-        self.todo_notify.setValue(max(0, int((target - notify_at).total_seconds() // 60)))
 
     # ── 탭 2 : 메모 ───────────────────────────────────────────────────────
 
     def _build_memo_tab(self) -> None:
         tab = QWidget()
         vl = QVBoxLayout(tab)
-        vl.setContentsMargins(6, 10, 6, 6)
-        vl.setSpacing(6)
+        vl.setContentsMargins(6, 8, 6, 6)
+        vl.setSpacing(5)
         self.memo_text = QTextEdit()
         self.memo_text.setPlaceholderText("메모를 입력하세요...")
+        self.memo_text.setFixedHeight(100)
         vl.addWidget(self.memo_text)
         self.memo_sticky = QCheckBox("스티커로 띄우기")
         vl.addWidget(self.memo_sticky)
+        vl.addStretch(1)
         self.tab_widget.addTab(tab, "메모")
 
-    # ── 탭 3 : 일정 ───────────────────────────────────────────────────────
+    # ── 탭 3 : 타이머 ──────────────────────────────────────────────────────
 
-    def _build_schedule_tab(self) -> None:
+    def _build_timer_tab(self) -> None:
         tab = QWidget()
         fl = QFormLayout(tab)
-        fl.setContentsMargins(6, 10, 6, 6)
-        fl.setSpacing(8)
+        fl.setContentsMargins(6, 8, 6, 6)
+        fl.setSpacing(5)
         fl.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
-        self.sched_title = QLineEdit()
-        self.sched_title.setPlaceholderText("일정 제목...")
+        self.timer_duration_combo = QComboBox()
+        for minutes, label in [(5, "5분"), (10, "10분"), (15, "15분"), (20, "20분"),
+                                (30, "30분"), (45, "45분"), (60, "1시간"),
+                                (90, "1시간 30분"), (120, "2시간")]:
+            self.timer_duration_combo.addItem(label, minutes)
+        self.timer_duration_combo.setCurrentIndex(4)  # 30분 기본
 
-        current = QDateTime.currentDateTime()
-        self.sched_date = QDateEdit()
-        self.sched_date.setCalendarPopup(True)
-        self.sched_date.setDate(current.date())
-        self._sched_time = QTime(9, 0)
-        self.sched_time_lbl = QLabel("09:00")
-        self.sched_time_lbl.setObjectName("cardTitle")
-        dt_row = QHBoxLayout()
-        dt_row.setSpacing(4)
-        dt_row.addWidget(self.sched_date)
-        dt_row.addWidget(self.sched_time_lbl)
-        dt_widget = QWidget()
-        dt_widget.setLayout(dt_row)
+        self.timer_note = QLineEdit()
+        self.timer_note.setPlaceholderText("타이머 메모 (선택 사항)...")
 
-        time_row = QHBoxLayout()
-        time_row.setSpacing(4)
-        for h in [9, 10, 12, 14, 15, 17, 18]:
-            btn = QPushButton(str(h))
-            btn.setFixedSize(38, 28)
-            btn.clicked.connect(lambda checked=False, hour=h: self._set_sched_hour(hour))
-            time_row.addWidget(btn)
-        time_row.addStretch(1)
-        time_widget = QWidget()
-        time_widget.setLayout(time_row)
+        action_lbl = QLabel("알림 (고정)")
+        action_lbl.setObjectName("mutedText")
 
-        self.sched_notify = QSpinBox()
-        self.sched_notify.setRange(0, 10080)
-        self.sched_notify.setValue(30)
-        self.sched_notify.setVisible(False)
-        notify_row = QHBoxLayout()
-        notify_row.setSpacing(4)
-        for lbl, mins in [("정각", 0), ("5분 전", 5), ("30분 전", 30), ("1시간 전", 60)]:
-            btn = QPushButton(lbl)
-            btn.setFixedHeight(28)
-            btn.clicked.connect(lambda checked=False, m=mins: self.sched_notify.setValue(m))
-            notify_row.addWidget(btn)
-        notify_row.addStretch(1)
-        notify_widget = QWidget()
-        notify_widget.setLayout(notify_row)
-
-        fl.addRow("제목", self.sched_title)
-        fl.addRow("날짜/시간", dt_widget)
-        fl.addRow("시간 선택", time_widget)
-        fl.addRow("알림", notify_widget)
-        self.tab_widget.addTab(tab, "일정")
-
-    def _set_sched_hour(self, hour: int) -> None:
-        self._sched_time = QTime(hour, 0)
-        self.sched_time_lbl.setText(f"{hour}:00")
+        fl.addRow("시간", self.timer_duration_combo)
+        fl.addRow("메모", self.timer_note)
+        fl.addRow("완료 시", action_lbl)
+        self.tab_widget.addTab(tab, "⏱ 타이머")
 
     # ── 저장 / 팝업 공통 ──────────────────────────────────────────────────
 
@@ -462,23 +415,31 @@ class QuickActionPopup(QDialog):
         elif idx == 1:
             self._save_memo()
         else:
-            self._save_schedule()
+            self._save_timer()
 
     def _save_todo(self) -> None:
         from app.utils import new_id, now_iso
+        from datetime import datetime as py_datetime, time as py_time
         title = self.todo_title.text().strip()
         if not title:
             show_modern_warning(self, "입력 확인", "제목을 입력해주세요.")
             return
-        deadline_date = self.todo_deadline.date()
-        alarm_dt = QDateTime(deadline_date, self._todo_time)
+        day_idx = self.todo_day_combo.currentIndex()
+        selected_date = date.today() + timedelta(days=day_idx)
+        hour = self.todo_hour_combo.currentIndex()
+        minute = int(self.todo_min_combo.currentText().replace("분", ""))
+        alarm_dt = py_datetime.combine(selected_date, py_time(hour, minute))
+        notify_map = {"알림 없음": 0, "10분 전": 10, "30분 전": 30, "1시간 전": 60}
+        notify_mins = notify_map.get(self.todo_notify_combo.currentText(), 0)
+        group = self.todo_group.currentText()
         item = {
             "id": new_id("sc"),
             "title": title,
-            "priority": self.todo_priority.currentText(),
-            "deadline": deadline_date.toString("yyyy-MM-dd"),
-            "datetime": alarm_dt.toString(Qt.DateFormat.ISODate),
-            "notify_before_minutes": self.todo_notify.value(),
+            "group": group,
+            "priority": "",
+            "deadline": alarm_dt.strftime("%Y-%m-%d"),
+            "datetime": alarm_dt.isoformat(timespec="seconds"),
+            "notify_before_minutes": notify_mins,
             "repeat": "none",
             "completed": False,
             "completed_at": None,
@@ -521,34 +482,33 @@ class QuickActionPopup(QDialog):
         self.memo_text.clear()
         self.reject()
 
-    def _save_schedule(self) -> None:
-        from app.utils import new_id, now_iso
-        title = self.sched_title.text().strip()
-        if not title:
-            show_modern_warning(self, "입력 확인", "제목을 입력해주세요.")
+    def _save_timer(self) -> None:
+        minutes = self.timer_duration_combo.currentData()
+        if not minutes:
             return
-        alarm_dt = QDateTime(self.sched_date.date(), self._sched_time)
-        item = {
-            "id": new_id("sc"),
-            "title": title,
-            "priority": "하",
-            "deadline": self.sched_date.date().toString("yyyy-MM-dd"),
-            "datetime": alarm_dt.toString(Qt.DateFormat.ISODate),
-            "notify_before_minutes": self.sched_notify.value(),
-            "repeat": "none",
-            "completed": False,
-            "completed_at": None,
-            "memo": "",
-            "last_notified_at": "",
-            "created_at": now_iso(),
-            "updated_at": now_iso(),
-            "sort_order": len(self.owner.data.setdefault("schedules", [])),
-            "usage_count": 0,
-        }
-        self.owner.data["schedules"].append(item)
-        self.owner.save_data()
-        self.sched_title.clear()
-        show_modern_info(self, "저장 완료", f"'{title}' 이(가) 일정에 추가되었습니다.")
+        note = self.timer_note.text().strip()
+        duration_label = self.timer_duration_combo.currentText()
+        ms = minutes * 60 * 1000
+        if not hasattr(self.owner, "_quick_timers"):
+            self.owner._quick_timers = []
+        t = QTimer(self.owner)
+        t.setSingleShot(True)
+
+        def on_timer_done() -> None:
+            msg = f"⏱ {duration_label} 타이머가 완료되었습니다."
+            if note:
+                msg += f"\n{note}"
+            show_modern_info(self.owner, "타이머 알림", msg)
+            try:
+                self.owner._quick_timers.remove(t)
+            except ValueError:
+                pass
+
+        t.timeout.connect(on_timer_done)
+        t.start(ms)
+        self.owner._quick_timers.append(t)
+        self.accept()
+        show_modern_info(self.owner, "타이머 시작", f"⏱ {duration_label} 타이머가 시작되었습니다.")
 
 
 class MainWindow(QMainWindow):
@@ -604,6 +564,7 @@ class MainWindow(QMainWindow):
         self.alt_double_tapped.connect(self.show_quick_action_popup)
         self.hotstring_expand_requested.connect(self.expand_hotstring)
         self._notified_schedule_ids: set[str] = set()
+        self._quick_timers: list = []
         self.setWindowTitle(f"{config.APP_NAME} {self.version}")
         icon2_path = config.BASE_DIR / "icon2.png" if (config.BASE_DIR / "icon2.png").exists() else config.RESOURCE_DIR / "icon2.png"
         icon_path = icon2_path if icon2_path.exists() else config.APP_ICON_PATH if config.APP_ICON_PATH.exists() else config.BUNDLED_ICON_PATH
