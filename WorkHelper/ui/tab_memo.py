@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, time as dt_time, timedelta
 
-from PyQt6.QtCore import QDateTime, QPoint, QTime, QTimer, Qt
+from PyQt6.QtCore import QDate, QDateTime, QPoint, QTime, QTimer, Qt
 from PyQt6.QtGui import QTextCharFormat, QColor, QPainter, QPen, QPolygon
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -11,10 +11,13 @@ from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QSizeGrip,
+    QSizePolicy,
     QSlider,
     QSpinBox,
     QTabWidget,
@@ -26,7 +29,7 @@ from PyQt6.QtWidgets import (
 
 from app import config
 from app.utils import new_id, now_iso, short_preview
-from ui.common import GridPanel, SortControls, add_card_actions, apply_manual_reorder, apply_modern_dialog_style, bump_usage, make_card, make_icon_button, show_modern_warning
+from ui.common import GridPanel, SortControls, add_card_actions, apply_manual_reorder, apply_modern_dialog_style, ask_modern_question, bump_usage, make_card, make_icon_button, show_modern_info, show_modern_warning
 
 
 MEMO_COLORS = {
@@ -40,6 +43,13 @@ MEMO_COLORS = {
 
 WEEKDAYS = ["월", "화", "수", "목", "금", "토", "일"]
 REPEAT_LABELS = {"daily": "매일", "weekly": "매주", "monthly": "매월"}
+
+PRIORITY_COLORS = {
+    "상": {"bg": "#FFE4E4", "border": "#F87171", "badge_bg": "#F87171", "dot": "#DC2626"},
+    "중": {"bg": "#EFF3FF", "border": "#818CF8", "badge_bg": "#818CF8", "dot": "#4338CA"},
+    "하": {"bg": None, "border": None, "badge_bg": "#9CA3AF", "dot": "#9CA3AF"},
+}
+PRIORITY_ORDER = {"상": 0, "중": 1, "하": 2}
 
 
 def display_datetime(value: str, repeat: str = "none") -> str:
@@ -622,3 +632,533 @@ class ScheduleListTab(QWidget):
     def delete_schedule(self, schedule: dict) -> None:
         self.main.data.get("schedules", []).remove(schedule)
         self.main.save_data()
+
+
+# ── 할 일 다이얼로그 ─────────────────────────────────────────────────────────
+
+class TodoDialog(QDialog):
+    """할 일 등록/수정 다이얼로그 (우선순위·마감기한·알림 포함)."""
+
+    def __init__(self, item: dict | None = None) -> None:
+        super().__init__()
+        self.setWindowTitle("할 일")
+        apply_modern_dialog_style(self)
+        self.item = item or {}
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 14, 14, 12)
+        layout.setSpacing(12)
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        form.setFormAlignment(Qt.AlignmentFlag.AlignTop)
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(10)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        # 제목
+        self.title_edit = QLineEdit(self.item.get("title", ""))
+
+        # 우선순위
+        self.priority_combo = QComboBox()
+        self.priority_combo.addItems(["하", "중", "상"])
+        self.priority_combo.setCurrentText(self.item.get("priority", "하"))
+        self.priority_combo.setMinimumWidth(100)
+
+        # 마감기한
+        deadline_str = self.item.get("deadline", "")
+        if not deadline_str:
+            dt_str = self.item.get("datetime", "")
+            if dt_str:
+                deadline_str = dt_str[:10]
+        self.deadline_edit = QDateEdit()
+        self.deadline_edit.setCalendarPopup(True)
+        self.deadline_edit.setMinimumWidth(150)
+        dl_date = QDate.fromString(deadline_str, "yyyy-MM-dd") if deadline_str else QDate()
+        self.deadline_edit.setDate(dl_date if dl_date.isValid() else QDate.currentDate())
+
+        # 알림 날짜/시간
+        current = QDateTime.fromString(self.item.get("datetime", ""), Qt.DateFormat.ISODate)
+        if not current.isValid():
+            current = QDateTime.currentDateTime()
+        self.alarm_date = QDateEdit()
+        self.alarm_date.setCalendarPopup(True)
+        self.alarm_date.setDate(current.date())
+        self.alarm_date.setMinimumWidth(150)
+        self.alarm_date.dateChanged.connect(lambda _: self.update_notify_label())
+
+        self.selected_time = current.time()
+        self.time_label = QLabel()
+        self.time_label.setObjectName("cardTitle")
+        self.time_label.setMinimumWidth(52)
+        self.update_time_label()
+
+        dt_row = QHBoxLayout()
+        dt_row.setContentsMargins(0, 0, 0, 0)
+        dt_row.setSpacing(6)
+        dt_row.addWidget(self.alarm_date)
+        dt_row.addWidget(self.time_label)
+        dt_row.addStretch(1)
+        dt_widget = QWidget()
+        dt_widget.setLayout(dt_row)
+
+        # 시간 빠른선택
+        quick_time_row = QHBoxLayout()
+        quick_time_row.setContentsMargins(0, 0, 0, 0)
+        quick_time_row.setSpacing(4)
+        for hour in range(9, 19):
+            btn = QPushButton(str(hour))
+            btn.setFixedSize(42, 32)
+            btn.clicked.connect(lambda checked=False, h=hour: self.set_time_hour(h))
+            quick_time_row.addWidget(btn)
+        quick_time_row.addStretch(1)
+        time_adj_row = QHBoxLayout()
+        time_adj_row.setContentsMargins(0, 0, 0, 0)
+        time_adj_row.setSpacing(4)
+        for lbl, mins in [("-10m", -10), ("+10m", 10), ("-30m", -30), ("+30m", 30)]:
+            btn = QPushButton(lbl)
+            btn.clicked.connect(lambda checked=False, m=mins: self.adjust_time(m))
+            time_adj_row.addWidget(btn)
+        time_adj_row.addStretch(1)
+        qt_widget = QWidget()
+        qtl = QVBoxLayout(qt_widget)
+        qtl.setContentsMargins(0, 0, 0, 0)
+        qtl.setSpacing(4)
+        qtl.addLayout(quick_time_row)
+        qtl.addLayout(time_adj_row)
+
+        # 알림 설정
+        self.notify = QSpinBox()
+        self.notify.setRange(0, 10080)
+        self.notify.setValue(int(self.item.get("notify_before_minutes", 30)))
+        self.notify.valueChanged.connect(lambda _: self.update_notify_label())
+        self.notify.setVisible(False)
+        self.notify_at_label = QLabel()
+        self.notify_at_label.setObjectName("cardTitle")
+        self.notify_at_label.setMinimumWidth(142)
+        self.update_notify_label()
+        notify_row = QHBoxLayout()
+        notify_row.setContentsMargins(0, 0, 0, 0)
+        notify_row.setSpacing(6)
+        notify_row.addWidget(self.notify_at_label)
+        for lbl, mins in [("정각", 0), ("5분 전", 5), ("10분 전", 10), ("30분 전", 30), ("1시간 전", 60)]:
+            btn = QPushButton(lbl)
+            btn.clicked.connect(lambda checked=False, m=mins: self.notify.setValue(m))
+            notify_row.addWidget(btn)
+        prev_9 = QPushButton("전일 9시")
+        prev_18 = QPushButton("전일 6시")
+        prev_9.clicked.connect(lambda: self.set_previous_day_notify(9))
+        prev_18.clicked.connect(lambda: self.set_previous_day_notify(18))
+        notify_row.addWidget(prev_9)
+        notify_row.addWidget(prev_18)
+        notify_widget = QWidget()
+        notify_widget.setLayout(notify_row)
+
+        # 메모
+        self.memo_edit = QTextEdit(self.item.get("memo", ""))
+        self.memo_edit.setFixedHeight(70)
+
+        form.addRow("제목", self.title_edit)
+        form.addRow("중요도", self.priority_combo)
+        form.addRow("마감기한", self.deadline_edit)
+        form.addRow("알림 날짜", dt_widget)
+        form.addRow("시간 선택", qt_widget)
+        form.addRow("알림 설정", notify_widget)
+        form.addRow("메모", self.memo_edit)
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("확인")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("취소")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def selected_datetime(self) -> datetime:
+        return datetime.combine(self.alarm_date.date().toPyDate(), self.selected_time.toPyTime())
+
+    def notify_datetime(self) -> datetime:
+        return self.selected_datetime() - timedelta(minutes=self.notify.value())
+
+    def update_notify_label(self) -> None:
+        if not hasattr(self, "notify_at_label"):
+            return
+        self.notify_at_label.setText(self.notify_datetime().strftime("%Y-%m-%d %H:%M"))
+
+    def set_time_hour(self, hour: int) -> None:
+        self.selected_time = QTime(hour, 0)
+        self.update_time_label()
+        self.update_notify_label()
+
+    def adjust_time(self, minutes: int) -> None:
+        self.selected_time = self.selected_time.addSecs(minutes * 60)
+        self.update_time_label()
+        self.update_notify_label()
+
+    def update_time_label(self) -> None:
+        self.time_label.setText(f"{self.selected_time.hour()}:{self.selected_time.minute():02d}")
+
+    def set_previous_day_notify(self, hour: int) -> None:
+        target = self.selected_datetime()
+        notify_at = datetime.combine(target.date() - timedelta(days=1), dt_time(hour, 0))
+        self.notify.setValue(max(0, int((target - notify_at).total_seconds() // 60)))
+        self.update_notify_label()
+
+    def value(self) -> dict:
+        data = dict(self.item)
+        if not data.get("id"):
+            data["id"] = new_id("sc")
+            data["created_at"] = now_iso()
+            data["sort_order"] = 0
+            data["usage_count"] = 0
+        date_time = QDateTime(self.alarm_date.date(), self.selected_time)
+        data.update({
+            "title": self.title_edit.text().strip(),
+            "priority": self.priority_combo.currentText(),
+            "deadline": self.deadline_edit.date().toString("yyyy-MM-dd"),
+            "datetime": date_time.toString(Qt.DateFormat.ISODate),
+            "notify_before_minutes": self.notify.value(),
+            "repeat": data.get("repeat", "none"),
+            "memo": self.memo_edit.toPlainText(),
+            "last_notified_at": data.get("last_notified_at", ""),
+        })
+        data.setdefault("completed", False)
+        data.setdefault("completed_at", None)
+        return data
+
+
+# ── 완료 항목 다이얼로그 ──────────────────────────────────────────────────────
+
+class CompletedItemsDialog(QDialog):
+    """완료된 할 일 목록. 체크 해제로 복원 가능."""
+
+    def __init__(self, parent: QWidget, completed: list[dict], on_uncomplete=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("완료 항목")
+        self.setModal(True)
+        apply_modern_dialog_style(self)
+        self.changed = False
+        self.on_uncomplete = on_uncomplete
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+
+        hdr = QLabel(f"완료된 항목 ({len(completed)}개)")
+        hdr.setObjectName("cardTitle")
+        layout.addWidget(hdr)
+
+        if not completed:
+            empty = QLabel("완료된 항목이 없습니다.")
+            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(empty)
+        else:
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            content = QWidget()
+            cl = QVBoxLayout(content)
+            cl.setContentsMargins(0, 0, 0, 0)
+            cl.setSpacing(3)
+            for item in sorted(completed, key=lambda x: x.get("completed_at", ""), reverse=True):
+                row = QWidget()
+                row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+                row.setFixedHeight(36)
+                rl = QHBoxLayout(row)
+                rl.setContentsMargins(6, 3, 6, 3)
+                rl.setSpacing(8)
+                cb = QCheckBox()
+                cb.setChecked(True)
+                cb.toggled.connect(lambda checked, i=item, r=row: self._handle_toggle(i, checked, r))
+                rl.addWidget(cb)
+                pri = item.get("priority", "하")
+                pc = PRIORITY_COLORS.get(pri, PRIORITY_COLORS["하"])
+                badge = QLabel(pri)
+                badge.setFixedSize(22, 18)
+                badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                badge.setStyleSheet(
+                    f"background:{pc['badge_bg']};color:white;border-radius:3px;"
+                    f"font-size:8pt;font-weight:800;"
+                )
+                rl.addWidget(badge)
+                title_lbl = QLabel(item.get("title", "(제목 없음)"))
+                title_lbl.setStyleSheet("text-decoration:line-through;color:#9CA3AF;")
+                rl.addWidget(title_lbl, 1)
+                at = item.get("completed_at", "")
+                if at:
+                    at_lbl = QLabel(at[:10])
+                    at_lbl.setStyleSheet("color:#9CA3AF;font-size:9pt;")
+                    rl.addWidget(at_lbl)
+                cl.addWidget(row)
+            cl.addStretch(1)
+            scroll.setWidget(content)
+            scroll.setFixedHeight(min(320, max(100, len(completed) * 38 + 16)))
+            layout.addWidget(scroll)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        close_btn = QPushButton("닫기")
+        close_btn.clicked.connect(self.accept)
+        btn_row.addWidget(close_btn)
+        layout.addLayout(btn_row)
+        self.resize(480, min(440, max(200, len(completed) * 38 + 130)))
+
+    def _handle_toggle(self, item: dict, checked: bool, row: QWidget) -> None:
+        if not checked and self.on_uncomplete:
+            self.on_uncomplete(item)
+            self.changed = True
+            row.setStyleSheet("QWidget{background:#F0FDF4;border-radius:4px;}")
+            for i in range(row.layout().count()):
+                w = row.layout().itemAt(i).widget()
+                if isinstance(w, QLabel) and "line-through" in (w.styleSheet() or ""):
+                    w.setStyleSheet("color:#15803D;")
+
+
+# ── 할 일(Todo) 목록 탭 ───────────────────────────────────────────────────────
+
+class TodoListTab(QWidget):
+    """1-컬럼 체크리스트 스타일 할 일 관리 탭."""
+
+    def __init__(self, main) -> None:
+        super().__init__()
+        self.main = main
+        self._sort_mode = "created"   # "created" | "deadline" | "priority"
+        self._sort_asc = True
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(8, 8, 8, 8)
+        outer.setSpacing(6)
+
+        # ── 상단 검색 / 정렬 ──
+        top = QHBoxLayout()
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("검색...")
+        self.search.setFixedWidth(160)
+        self.search.setFixedHeight(28)
+        self.search.setStyleSheet("QLineEdit{padding:1px 6px;font-size:9pt;}")
+        self.search.textChanged.connect(self.refresh)
+
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItems(["등록순", "기한순", "중요도순"])
+        self.sort_combo.setFixedHeight(28)
+        self.sort_combo.currentIndexChanged.connect(self._on_sort_changed)
+
+        self.order_combo = QComboBox()
+        self.order_combo.addItems(["오름차순", "내림차순"])
+        self.order_combo.setFixedHeight(28)
+        self.order_combo.currentIndexChanged.connect(self._on_sort_changed)
+
+        top.addWidget(self.search)
+        top.addStretch(1)
+        top.addWidget(self.sort_combo)
+        top.addWidget(self.order_combo)
+        outer.addLayout(top)
+
+        # ── 스크롤 카드 영역 ──
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll_content = QWidget()
+        self._items_layout = QVBoxLayout(self._scroll_content)
+        self._items_layout.setContentsMargins(0, 0, 0, 0)
+        self._items_layout.setSpacing(4)
+        self._items_layout.addStretch(1)
+        self.scroll.setWidget(self._scroll_content)
+        outer.addWidget(self.scroll, 1)
+
+        # ── 하단 액션 바 ──
+        bottom = QHBoxLayout()
+        completed_btn = QPushButton("완료 항목 보기")
+        completed_btn.clicked.connect(self.show_completed_items)
+        clear_btn = QPushButton("완료 항목 지우기")
+        clear_btn.clicked.connect(self.clear_completed_items)
+        add_btn = QPushButton("+ 할 일")
+        add_btn.clicked.connect(lambda: self.edit_item())
+        bottom.addWidget(completed_btn)
+        bottom.addWidget(clear_btn)
+        bottom.addStretch(1)
+        bottom.addWidget(add_btn)
+        outer.addLayout(bottom)
+
+    # ── 정렬 ────────────────────────────────────────────────────────────────
+
+    def _on_sort_changed(self) -> None:
+        mode_map = {0: "created", 1: "deadline", 2: "priority"}
+        self._sort_mode = mode_map.get(self.sort_combo.currentIndex(), "created")
+        self._sort_asc = (self.order_combo.currentIndex() == 0)
+        self.refresh()
+
+    def _sorted(self, items: list[dict]) -> list[dict]:
+        reverse = not self._sort_asc
+        if self._sort_mode == "deadline":
+            def dl_key(item: dict) -> str:
+                return item.get("deadline") or item.get("datetime", "")[:10] or "9999-99-99"
+            return sorted(items, key=dl_key, reverse=reverse)
+        if self._sort_mode == "priority":
+            return sorted(items, key=lambda x: PRIORITY_ORDER.get(x.get("priority", "하"), 2), reverse=reverse)
+        # created (default)
+        return sorted(items, key=lambda x: x.get("created_at", ""), reverse=reverse)
+
+    # ── 리프레시 ─────────────────────────────────────────────────────────────
+
+    def refresh(self) -> None:
+        # 기존 카드 제거 (마지막 stretch 유지)
+        while self._items_layout.count() > 1:
+            child = self._items_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+        q = self.search.text().strip().lower()
+        pending = [i for i in self.main.data.get("schedules", []) if not i.get("completed", False)]
+        visible = self._sorted(pending)
+
+        inserted = 0
+        for todo in visible:
+            if q and q not in (todo.get("title", "") + " " + todo.get("memo", "")).lower():
+                continue
+            card = self._make_card(todo)
+            self._items_layout.insertWidget(self._items_layout.count() - 1, card)
+            inserted += 1
+
+        if inserted == 0:
+            msg = "할 일이 없어요! 🎉" if not q else "검색 결과가 없습니다."
+            lbl = QLabel(msg)
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl.setStyleSheet("color:#9CA3AF;font-size:10pt;padding:24px;")
+            self._items_layout.insertWidget(0, lbl)
+
+    # ── 카드 생성 ────────────────────────────────────────────────────────────
+
+    def _make_card(self, item: dict) -> QWidget:
+        priority = item.get("priority", "하")
+        pc = PRIORITY_COLORS.get(priority, PRIORITY_COLORS["하"])
+
+        card = QWidget()
+        card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        card.setObjectName("todoCard")
+        card.setFixedHeight(48)
+
+        h = QHBoxLayout(card)
+        h.setContentsMargins(8, 4, 8, 4)
+        h.setSpacing(8)
+
+        # 체크박스
+        cb = QCheckBox()
+        cb.setChecked(False)
+        cb.toggled.connect(lambda checked, i=item: self._on_check(i, checked))
+        h.addWidget(cb)
+
+        # 우선순위 배지
+        badge = QLabel(priority)
+        badge.setFixedSize(26, 20)
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        badge.setStyleSheet(
+            f"background:{pc['badge_bg']};color:white;border-radius:4px;"
+            f"font-size:8pt;font-weight:800;"
+        )
+        h.addWidget(badge)
+
+        # 제목
+        title_lbl = QLabel(item.get("title", "(제목 없음)"))
+        title_lbl.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        title_lbl.setMinimumWidth(0)
+        h.addWidget(title_lbl, 1)
+
+        # 메모 미리보기
+        memo = (item.get("memo") or "").strip()
+        if memo:
+            memo_lbl = QLabel((memo[:28] + "…") if len(memo) > 28 else memo)
+            memo_lbl.setStyleSheet("color:#9CA3AF;font-size:8pt;")
+            memo_lbl.setFixedWidth(90)
+            h.addWidget(memo_lbl)
+
+        # 마감기한 배지
+        deadline = item.get("deadline", "")
+        if deadline:
+            try:
+                dl_date = datetime.strptime(deadline, "%Y-%m-%d").date()
+                today = datetime.now().date()
+                days_left = (dl_date - today).days
+                if days_left < 0:
+                    dl_text, dl_color = f"D+{-days_left}", "#DC2626"
+                elif days_left == 0:
+                    dl_text, dl_color = "오늘", "#D97706"
+                elif days_left <= 3:
+                    dl_text, dl_color = f"D-{days_left}", "#D97706"
+                else:
+                    dl_text, dl_color = deadline[5:], "#6B7280"
+                dl_lbl = QLabel(dl_text)
+                dl_lbl.setStyleSheet(f"color:{dl_color};font-size:9pt;font-weight:700;min-width:40px;")
+                dl_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                h.addWidget(dl_lbl)
+            except Exception:
+                pass
+
+        # 수정/삭제
+        h.addWidget(make_icon_button("edit", "수정", lambda checked=False, i=item: self.edit_item(i)))
+        h.addWidget(make_icon_button("delete", "삭제", lambda checked=False, i=item: self.delete_item(i), True))
+
+        # 배경색 (objectName selector 로 자식 위젯에 cascade 되지 않도록)
+        if pc["bg"]:
+            card.setStyleSheet(
+                f"QWidget#todoCard{{background:{pc['bg']};border-radius:6px;"
+                f"border:1px solid {pc['border']};}}"
+            )
+        else:
+            card.setStyleSheet("QWidget#todoCard{border-radius:6px;}")
+        return card
+
+    # ── 이벤트 핸들러 ────────────────────────────────────────────────────────
+
+    def _on_check(self, item: dict, checked: bool) -> None:
+        if checked:
+            item["completed"] = True
+            item["completed_at"] = now_iso()
+            self.main.save_data()
+
+    def edit_item(self, item: dict | None = None) -> None:
+        dialog = TodoDialog(item)
+        while dialog.exec() == dialog.DialogCode.Accepted:
+            value = dialog.value()
+            if not value.get("title"):
+                show_modern_warning(dialog, "입력 확인", "제목을 입력해주세요.")
+                continue
+            items = self.main.data.setdefault("schedules", [])
+            if item in items:
+                items[items.index(item)] = value
+            else:
+                value["sort_order"] = len(items)
+                items.append(value)
+            self.main.save_data()
+            return
+
+    def delete_item(self, item: dict) -> None:
+        self.main.data.get("schedules", []).remove(item)
+        self.main.save_data()
+
+    def show_completed_items(self) -> None:
+        completed = [i for i in self.main.data.get("schedules", []) if i.get("completed")]
+        dlg = CompletedItemsDialog(self, completed, on_uncomplete=self._uncomplete_item)
+        dlg.exec()
+        if dlg.changed:
+            self.main.save_data()
+
+    def _uncomplete_item(self, item: dict) -> None:
+        item["completed"] = False
+        item["completed_at"] = None
+
+    def clear_completed_items(self) -> None:
+        completed = [i for i in self.main.data.get("schedules", []) if i.get("completed")]
+        if not completed:
+            show_modern_warning(self, "완료 항목 없음", "완료된 항목이 없습니다.")
+            return
+        if ask_modern_question(
+            self,
+            "완료 항목 삭제",
+            f"완료된 항목 {len(completed)}개를 영구 삭제합니다.\n복구할 수 없습니다. 계속하시겠습니까?",
+            accent="#DC2626",
+            yes_text="삭제",
+            no_text="취소",
+        ):
+            self.main.data["schedules"] = [
+                i for i in self.main.data.get("schedules", []) if not i.get("completed")
+            ]
+            self.main.save_data()

@@ -7,9 +7,9 @@ from ctypes import wintypes
 from datetime import datetime, timedelta
 from typing import Any
 
-from PyQt6.QtCore import QAbstractNativeEventFilter, QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import QAbstractNativeEventFilter, QDate, QDateTime, QTime, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QCursor, QIcon, QKeyEvent, QPixmap
-from PyQt6.QtWidgets import QApplication, QCheckBox, QDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QTextEdit, QToolButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QApplication, QCheckBox, QComboBox, QDateEdit, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QStackedWidget, QTabWidget, QTextEdit, QToolButton, QVBoxLayout, QWidget
 
 from app import config
 from app.date_tools import render_date_template
@@ -23,12 +23,12 @@ from ui.tab_home import HomeTab
 from ui.tab_image import ImageTab
 from ui.tab_launcher import LauncherTab
 from ui.tab_macro import MacroTab
-from ui.tab_memo import MemoListTab, ScheduleListTab
+from ui.tab_memo import MemoListTab, ScheduleListTab, TodoListTab
 from ui.tab_misc import MiscTab, MouseHighlightOverlay
 from ui.tab_phrase import PhraseTab
 from ui.tab_settings import SettingsTab
 from ui.tab_text_tools import TextToolsTab
-from ui.common import ask_modern_question, bump_usage, set_dialog_theme, show_modern_info, show_modern_warning
+from ui.common import apply_modern_dialog_style, ask_modern_question, bump_usage, set_dialog_theme, show_modern_info, show_modern_warning
 
 
 MINI_COPY_BUTTON_WIDTH = 64
@@ -251,6 +251,306 @@ class QuickMemoPopup(QDialog):
         self.text.setFocus(Qt.FocusReason.PopupFocusReason)
 
 
+class QuickActionPopup(QDialog):
+    """Alt 더블 탭 시 나타나는 빠른 작업 팝업 (할 일 / 메모 / 일정 3탭)."""
+
+    def __init__(self, owner: "MainWindow") -> None:
+        super().__init__(None)
+        self.owner = owner
+        self.setWindowTitle("빠른 작업")
+        self.setWindowFlag(Qt.WindowType.Tool, True)
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        apply_modern_dialog_style(self)
+        self.setFixedWidth(430)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+
+        self.tab_widget = QTabWidget()
+        self._build_todo_tab()
+        self._build_memo_tab()
+        self._build_schedule_tab()
+        layout.addWidget(self.tab_widget)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        cancel_btn = QPushButton("닫기")
+        cancel_btn.clicked.connect(self.reject)
+        self.save_btn = QPushButton("저장")
+        self.save_btn.clicked.connect(self._on_save)
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(self.save_btn)
+        layout.addLayout(btn_row)
+
+        self.resize(430, 320)
+        QTimer.singleShot(0, self._activate)
+
+    # ── 탭 1 : 할 일 ───────────────────────────────────────────────────────
+
+    def _build_todo_tab(self) -> None:
+        tab = QWidget()
+        fl = QFormLayout(tab)
+        fl.setContentsMargins(6, 10, 6, 6)
+        fl.setSpacing(8)
+        fl.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        self.todo_title = QLineEdit()
+        self.todo_title.setPlaceholderText("할 일 제목...")
+
+        priority_row = QHBoxLayout()
+        self.todo_priority = QComboBox()
+        self.todo_priority.addItems(["하", "중", "상"])
+        priority_row.addWidget(self.todo_priority)
+        priority_row.addStretch(1)
+        priority_widget = QWidget()
+        priority_widget.setLayout(priority_row)
+
+        self.todo_deadline = QDateEdit()
+        self.todo_deadline.setCalendarPopup(True)
+        self.todo_deadline.setDate(QDate.currentDate())
+
+        # 알림 시간
+        self._todo_time = QTime(9, 0)
+        self.todo_time_lbl = QLabel("09:00")
+        self.todo_time_lbl.setObjectName("cardTitle")
+        alarm_row = QHBoxLayout()
+        alarm_row.setSpacing(4)
+        alarm_row.addWidget(self.todo_deadline)
+        alarm_row.addWidget(QLabel("알림"))
+        alarm_row.addWidget(self.todo_time_lbl)
+        for h in [9, 12, 15, 18]:
+            btn = QPushButton(f"{h}시")
+            btn.setFixedHeight(28)
+            btn.clicked.connect(lambda checked=False, hour=h: self._set_todo_hour(hour))
+            alarm_row.addWidget(btn)
+        alarm_row.addStretch(1)
+        alarm_widget = QWidget()
+        alarm_widget.setLayout(alarm_row)
+
+        self.todo_notify = QSpinBox()
+        self.todo_notify.setRange(0, 10080)
+        self.todo_notify.setValue(30)
+        self.todo_notify.setVisible(False)
+        notify_row = QHBoxLayout()
+        notify_row.setSpacing(4)
+        for lbl, mins in [("정각", 0), ("30분 전", 30), ("1시간 전", 60), ("전일 9시", -1)]:
+            btn = QPushButton(lbl)
+            btn.setFixedHeight(28)
+            if mins >= 0:
+                btn.clicked.connect(lambda checked=False, m=mins: self.todo_notify.setValue(m))
+            else:
+                btn.clicked.connect(self._todo_prev_day_notify)
+            notify_row.addWidget(btn)
+        notify_row.addStretch(1)
+        notify_widget = QWidget()
+        notify_widget.setLayout(notify_row)
+
+        fl.addRow("제목", self.todo_title)
+        fl.addRow("중요도", priority_widget)
+        fl.addRow("마감/알림", alarm_widget)
+        fl.addRow("알림 방식", notify_widget)
+        self.tab_widget.addTab(tab, "할 일")
+
+    def _set_todo_hour(self, hour: int) -> None:
+        self._todo_time = QTime(hour, 0)
+        self.todo_time_lbl.setText(f"{hour}:00")
+
+    def _todo_prev_day_notify(self) -> None:
+        from datetime import datetime, timedelta
+        target = datetime.combine(self.todo_deadline.date().toPyDate(), self._todo_time.toPyTime())
+        from datetime import time as dt_time
+        notify_at = datetime.combine(target.date() - timedelta(days=1), dt_time(9, 0))
+        self.todo_notify.setValue(max(0, int((target - notify_at).total_seconds() // 60)))
+
+    # ── 탭 2 : 메모 ───────────────────────────────────────────────────────
+
+    def _build_memo_tab(self) -> None:
+        tab = QWidget()
+        vl = QVBoxLayout(tab)
+        vl.setContentsMargins(6, 10, 6, 6)
+        vl.setSpacing(6)
+        self.memo_text = QTextEdit()
+        self.memo_text.setPlaceholderText("메모를 입력하세요...")
+        vl.addWidget(self.memo_text)
+        self.memo_sticky = QCheckBox("스티커로 띄우기")
+        vl.addWidget(self.memo_sticky)
+        self.tab_widget.addTab(tab, "메모")
+
+    # ── 탭 3 : 일정 ───────────────────────────────────────────────────────
+
+    def _build_schedule_tab(self) -> None:
+        tab = QWidget()
+        fl = QFormLayout(tab)
+        fl.setContentsMargins(6, 10, 6, 6)
+        fl.setSpacing(8)
+        fl.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        self.sched_title = QLineEdit()
+        self.sched_title.setPlaceholderText("일정 제목...")
+
+        current = QDateTime.currentDateTime()
+        self.sched_date = QDateEdit()
+        self.sched_date.setCalendarPopup(True)
+        self.sched_date.setDate(current.date())
+        self._sched_time = QTime(9, 0)
+        self.sched_time_lbl = QLabel("09:00")
+        self.sched_time_lbl.setObjectName("cardTitle")
+        dt_row = QHBoxLayout()
+        dt_row.setSpacing(4)
+        dt_row.addWidget(self.sched_date)
+        dt_row.addWidget(self.sched_time_lbl)
+        dt_widget = QWidget()
+        dt_widget.setLayout(dt_row)
+
+        time_row = QHBoxLayout()
+        time_row.setSpacing(4)
+        for h in [9, 10, 12, 14, 15, 17, 18]:
+            btn = QPushButton(str(h))
+            btn.setFixedSize(38, 28)
+            btn.clicked.connect(lambda checked=False, hour=h: self._set_sched_hour(hour))
+            time_row.addWidget(btn)
+        time_row.addStretch(1)
+        time_widget = QWidget()
+        time_widget.setLayout(time_row)
+
+        self.sched_notify = QSpinBox()
+        self.sched_notify.setRange(0, 10080)
+        self.sched_notify.setValue(30)
+        self.sched_notify.setVisible(False)
+        notify_row = QHBoxLayout()
+        notify_row.setSpacing(4)
+        for lbl, mins in [("정각", 0), ("5분 전", 5), ("30분 전", 30), ("1시간 전", 60)]:
+            btn = QPushButton(lbl)
+            btn.setFixedHeight(28)
+            btn.clicked.connect(lambda checked=False, m=mins: self.sched_notify.setValue(m))
+            notify_row.addWidget(btn)
+        notify_row.addStretch(1)
+        notify_widget = QWidget()
+        notify_widget.setLayout(notify_row)
+
+        fl.addRow("제목", self.sched_title)
+        fl.addRow("날짜/시간", dt_widget)
+        fl.addRow("시간 선택", time_widget)
+        fl.addRow("알림", notify_widget)
+        self.tab_widget.addTab(tab, "일정")
+
+    def _set_sched_hour(self, hour: int) -> None:
+        self._sched_time = QTime(hour, 0)
+        self.sched_time_lbl.setText(f"{hour}:00")
+
+    # ── 저장 / 팝업 공통 ──────────────────────────────────────────────────
+
+    def _activate(self) -> None:
+        cursor = QCursor.pos()
+        screen = QApplication.screenAt(cursor) or QApplication.primaryScreen()
+        if screen:
+            area = screen.availableGeometry()
+            x = min(max(cursor.x() + 12, area.left()), area.right() - self.width())
+            y = min(max(cursor.y() + 12, area.top()), area.bottom() - self.height())
+            self.move(x, y)
+        self.raise_()
+        self.activateWindow()
+        line_edit = self.tab_widget.currentWidget().findChild(QLineEdit)
+        if line_edit:
+            line_edit.setFocus(Qt.FocusReason.PopupFocusReason)
+
+    def _on_save(self) -> None:
+        idx = self.tab_widget.currentIndex()
+        if idx == 0:
+            self._save_todo()
+        elif idx == 1:
+            self._save_memo()
+        else:
+            self._save_schedule()
+
+    def _save_todo(self) -> None:
+        from app.utils import new_id, now_iso
+        title = self.todo_title.text().strip()
+        if not title:
+            show_modern_warning(self, "입력 확인", "제목을 입력해주세요.")
+            return
+        deadline_date = self.todo_deadline.date()
+        alarm_dt = QDateTime(deadline_date, self._todo_time)
+        item = {
+            "id": new_id("sc"),
+            "title": title,
+            "priority": self.todo_priority.currentText(),
+            "deadline": deadline_date.toString("yyyy-MM-dd"),
+            "datetime": alarm_dt.toString(Qt.DateFormat.ISODate),
+            "notify_before_minutes": self.todo_notify.value(),
+            "repeat": "none",
+            "completed": False,
+            "completed_at": None,
+            "memo": "",
+            "last_notified_at": "",
+            "created_at": now_iso(),
+            "updated_at": now_iso(),
+            "sort_order": len(self.owner.data.setdefault("schedules", [])),
+            "usage_count": 0,
+        }
+        self.owner.data["schedules"].append(item)
+        self.owner.save_data()
+        self.todo_title.clear()
+        show_modern_info(self, "저장 완료", f"'{title}' 이(가) 할 일에 추가되었습니다.")
+
+    def _save_memo(self) -> None:
+        from app.utils import new_id, now_iso
+        content = self.memo_text.toPlainText().strip()
+        if not content:
+            show_modern_warning(self, "입력 확인", "메모를 입력해주세요.")
+            return
+        title = content.splitlines()[0][:30] or "빠른 메모"
+        memo = {
+            "id": new_id("mm"),
+            "title": title,
+            "content": content,
+            "pinned": False,
+            "always_on_top": True,
+            "background": "노랑",
+            "created_at": now_iso(),
+            "updated_at": now_iso(),
+            "sort_order": len(self.owner.data.setdefault("memos", [])),
+            "usage_count": 0,
+        }
+        self.owner.data["memos"].append(memo)
+        self.owner.save_data()
+        if self.memo_sticky.isChecked():
+            memo["sticker_open"] = True
+            self.owner.tabs[8].show_sticker(memo)
+        self.memo_text.clear()
+        self.reject()
+
+    def _save_schedule(self) -> None:
+        from app.utils import new_id, now_iso
+        title = self.sched_title.text().strip()
+        if not title:
+            show_modern_warning(self, "입력 확인", "제목을 입력해주세요.")
+            return
+        alarm_dt = QDateTime(self.sched_date.date(), self._sched_time)
+        item = {
+            "id": new_id("sc"),
+            "title": title,
+            "priority": "하",
+            "deadline": self.sched_date.date().toString("yyyy-MM-dd"),
+            "datetime": alarm_dt.toString(Qt.DateFormat.ISODate),
+            "notify_before_minutes": self.sched_notify.value(),
+            "repeat": "none",
+            "completed": False,
+            "completed_at": None,
+            "memo": "",
+            "last_notified_at": "",
+            "created_at": now_iso(),
+            "updated_at": now_iso(),
+            "sort_order": len(self.owner.data.setdefault("schedules", [])),
+            "usage_count": 0,
+        }
+        self.owner.data["schedules"].append(item)
+        self.owner.save_data()
+        self.sched_title.clear()
+        show_modern_info(self, "저장 완료", f"'{title}' 이(가) 일정에 추가되었습니다.")
+
+
 class MainWindow(QMainWindow):
     CLIPBOARD_POPUP_HOTKEY_LABEL = "Ctrl+Shift+V"
     ctrl_double_tapped = pyqtSignal()
@@ -301,7 +601,7 @@ class MainWindow(QMainWindow):
         self._last_alt_release = 0.0
         self._home_tip_index = 0
         self.ctrl_double_tapped.connect(self.show_clipboard_popup)
-        self.alt_double_tapped.connect(self.show_quick_memo_popup)
+        self.alt_double_tapped.connect(self.show_quick_action_popup)
         self.hotstring_expand_requested.connect(self.expand_hotstring)
         self._notified_schedule_ids: set[str] = set()
         self.setWindowTitle(f"{config.APP_NAME} {self.version}")
@@ -427,7 +727,7 @@ class MainWindow(QMainWindow):
             CalculatorTab(self),
             TextToolsTab(self),
             MemoListTab(self),
-            ScheduleListTab(self),
+            TodoListTab(self),
             MiscTab(self),
             SettingsTab(self),
         ]
@@ -435,7 +735,7 @@ class MainWindow(QMainWindow):
             self.stack.addWidget(tab)
         content_layout.addWidget(self.stack, 1)
 
-        names = ["홈", "상용구/코드", "바로가기", "컨닝페이퍼", "매크로", "클립보드", "계산기", "텍스트 변환", "메모", "일정 알림", "기타", "설정"]
+        names = ["홈", "상용구/코드", "바로가기", "컨닝페이퍼", "매크로", "클립보드", "계산기", "텍스트 변환", "메모", "일정 관리", "기타", "설정"]
         self.buttons: list[QToolButton] = []
         for i, name in enumerate(names):
             button = QToolButton()
@@ -485,8 +785,8 @@ class MainWindow(QMainWindow):
             "🔹복사했던 항목들을 보관하고 불러옵니다.\n💡Ctrl을 두 번 누르면 복사했던 이력을 미니 팝업으로 바로 확인하고 가져올 수 있어요",
             "🔹수식과 날짜를 계산하고 결과를 복사합니다.",
             "🔹URL, UTM, 줄바꿈, 따옴표 변환을 처리합니다.",
-            "🔹메모를 저장할 수 있어요.\n💡Alt를 두 번 누르면 어디서든 빠른 메모를 등록할 수 있어요.",
-            "🔹일정 알림을 관리합니다.",
+            "🔹메모를 저장할 수 있어요.\n💡Alt를 두 번 누르면 할 일/메모/일정을 빠르게 등록할 수 있어요.",
+            "🔹할 일을 체크리스트로 관리합니다.\n💡우선순위·마감기한·알림을 설정하고, 완료 체크로 목록에서 제거하세요.",
             "🔹컬러, 마우스 하이라이트, 이모지를 관리합니다.",
             "🔹일반, 단축키, 테마 옵션을 설정합니다.",
         ]
@@ -749,7 +1049,11 @@ class MainWindow(QMainWindow):
         items = [by_id[item_id] for item_id in favorite_ids if item_id in by_id]
         NumberedTextPopup(self, "상용구", items, self.paste_text).exec()
 
+    def show_quick_action_popup(self) -> None:
+        QuickActionPopup(self).exec()
+
     def show_quick_memo_popup(self) -> None:
+        """직접 호출용으로 유지 (QuickActionPopup 메모 탭과 동일 동작)."""
         dialog = QuickMemoPopup(self)
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
@@ -940,13 +1244,29 @@ class MainWindow(QMainWindow):
     def show_schedule_notification(self, schedule: dict[str, Any]) -> None:
         bump_usage(schedule)
         self.save_usage_data()
+        title = schedule.get("title", "일정")
+        priority = schedule.get("priority", "")
+        deadline = schedule.get("deadline", "")
+        memo = (schedule.get("memo") or "").strip()
+
+        parts: list[str] = []
+        if priority:
+            parts.append(f"중요도: {priority}")
+        if deadline:
+            parts.append(f"마감: {deadline}")
+        if memo:
+            parts.append(memo)
+        message = "\n".join(parts) if parts else "알림 시간이 되었습니다."
+
         try:
             from plyer import notification
-
-            notification.notify(title=schedule.get("title", "일정"), message=schedule.get("memo", ""), timeout=5)
+            notification.notify(title=title, message=message, timeout=5)
         except Exception:
             pass
-        show_modern_info(self, "일정 알림", f"{schedule.get('title', '일정')}\n\n{schedule.get('memo', '')}")
+
+        accent_map = {"상": "#DC2626", "중": "#4338CA"}
+        accent = accent_map.get(priority)
+        show_modern_info(self, f"🔔 {title}", message, accent=accent)
 
     def closeEvent(self, event) -> None:
         self.hotkeys.unregister_all()

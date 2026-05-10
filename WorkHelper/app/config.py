@@ -192,11 +192,15 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
     "schedules": [
         {
             "id": "sc_sample",
-            "title": "알림 등록하기",
+            "title": "할 일을 등록해보세요",
+            "priority": "중",
+            "deadline": "2030-12-31",
             "datetime": "2030-12-31T09:00:00",
             "repeat": "none",
-            "notify_before_minutes": 0,
-            "memo": "",
+            "notify_before_minutes": 30,
+            "completed": False,
+            "completed_at": None,
+            "memo": "체크박스로 완료 표시, 우선순위·마감기한·알림 설정 가능",
             "last_notified_at": "",
             "sort_order": 0,
             "usage_count": 0,
