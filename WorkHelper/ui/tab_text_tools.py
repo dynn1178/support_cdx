@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
 
-from PyQt6.QtWidgets import QComboBox, QFormLayout, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTabWidget, QTextEdit, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QComboBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTabWidget, QTextEdit, QVBoxLayout, QWidget
 
 
 class PlainTextEdit(QTextEdit):
@@ -103,13 +103,14 @@ class LineBreakTab(QWidget):
         self.mode = QComboBox()
         self.mode.addItems(list(self.EXAMPLES))
         self.mode.currentTextChanged.connect(self.update_example)
+        ROW_H = 32
         self.before_example = QLabel()
         self.after_example = QLabel()
         for label in [self.before_example, self.after_example]:
             label.setObjectName("mutedText")
-            label.setWordWrap(True)
-            label.setFixedHeight(38)
-            label.setStyleSheet("QLabel#mutedText { padding: 2px 6px; border: 1px solid rgba(107,114,128,0.28); border-radius: 6px; line-height: 90%; }")
+            label.setWordWrap(False)
+            label.setFixedHeight(ROW_H)
+            label.setStyleSheet("QLabel#mutedText { padding: 2px 6px; border: 1px solid rgba(107,114,128,0.28); border-radius: 6px; }")
         self.input = PlainTextEdit()
         self.output = PlainTextEdit()
         for editor in [self.input, self.output]:
@@ -118,17 +119,14 @@ class LineBreakTab(QWidget):
         copy = QPushButton("결과 복사")
         convert.clicked.connect(self.convert)
         copy.clicked.connect(lambda: self.main.app.clipboard().setText(self.output.toPlainText()))
+        self.mode.setFixedHeight(ROW_H)
+        convert.setFixedHeight(ROW_H)
+        copy.setFixedHeight(ROW_H)
         row = QHBoxLayout()
+        row.setSpacing(6)
         row.addWidget(self.mode)
-        examples = QGridLayout()
-        examples.setContentsMargins(0, 0, 0, 0)
-        examples.setHorizontalSpacing(6)
-        examples.setVerticalSpacing(2)
-        examples.addWidget(QLabel("전"), 0, 0)
-        examples.addWidget(QLabel("후"), 0, 1)
-        examples.addWidget(self.before_example, 1, 0)
-        examples.addWidget(self.after_example, 1, 1)
-        row.addLayout(examples, 1)
+        row.addWidget(self.before_example, 1)
+        row.addWidget(self.after_example, 1)
         row.addWidget(convert)
         row.addWidget(copy)
         layout.addLayout(row)
