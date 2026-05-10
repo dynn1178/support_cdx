@@ -5,7 +5,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -271,8 +270,8 @@ class _UpdateConfirmDialog(QDialog):
             colors = {"panel": "#ffffff", "border": "#dddddd", "text": "#222222",
                       "accent": "#3B6CF5", "field": "#f5f5f5"}
 
-        self_install = auto_install and can_self_update(update)
-        yes_label = "지금 업데이트" if self_install else "다운로드 페이지 열기"
+        self_install = can_self_update(update)
+        yes_label = "지금 업데이트" if self_install else "업데이트 불가"
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 20, 22, 16)
@@ -316,6 +315,7 @@ class _UpdateConfirmDialog(QDialog):
         yes_btn = QToolButton()
         yes_btn.setText(yes_label)
         yes_btn.setFixedHeight(32)
+        yes_btn.setEnabled(self_install)
         yes_btn.clicked.connect(self._on_confirm)
         btn_row.addWidget(no_btn)
         btn_row.addWidget(yes_btn)
@@ -390,13 +390,16 @@ def check_update_dialog(
     dlg = _UpdateConfirmDialog(parent, update, auto_install)
     dlg.exec()
     if dlg.confirmed:
-        if auto_install and can_self_update(update):
+        if can_self_update(update):
             try:
                 install_update(parent, update, token=token)
             except Exception as exc:
                 QMessageBox.warning(parent, "업데이트 설치 실패", str(exc))
-                if update.release_url or update.download_url:
-                    webbrowser.open(update.release_url or update.download_url)
-        elif update.release_url or update.download_url:
-            webbrowser.open(update.release_url or update.download_url)
+        else:
+            QMessageBox.warning(
+                parent,
+                "업데이트 설치 불가",
+                "현재 실행 환경에서는 자동 업데이트를 진행할 수 없습니다.\n"
+                "배포된 exe에서 다시 시도해주세요.",
+            )
     return True

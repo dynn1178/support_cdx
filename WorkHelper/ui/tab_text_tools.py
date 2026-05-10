@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import re
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
 
+from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import QComboBox, QFormLayout, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTabWidget, QTextEdit, QVBoxLayout, QWidget
 
 
@@ -158,6 +160,52 @@ class LineBreakTab(QWidget):
         self.output.setPlainText(result)
 
 
+class CaseCycleTab(QWidget):
+    def __init__(self, main) -> None:
+        super().__init__()
+        self.main = main
+        layout = QVBoxLayout(self)
+        hint = QLabel("SER_ID ↔ userId ↔ UserId 형식을 순환 변환합니다. 단축키: Ctrl+Shift+U")
+        hint.setObjectName("mutedText")
+        layout.addWidget(hint)
+        self.input = PlainTextEdit()
+        self.output = PlainTextEdit()
+        row = QHBoxLayout()
+        convert = QPushButton("순환 변환")
+        copy = QPushButton("결과 복사")
+        convert.clicked.connect(self.convert)
+        copy.clicked.connect(lambda: self.main.app.clipboard().setText(self.output.toPlainText()))
+        row.addStretch(1)
+        row.addWidget(convert)
+        row.addWidget(copy)
+        layout.addWidget(QLabel("입력"))
+        layout.addWidget(self.input, 1)
+        layout.addLayout(row)
+        layout.addWidget(QLabel("결과"))
+        layout.addWidget(self.output, 1)
+        QShortcut(QKeySequence("Ctrl+Shift+U"), self, activated=self.convert)
+
+    def words(self, text: str) -> list[str]:
+        if "_" in text:
+            return [part.lower() for part in text.split("_") if part]
+        return [part.lower() for part in re.findall(r"[A-Z]?[a-z0-9]+|[A-Z]+(?=[A-Z]|$)", text)]
+
+    def cycle_token(self, token: str) -> str:
+        parts = self.words(token)
+        if not parts:
+            return token
+        if "_" in token and token.upper() == token:
+            return parts[0] + "".join(part.capitalize() for part in parts[1:])
+        if token[:1].islower() and "_" not in token:
+            return "".join(part.capitalize() for part in parts)
+        return "_".join(part.upper() for part in parts)
+
+    def convert(self) -> None:
+        text = self.input.toPlainText()
+        result = re.sub(r"[A-Za-z][A-Za-z0-9_]*", lambda match: self.cycle_token(match.group(0)), text)
+        self.output.setPlainText(result)
+
+
 class TextToolsTab(QWidget):
     def __init__(self, main) -> None:
         super().__init__()
@@ -167,4 +215,5 @@ class TextToolsTab(QWidget):
         tabs.addTab(UrlCodecTab(main), "URL 인코딩")
         tabs.addTab(UtmTab(main), "UTM")
         tabs.addTab(LineBreakTab(main), "줄바꿈/따옴표")
+        tabs.addTab(CaseCycleTab(main), "대소문자 변환")
         layout.addWidget(tabs, 1)

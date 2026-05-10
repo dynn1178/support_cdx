@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import ctypes
+from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
-from PyQt6.QtCore import QRect, Qt
+from PyQt6.QtCore import QRect, QSize, Qt
 from PyQt6.QtGui import QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
@@ -18,6 +20,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QRubberBand,
+    QSizePolicy,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -25,7 +28,18 @@ from PyQt6.QtWidgets import (
 
 from app import config
 from app.utils import display_hotkey, new_id, now_iso, resolve_image_path
-from ui.common import GridPanel, HotkeyFields, SortControls, add_card_actions, apply_manual_reorder, bump_usage, confirm_shift_digit_hotkey, make_card
+from ui.common import GridPanel, HotkeyFields, SortControls, add_card_actions, apply_manual_reorder, bump_usage, confirm_shift_digit_hotkey, make_card, make_icon_button
+
+
+def active_window_title() -> str:
+    try:
+        hwnd = ctypes.windll.user32.GetForegroundWindow()
+        length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+        buffer = ctypes.create_unicode_buffer(length + 1)
+        ctypes.windll.user32.GetWindowTextW(hwnd, buffer, length + 1)
+        return buffer.value.strip()
+    except Exception:
+        return ""
 
 
 class ScreenCaptureDialog(QDialog):
@@ -184,9 +198,11 @@ class ImageDialog(QDialog):
 
 
 class ImageViewerDialog(QDialog):
-    def __init__(self, image_path: str, title: str, scale: int = 100) -> None:
+    def __init__(self, image_path: str, title: str, scale: int = 100, stay_on_top: bool = False) -> None:
         super().__init__()
         self.setWindowTitle(title)
+        if stay_on_top:
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         layout = QVBoxLayout(self)
         self.label = QLabel()
         self.original = QPixmap(image_path)
@@ -212,7 +228,7 @@ class ImageTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         self.search = QLineEdit()
         self.search.setPlaceholderText("검색...")
-        self.search.setFixedWidth(120)
+        self.search.setFixedWidth(140)
         self.search.setFixedHeight(26)
         self.search.setStyleSheet("QLineEdit { padding: 1px 6px; font-size: 9pt; }")
         self.search.textChanged.connect(self.refresh)
@@ -226,6 +242,7 @@ class ImageTab(QWidget):
         self.tabs = QTabWidget()
         self.tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
         self.list = GridPanel(columns=2)
+        self.steel_cut_list = GridPanel(columns=2)
         add_btn = QPushButton("+ 이미지")
         add_btn.clicked.connect(self.edit_image)
         page = QWidget()
@@ -237,9 +254,23 @@ class ImageTab(QWidget):
         row.addWidget(add_btn)
         page_layout.addLayout(row)
         self.tabs.addTab(page, "컨닝페이퍼")
+        steel_page = QWidget()
+        steel_layout = QVBoxLayout(steel_page)
+        steel_layout.setContentsMargins(0, 0, 0, 0)
+        steel_layout.setSpacing(8)
+        steel_hint = QLabel(
+            "참고해야 할 창이 자꾸 뒤로 숨을 때, 스틸 컷 화면을 띄워보세요. "
+            "일주일 이상 사용하지 않은 스틸 컷은 자동 삭제됩니다."
+        )
+        steel_hint.setObjectName("mutedText")
+        steel_hint.setWordWrap(True)
+        steel_layout.addWidget(steel_hint)
+        steel_layout.addWidget(self.steel_cut_list, 1)
+        self.tabs.addTab(steel_page, "스틸 컷")
         layout.addWidget(self.tabs, 1)
 
     def refresh(self) -> None:
+        self.cleanup_steel_cuts()
         cards = []
         q = self.search.text().strip().lower()
         source_items = self.main.data.get("images", [])
@@ -259,10 +290,136 @@ class ImageTab(QWidget):
             cards.append(card)
         callback = (lambda old, new: self.reorder_items(source_items, visible_items, old, new)) if self.sort_controls.is_manual() else None
         self.list.add_cards(cards, on_reorder=callback)
+        self.refresh_steel_cuts(q)
+
+    def refresh_steel_cuts(self, q: str = "") -> None:
+        source_items = self.main.data.setdefault("steel_cuts", [])
+        visible_items = self.sort_controls.sort_items(source_items, lambda value: value.get("window_title") or value.get("created_at", ""))
+        cards = []
+        for item in visible_items:
+            haystack = f"{item.get('window_title', '')} {item.get('created_at', '')}".lower()
+            if q and q not in haystack:
+                continue
+            cards.append(self.make_steel_cut_card(item))
+        callback = (lambda old, new: self.reorder_items(source_items, visible_items, old, new)) if self.sort_controls.is_manual() else None
+        self.steel_cut_list.add_cards(cards, on_reorder=callback)
+
+    def make_steel_cut_card(self, item: dict) -> QWidget:
+        card = QWidget()
+        card.setObjectName("card")
+        card.setMinimumHeight(150)
+        card.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(10, 10, 10, 8)
+        layout.setSpacing(6)
+
+        image = QLabel()
+        image.setFixedHeight(76)
+        image.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        image.setStyleSheet("background:#F8FAFC;border:1px solid #E5E7EB;border-radius:5px;")
+        path = resolve_image_path(item.get("path", ""), config.BASE_DIR)
+        pixmap = QPixmap(path)
+        if pixmap.isNull():
+            image.setText("이미지 없음")
+        else:
+            image.setPixmap(pixmap.scaled(QSize(260, 74), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        layout.addWidget(image)
+
+        title = QLabel(item.get("window_title") or "창 제목 없음")
+        title.setObjectName("cardTitle")
+        title.setWordWrap(False)
+        layout.addWidget(title)
+        created = QLabel(self.format_created_at(item.get("created_at", "")))
+        created.setObjectName("mutedText")
+        layout.addWidget(created)
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addStretch(1)
+        row.addWidget(make_icon_button("view", "보기", lambda checked=False, value=item: self.view_steel_cut(value)))
+        row.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=item: self.delete_steel_cut(value), True))
+        layout.addLayout(row)
+        return card
+
+    def format_created_at(self, value: str) -> str:
+        try:
+            return datetime.fromisoformat(value).strftime("%Y-%m-%d %H:%M")
+        except ValueError:
+            return value
+
+    def cleanup_steel_cuts(self) -> None:
+        items = self.main.data.setdefault("steel_cuts", [])
+        cutoff = datetime.now() - timedelta(days=7)
+        kept = []
+        changed = False
+        for item in items:
+            raw = item.get("last_used_at") or item.get("created_at") or now_iso()
+            try:
+                used_at = datetime.fromisoformat(raw)
+            except ValueError:
+                used_at = datetime.now()
+            if used_at < cutoff:
+                self.delete_steel_cut_file(item)
+                changed = True
+                continue
+            kept.append(item)
+        if changed:
+            self.main.data["steel_cuts"] = kept
+            self.main.save_data()
 
     def reorder_items(self, source: list[dict], visible: list[dict], old: int, new: int) -> None:
         apply_manual_reorder(source, visible, old, new)
         self.main.save_data()
+
+    def image_dir(self) -> Path:
+        path = config.BASE_DIR / "assets" / "images"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def relative_asset_path(self, path: Path) -> str:
+        try:
+            return str(path.resolve().relative_to(config.BASE_DIR.resolve())).replace("\\", "/")
+        except ValueError:
+            return str(path)
+
+    def capture_selection(self, rect: QRect) -> QPixmap:
+        pixmap = QPixmap(rect.size())
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        for screen in QApplication.screens():
+            intersected = rect.intersected(screen.geometry())
+            if intersected.isEmpty():
+                continue
+            local = intersected.translated(-screen.geometry().topLeft())
+            part = screen.grabWindow(0, local.x(), local.y(), local.width(), local.height())
+            painter.drawPixmap(intersected.topLeft() - rect.topLeft(), part)
+        painter.end()
+        return pixmap
+
+    def capture_steel_cut(self) -> None:
+        title = active_window_title()
+        capture = ScreenCaptureDialog()
+        if capture.exec() != capture.DialogCode.Accepted or capture.selection.width() < 3 or capture.selection.height() < 3:
+            return
+        pixmap = self.capture_selection(capture.selection)
+        target = self.image_dir() / f"{new_id('steel')}.png"
+        if not pixmap.save(str(target), "PNG"):
+            QMessageBox.warning(self, "스틸 컷 실패", "스크린샷을 저장하지 못했습니다.")
+            return
+        items = self.main.data.setdefault("steel_cuts", [])
+        value = {
+            "id": new_id("steel"),
+            "path": self.relative_asset_path(target),
+            "path_type": "relative",
+            "window_title": title or "창 제목 없음",
+            "created_at": now_iso(),
+            "last_used_at": now_iso(),
+            "sort_order": len(items),
+            "usage_count": 0,
+        }
+        items.append(value)
+        self.main.save_data()
+        self.tabs.setCurrentIndex(1)
 
     def view_image(self, item: dict) -> None:
         path = resolve_image_path(item.get("path", ""), config.BASE_DIR)
@@ -272,6 +429,34 @@ class ImageTab(QWidget):
         bump_usage(item)
         self.main.save_usage_data()
         ImageViewerDialog(path, item.get("name", "이미지"), int(item.get("display_scale", 100))).exec()
+
+    def view_steel_cut(self, item: dict) -> None:
+        path = resolve_image_path(item.get("path", ""), config.BASE_DIR)
+        if not Path(path).exists():
+            QMessageBox.warning(self, "스틸 컷 없음", f"파일을 찾을 수 없습니다.\n{path}")
+            return
+        bump_usage(item)
+        item["last_used_at"] = now_iso()
+        self.main.save_usage_data()
+        ImageViewerDialog(path, item.get("window_title", "스틸 컷"), 100, stay_on_top=True).exec()
+
+    def delete_steel_cut_file(self, item: dict) -> None:
+        try:
+            path = Path(resolve_image_path(item.get("path", ""), config.BASE_DIR))
+            if path.exists() and config.BASE_DIR.resolve() in path.resolve().parents:
+                path.unlink()
+        except Exception:
+            pass
+
+    def delete_steel_cut(self, item: dict) -> None:
+        if QMessageBox.question(self, "삭제", "선택한 스틸 컷을 삭제할까요?") != QMessageBox.StandardButton.Yes:
+            return
+        items = self.main.data.get("steel_cuts", [])
+        if item in items:
+            items.remove(item)
+        self.delete_steel_cut_file(item)
+        self.main.save_data()
+
 
     def edit_image(self, item: dict | None = None) -> None:
         dialog = ImageDialog(item)

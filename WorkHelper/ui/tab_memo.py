@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from datetime import date as py_date, datetime, time as dt_time, timedelta
+from pathlib import Path
 
-from PyQt6.QtCore import QDate, QDateTime, QPoint, QTime, QTimer, Qt
-from PyQt6.QtGui import QTextCharFormat, QColor, QPainter, QPen, QPolygon
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from PyQt6.QtCore import QDate, QDateTime, QMimeData, QPoint, QSize, QTime, QTimer, Qt
+from PyQt6.QtGui import QDrag, QTextCharFormat, QColor, QPainter, QPen, QPolygon
 from PyQt6.QtWidgets import (
+    QAbstractSpinBox,
     QCheckBox,
     QComboBox,
     QDateEdit,
@@ -14,6 +20,7 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
+    QApplication,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -31,7 +38,25 @@ from PyQt6.QtWidgets import (
 
 from app import config
 from app.utils import new_id, now_iso, short_preview
-from ui.common import GridPanel, SortControls, add_card_actions, apply_manual_reorder, apply_modern_dialog_style, ask_modern_question, bump_usage, make_card, make_icon_button, show_modern_info, show_modern_warning
+from ui.common import (
+    CORNER_CONTROL_HEIGHT,
+    CORNER_SEARCH_WIDTH,
+    PRIORITY_STYLES,
+    GridPanel,
+    SortControls,
+    add_card_actions,
+    apply_manual_reorder,
+    apply_modern_dialog_style,
+    ask_modern_question,
+    bump_usage,
+    fit_combo_to_contents,
+    make_card,
+    make_icon_button,
+    normalize_todo_groups,
+    set_corner_button_policy,
+    show_modern_info,
+    show_modern_warning,
+)
 
 
 MEMO_COLORS = {
@@ -44,9 +69,33 @@ MEMO_COLORS = {
 
 
 WEEKDAYS = ["월", "화", "수", "목", "금", "토", "일"]
-REPEAT_LABELS = {"daily": "매일", "weekly": "매주", "monthly": "매월"}
+REPEAT_LABELS = {"daily": "매일", "weekly": "매주", "monthly": "매월", "yearly": "매년", "weekday": "매주"}
 
 _GROUP_HDR_COLORS = ["#3B6CF5", "#2EA672", "#F59E0B"]  # 그룹 헤더 색상 (1~3번)
+
+_TIME_BTN_STYLE = (
+    "QPushButton { background: #FFFFFF; border: 1px solid #D1D5DB; color: #374151; "
+    "border-radius: 4px; padding: 0 4px; min-width: 42px; }"
+    "QPushButton:hover { background: #F3F4F6; border-color: #9CA3AF; }"
+    "QPushButton:pressed { background: #E5E7EB; }"
+)
+
+_TIMER_VALUE_STYLE = (
+    "QSpinBox#timerTextValue { background: transparent; border: 0; color: #111827; "
+    "padding: 0; font-size: 10pt; }"
+    "QSpinBox#timerTextValue:focus { background: transparent; border: 0; }"
+    "QSpinBox#timerTextValue::up-button, QSpinBox#timerTextValue::down-button { "
+    "width: 0; height: 0; border: 0; }"
+)
+
+_TIMER_COMPACT_COMBO_STYLE = (
+    "QComboBox#timerCompactCombo { background: #FFFFFF; border: 1px solid #D1D5DB; "
+    "border-radius: 5px; padding: 1px 8px; min-height: 16px; color: #111827; }"
+    "QComboBox#timerCompactCombo:focus { border-color: #3B6CF5; }"
+    "QComboBox#timerCompactCombo::drop-down { border: 0; width: 0; }"
+    "QComboBox#timerCompactCombo::down-arrow { image: none; width: 0; height: 0; }"
+    "QComboBox#timerCompactCombo QAbstractItemView { padding: 2px; }"
+)
 
 
 def display_datetime(value: str, repeat: str = "none") -> str:
@@ -289,6 +338,10 @@ class ScheduleDialog(QDialog):
         form.setVerticalSpacing(10)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         self.title = QLineEdit(self.schedule.get("title", ""))
+        self.priority = QComboBox()
+        self.priority.addItems(["상", "중", "하"])
+        self.priority.setCurrentText(self.schedule.get("priority", "하") if self.schedule.get("priority", "하") in {"상", "중", "하"} else "하")
+        fit_combo_to_contents(self.priority, 88)
         current = QDateTime.fromString(self.schedule.get("datetime", ""), Qt.DateFormat.ISODate)
         if not current.isValid():
             current = QDateTime.currentDateTime()
@@ -321,7 +374,8 @@ class ScheduleDialog(QDialog):
         quick_time_row.setSpacing(4)
         for hour in range(9, 19):
             btn = QPushButton(str(hour))
-            btn.setFixedSize(42, 32)
+            btn.setFixedSize(42, 28)
+            btn.setStyleSheet(_TIME_BTN_STYLE)
             btn.clicked.connect(lambda checked=False, value=hour: self.set_time_hour(value))
             quick_time_row.addWidget(btn)
         quick_time_row.addStretch(1)
@@ -330,6 +384,8 @@ class ScheduleDialog(QDialog):
         time_adjust_row.setSpacing(4)
         for label, minutes in [("-10m", -10), ("+10m", 10), ("-30m", -30), ("+30m", 30)]:
             btn = QPushButton(label)
+            btn.setFixedHeight(28)
+            btn.setStyleSheet(_TIME_BTN_STYLE)
             btn.clicked.connect(lambda checked=False, value=minutes: self.adjust_time(value))
             time_adjust_row.addWidget(btn)
         time_adjust_row.addStretch(1)
@@ -359,10 +415,16 @@ class ScheduleDialog(QDialog):
         notify_row.addWidget(self.notify_at_label)
         for label, minutes in [("정각", 0), ("5분 전", 5), ("10분 전", 10), ("30분 전", 30), ("1시간 전", 60)]:
             btn = QPushButton(label)
+            btn.setFixedHeight(28)
+            btn.setStyleSheet(_TIME_BTN_STYLE)
             btn.clicked.connect(lambda checked=False, value=minutes: self.notify.setValue(value))
             notify_row.addWidget(btn)
         prev_9 = QPushButton("전일 9시")
+        prev_9.setFixedHeight(28)
+        prev_9.setStyleSheet(_TIME_BTN_STYLE)
         prev_18 = QPushButton("전일 6시")
+        prev_18.setFixedHeight(28)
+        prev_18.setStyleSheet(_TIME_BTN_STYLE)
         prev_9.clicked.connect(lambda: self.set_previous_day_notify(9))
         prev_18.clicked.connect(lambda: self.set_previous_day_notify(18))
         notify_row.addWidget(prev_9)
@@ -372,6 +434,7 @@ class ScheduleDialog(QDialog):
         self.update_notify_label()
         self.memo = QTextEdit(self.schedule.get("memo", ""))
         form.addRow("제목", self.title)
+        form.addRow("중요도", self.priority)
         form.addRow("일시", datetime_widget)
         form.addRow("시간 선택", quick_time_widget)
         form.addRow("반복", self.repeat)
@@ -428,6 +491,7 @@ class ScheduleDialog(QDialog):
         data.update(
             {
                 "title": self.title.text().strip(),
+                "priority": self.priority.currentText() or "하",
                 "datetime": date_time.toString(Qt.DateFormat.ISODate),
                 "repeat": {"없음": "none", "매일": "daily", "매주": "weekly", "매월": "monthly"}.get(self.repeat.currentText(), "none"),
                 "notify_before_minutes": self.notify.value(),
@@ -446,7 +510,7 @@ class MemoListTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         self.search = QLineEdit()
         self.search.setPlaceholderText("검색...")
-        self.search.setFixedWidth(120)
+        self.search.setFixedWidth(140)
         self.search.setFixedHeight(26)
         self.search.setStyleSheet("QLineEdit { padding: 1px 6px; font-size: 9pt; }")
         self.search.textChanged.connect(self.refresh)
@@ -562,7 +626,10 @@ class ScheduleListTab(QWidget):
         self.search.setFixedHeight(26)
         self.search.setStyleSheet("QLineEdit { padding: 1px 6px; font-size: 9pt; }")
         self.search.textChanged.connect(self.refresh)
-        self.sort_controls = SortControls(self.refresh)
+        self.sort_controls = SortControls(
+            self.refresh,
+            modes=[("등록", "created"), ("기한", "deadline"), ("중요도", "priority")],
+        )
         corner = QWidget()
         corner_layout = QHBoxLayout(corner)
         corner_layout.setContentsMargins(0, 0, 4, 0)
@@ -636,23 +703,23 @@ class ScheduleListTab(QWidget):
 class _GroupManagerDialog(QDialog):
     """할 일 그룹 이름 설정 (최대 3개)."""
 
-    def __init__(self, parent: QWidget, groups: list[str]) -> None:
+    def __init__(self, parent: QWidget, groups: list[object]) -> None:
         super().__init__(parent)
         self.setWindowTitle("그룹 관리")
         self.setModal(True)
         apply_modern_dialog_style(self)
+        normalized = normalize_todo_groups(groups)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 12)
         layout.setSpacing(10)
         title_lbl = QLabel("그룹 이름 설정 (최대 3개)")
-        title_lbl.setObjectName("cardTitle")
         layout.addWidget(title_lbl)
         self._edits: list[QLineEdit] = []
         for i in range(3):
             row = QHBoxLayout()
             lbl = QLabel(f"그룹 {i + 1}")
             lbl.setFixedWidth(50)
-            edit = QLineEdit(groups[i] if i < len(groups) else "")
+            edit = QLineEdit(normalized[i] if i < len(normalized) else "")
             edit.setPlaceholderText(f"그룹 {i + 1}")
             self._edits.append(edit)
             row.addWidget(lbl)
@@ -673,21 +740,21 @@ class _GroupManagerDialog(QDialog):
         self.resize(310, 230)
 
     def result_groups(self) -> list[str]:
-        """비어있는 슬롯을 포함해 3개 모두 반환 (저장 시 유지)."""
-        return [e.text().strip() for e in self._edits]
+        """비어있는 슬롯을 제외하고 그룹명만 반환."""
+        return [edit.text().strip() for edit in self._edits if edit.text().strip()]
 
 
 # ── 할 일 다이얼로그 ─────────────────────────────────────────────────────────
 
 class TodoDialog(QDialog):
-    """할 일 등록/수정 다이얼로그 (그룹·일정시간·알림 포함)."""
+    """할 일 등록/수정 다이얼로그 (그룹·일정시간·반복·알림 포함)."""
 
     def __init__(self, item: dict | None = None, groups: list[str] | None = None) -> None:
         super().__init__()
         self.setWindowTitle("할 일")
         apply_modern_dialog_style(self)
         self.item = item or {}
-        _groups = [g for g in (groups or ["그룹 1", "그룹 2", "그룹 3"]) if g]
+        _groups = normalize_todo_groups(groups or ["그룹 1", "그룹 2", "그룹 3"])
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 14, 14, 12)
@@ -705,10 +772,15 @@ class TodoDialog(QDialog):
         # 그룹
         self.group_combo = QComboBox()
         self.group_combo.addItems(_groups)
+        fit_combo_to_contents(self.group_combo, 140)
         cur_group = self.item.get("group", "")
         if cur_group in _groups:
             self.group_combo.setCurrentText(cur_group)
-        self.group_combo.setMinimumWidth(120)
+
+        self.priority_combo = QComboBox()
+        self.priority_combo.addItems(["상", "중", "하"])
+        self.priority_combo.setCurrentText(self.item.get("priority", "하") if self.item.get("priority", "하") in {"상", "중", "하"} else "하")
+        fit_combo_to_contents(self.priority_combo, 88)
 
         # 일정 시간 (date + time)
         current = QDateTime.fromString(self.item.get("datetime", ""), Qt.DateFormat.ISODate)
@@ -719,6 +791,12 @@ class TodoDialog(QDialog):
         self.alarm_date.setDate(current.date())
         self.alarm_date.setMinimumWidth(140)
         self.alarm_date.dateChanged.connect(lambda _: self._update_notify_label())
+        cal = self.alarm_date.calendarWidget()
+        today_fmt = QTextCharFormat()
+        today_fmt.setBackground(QColor("#FFF3B0"))
+        today_fmt.setForeground(QColor("#111827"))
+        today_fmt.setFontWeight(700)
+        cal.setDateTextFormat(QDate.currentDate(), today_fmt)
         self.selected_time = current.time()
         self.time_label = QLabel()
         self.time_label.setObjectName("cardTitle")
@@ -733,22 +811,24 @@ class TodoDialog(QDialog):
         dt_widget = QWidget()
         dt_widget.setLayout(dt_row)
 
-        # 시간 선택 (컴팩트)
+        # 시간 선택 (white buttons, 28px height)
         q_row1 = QHBoxLayout()
         q_row1.setContentsMargins(0, 0, 0, 0)
         q_row1.setSpacing(3)
         for h in range(9, 19):
             b = QPushButton(str(h))
-            b.setFixedSize(32, 24)
+            b.setFixedSize(34, 28)
+            b.setStyleSheet(_TIME_BTN_STYLE)
             b.clicked.connect(lambda c=False, v=h: self._set_hour(v))
             q_row1.addWidget(b)
         q_row1.addStretch(1)
         q_row2 = QHBoxLayout()
         q_row2.setContentsMargins(0, 0, 0, 0)
         q_row2.setSpacing(3)
-        for lbl, mins in [("-10m", -10), ("+10m", 10), ("-30m", -30), ("+30m", 30)]:
+        for lbl, mins in [("-10분", -10), ("+10분", 10), ("-30분", -30), ("+30분", 30)]:
             b = QPushButton(lbl)
-            b.setFixedHeight(24)
+            b.setFixedHeight(28)
+            b.setStyleSheet(_TIME_BTN_STYLE)
             b.clicked.connect(lambda c=False, m=mins: self._adjust(m))
             q_row2.addWidget(b)
         q_row2.addStretch(1)
@@ -759,7 +839,34 @@ class TodoDialog(QDialog):
         tvl.addLayout(q_row1)
         tvl.addLayout(q_row2)
 
-        # 알림 설정
+        # 반복
+        self.repeat_combo = QComboBox()
+        self.repeat_combo.addItems(["없음", "매일", "매주", "매월", "매년"])
+        fit_combo_to_contents(self.repeat_combo, 140)
+        _rmap = {"none": "없음", "daily": "매일", "weekly": "매주", "monthly": "매월",
+                 "yearly": "매년", "weekday": "매주"}
+        self.repeat_combo.setCurrentText(_rmap.get(self.item.get("repeat", "none"), "없음"))
+        self.repeat_combo.currentTextChanged.connect(self._on_repeat_changed)
+
+        # 매주 반복 요일 선택
+        weekday_widget = QWidget()
+        wd_layout = QHBoxLayout(weekday_widget)
+        wd_layout.setContentsMargins(0, 0, 0, 0)
+        wd_layout.setSpacing(4)
+        self._weekday_checks: list[QCheckBox] = []
+        saved_wd = self.item.get("repeat_weekdays", [])
+        if self.item.get("repeat") == "weekly" and not saved_wd:
+            saved_wd = [current.date().dayOfWeek() - 1]
+        for i, day_name in enumerate(WEEKDAYS):
+            cb = QCheckBox(day_name)
+            cb.setChecked(i in saved_wd)
+            self._weekday_checks.append(cb)
+            wd_layout.addWidget(cb)
+        wd_layout.addStretch(1)
+        self._weekday_widget = weekday_widget
+        self._weekday_widget.setVisible(self.item.get("repeat", "none") in {"weekly", "weekday"})
+
+        # 알림
         self.notify = QSpinBox()
         self.notify.setRange(0, 10080)
         self.notify.setValue(int(self.item.get("notify_before_minutes", 30)))
@@ -773,16 +880,19 @@ class TodoDialog(QDialog):
         n_row.setContentsMargins(0, 0, 0, 0)
         n_row.setSpacing(4)
         n_row.addWidget(self.notify_at_label)
-        for lbl, mins in [("정각", 0), ("5분↑", 5), ("10분↑", 10), ("30분↑", 30), ("1시간↑", 60)]:
+        for lbl, mins in [("정각", 0), ("5분 전", 5), ("10분 전", 10), ("30분 전", 30), ("1시간 전", 60)]:
             b = QPushButton(lbl)
-            b.setFixedHeight(24)
+            b.setFixedHeight(28)
+            b.setStyleSheet(_TIME_BTN_STYLE)
             b.clicked.connect(lambda c=False, m=mins: self.notify.setValue(m))
             n_row.addWidget(b)
         p9 = QPushButton("전일 9시")
-        p9.setFixedHeight(24)
+        p9.setFixedHeight(28)
+        p9.setStyleSheet(_TIME_BTN_STYLE)
         p9.clicked.connect(lambda: self._prev_day(9))
         p18 = QPushButton("전일 6시")
-        p18.setFixedHeight(24)
+        p18.setFixedHeight(28)
+        p18.setStyleSheet(_TIME_BTN_STYLE)
         p18.clicked.connect(lambda: self._prev_day(18))
         n_row.addWidget(p9)
         n_row.addWidget(p18)
@@ -796,8 +906,11 @@ class TodoDialog(QDialog):
 
         form.addRow("제목", self.title_edit)
         form.addRow("그룹", self.group_combo)
+        form.addRow("중요도", self.priority_combo)
         form.addRow("일정 시간", dt_widget)
         form.addRow("시간 선택", time_widget)
+        form.addRow("반복", self.repeat_combo)
+        form.addRow("", self._weekday_widget)
         form.addRow("알림", notify_widget)
         form.addRow("메모", self.memo_edit)
         layout.addLayout(form)
@@ -808,6 +921,9 @@ class TodoDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def _on_repeat_changed(self, text: str) -> None:
+        self._weekday_widget.setVisible(text == "매주")
 
     def _selected_dt(self) -> datetime:
         return datetime.combine(self.alarm_date.date().toPyDate(), self.selected_time.toPyTime())
@@ -844,16 +960,25 @@ class TodoDialog(QDialog):
             data["sort_order"] = 0
             data["usage_count"] = 0
         alarm_dt = QDateTime(self.alarm_date.date(), self.selected_time)
+        _repeat_map = {"없음": "none", "매일": "daily", "매주": "weekly", "매월": "monthly",
+                       "매년": "yearly"}
+        repeat_val = _repeat_map.get(self.repeat_combo.currentText(), "none")
         data.update({
             "title": self.title_edit.text().strip(),
             "group": self.group_combo.currentText(),
+            "priority": self.priority_combo.currentText() or "하",
             "deadline": self.alarm_date.date().toString("yyyy-MM-dd"),
             "datetime": alarm_dt.toString(Qt.DateFormat.ISODate),
             "notify_before_minutes": self.notify.value(),
-            "repeat": data.get("repeat", "none"),
+            "repeat": repeat_val,
             "memo": self.memo_edit.toPlainText(),
             "last_notified_at": data.get("last_notified_at", ""),
         })
+        if repeat_val == "weekly":
+            weekdays = [i for i, cb in enumerate(self._weekday_checks) if cb.isChecked()]
+            data["repeat_weekdays"] = weekdays or [alarm_dt.date().dayOfWeek() - 1]
+        else:
+            data.pop("repeat_weekdays", None)
         data.setdefault("completed", False)
         data.setdefault("completed_at", None)
         return data
@@ -918,7 +1043,7 @@ class CompletedItemsDialog(QDialog):
                 cl.addWidget(row)
             cl.addStretch(1)
             scroll.setWidget(content)
-            scroll.setFixedHeight(min(320, max(100, len(completed) * 38 + 16)))
+            scroll.setFixedHeight(min(560, max(180, len(completed) * 38 + 16)))
             layout.addWidget(scroll)
         btn_row = QHBoxLayout()
         btn_row.addStretch(1)
@@ -926,7 +1051,7 @@ class CompletedItemsDialog(QDialog):
         close_btn.clicked.connect(self.accept)
         btn_row.addWidget(close_btn)
         layout.addLayout(btn_row)
-        self.resize(480, min(440, max(200, len(completed) * 38 + 130)))
+        self.resize(560, min(680, max(260, len(completed) * 38 + 130)))
 
     def _handle_toggle(self, item: dict, checked: bool, row: QWidget) -> None:
         if not checked and self.on_uncomplete:
@@ -949,28 +1074,65 @@ class TodoListTab(QWidget):
         self.main = main
         self._sort_mode = "created"
         self._sort_asc = True
+        self._timer_mode = "duration"
         # 타이머 상태
         self._countdown = 0
         self._timer_running = False
-        self._countdown_qtimer = QTimer(self)
-        self._countdown_qTimer_interval = 1000
-        self._countdown_qTimer_connected = False
+        self._countdown_qTimer_obj = QTimer(self)
+        self._countdown_qTimer_obj.setInterval(1000)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
         self._tab_widget = QTabWidget()
+
+        # ── 코너 컨트롤 (탭 헤더와 같은 행) ──
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("검색...")
+        self.search.setFixedWidth(CORNER_SEARCH_WIDTH)
+        self.search.setFixedHeight(CORNER_CONTROL_HEIGHT)
+        self.search.setStyleSheet("QLineEdit{padding:1px 6px;font-size:9pt;}")
+        self.search.textChanged.connect(self.refresh)
+
+        self.grp_btn = QPushButton("그룹 관리")
+        set_corner_button_policy(self.grp_btn, 92)
+        self.grp_btn.clicked.connect(self._manage_groups)
+
+        self.sort_controls = SortControls(
+            self._on_sort_changed,
+            modes=[("등록", "created"), ("기한", "deadline"), ("중요도", "priority"), ("수동", "manual")],
+            default_order="asc",
+        )
+        self.sort_combo = self.sort_controls.mode
+        self.order_combo = self.sort_controls.order
+
+        corner = QWidget()
+        cl = QHBoxLayout(corner)
+        cl.setContentsMargins(0, 0, 4, 0)
+        cl.setSpacing(4)
+        cl.addWidget(self.search)
+        cl.addWidget(self.grp_btn)
+        cl.addWidget(self.sort_controls)
+        self._tab_widget.setCornerWidget(corner, Qt.Corner.TopRightCorner)
+        self._tab_widget.currentChanged.connect(self._on_tab_changed)
+
         # ── To Do 탭 ──
         self._todo_page = QWidget()
         self._build_todo_page()
         self._tab_widget.addTab(self._todo_page, "To Do")
+
         # ── 타이머 탭 ──
         self._timer_page = QWidget()
         self._build_timer_page()
-        self._tab_widget.addTab(self._timer_page, "⏱ 타이머")
+        self._tab_widget.addTab(self._timer_page, "타이머")
 
         outer.addWidget(self._tab_widget)
+
+    def _on_tab_changed(self, index: int) -> None:
+        todo_visible = index == 0
+        for widget in (self.search, self.grp_btn, self.sort_controls):
+            widget.setVisible(todo_visible)
 
     # ════════════════════════════════════════════════════════════════════════
     # To Do 탭
@@ -978,38 +1140,8 @@ class TodoListTab(QWidget):
 
     def _build_todo_page(self) -> None:
         layout = QVBoxLayout(self._todo_page)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setContentsMargins(8, 4, 8, 8)
         layout.setSpacing(6)
-
-        # 상단 바
-        top = QHBoxLayout()
-        self.search = QLineEdit()
-        self.search.setPlaceholderText("검색...")
-        self.search.setFixedWidth(150)
-        self.search.setFixedHeight(28)
-        self.search.setStyleSheet("QLineEdit{padding:1px 6px;font-size:9pt;}")
-        self.search.textChanged.connect(self.refresh)
-
-        self.sort_combo = QComboBox()
-        self.sort_combo.addItems(["등록순", "기한순"])
-        self.sort_combo.setFixedHeight(28)
-        self.sort_combo.currentIndexChanged.connect(self._on_sort_changed)
-
-        self.order_combo = QComboBox()
-        self.order_combo.addItems(["오름차순", "내림차순"])
-        self.order_combo.setFixedHeight(28)
-        self.order_combo.currentIndexChanged.connect(self._on_sort_changed)
-
-        grp_btn = QPushButton("그룹 관리")
-        grp_btn.setFixedHeight(28)
-        grp_btn.clicked.connect(self._manage_groups)
-
-        top.addWidget(self.search)
-        top.addStretch(1)
-        top.addWidget(self.sort_combo)
-        top.addWidget(self.order_combo)
-        top.addWidget(grp_btn)
-        layout.addLayout(top)
 
         # 컬럼 컨테이너
         self._cols_container = QWidget()
@@ -1018,29 +1150,36 @@ class TodoListTab(QWidget):
         self._cols_hbox.setSpacing(6)
         layout.addWidget(self._cols_container, 1)
 
-        # 하단 바
+        # 하단 바 — 우측 정렬
         bottom = QHBoxLayout()
+        bottom.addStretch(1)
         comp_btn = QPushButton("완료 항목 보기")
+        comp_btn.setFixedHeight(28)
         comp_btn.clicked.connect(self.show_completed_items)
         clear_btn = QPushButton("완료 항목 지우기")
+        clear_btn.setFixedHeight(28)
         clear_btn.clicked.connect(self.clear_completed_items)
+        add_btn = QPushButton("할 일 등록")
+        add_btn.setFixedHeight(28)
+        add_btn.clicked.connect(lambda: self.edit_item())
         bottom.addWidget(comp_btn)
         bottom.addWidget(clear_btn)
-        bottom.addStretch(1)
+        bottom.addWidget(add_btn)
         layout.addLayout(bottom)
 
     def _get_groups(self) -> list[str]:
-        raw = self.main.data.get("todo_groups", ["그룹 1", "그룹 2", "그룹 3"])
-        groups = [g for g in raw if g]
-        return groups or ["그룹 1"]
+        return normalize_todo_groups(self.main.data.get("todo_groups", ["그룹 1", "그룹 2", "그룹 3"]))
+
+    def _get_group_meta(self) -> list[str]:
+        return normalize_todo_groups(self.main.data.get("todo_groups", ["그룹 1", "그룹 2", "그룹 3"]))
 
     def _item_group(self, item: dict, groups: list[str]) -> str:
         g = item.get("group", "") or item.get("priority", "")
         return g if g in groups else groups[0]
 
     def _on_sort_changed(self) -> None:
-        self._sort_mode = "created" if self.sort_combo.currentIndex() == 0 else "deadline"
-        self._sort_asc = self.order_combo.currentIndex() == 0
+        self._sort_mode = self.sort_combo.currentData() or "created"
+        self._sort_asc = self.order_combo.currentData() == "asc"
         self.refresh()
 
     def _sorted_items(self, items: list[dict]) -> list[dict]:
@@ -1049,18 +1188,21 @@ class TodoListTab(QWidget):
             def dl_key(item: dict) -> str:
                 return item.get("deadline") or item.get("datetime", "")[:10] or "9999-99-99"
             return sorted(items, key=dl_key, reverse=reverse)
+        if self._sort_mode == "priority":
+            ranks = {"상": 0, "중": 1, "하": 2, "": 2}
+            return sorted(items, key=lambda x: (ranks.get(str(x.get("priority", "하") or "하"), 2), x.get("created_at", "")), reverse=reverse)
+        if self._sort_mode == "manual":
+            return sorted(items, key=lambda x: int(x.get("sort_order", 0) or 0))
         return sorted(items, key=lambda x: x.get("created_at", ""), reverse=reverse)
 
     def _manage_groups(self) -> None:
         current = self.main.data.get("todo_groups", ["그룹 1", "그룹 2", "그룹 3"])
-        # 항상 3개 슬롯 보장
-        while len(current) < 3:
-            current.append("")
-        dlg = _GroupManagerDialog(self, current[:3])
+        dlg = _GroupManagerDialog(self, current)
         if dlg.exec() == dlg.DialogCode.Accepted:
             new_groups = dlg.result_groups()
             self.main.data["todo_groups"] = new_groups
             self.main.save_data()
+            self.refresh()
 
     # ── 리프레시 ─────────────────────────────────────────────────────────────
 
@@ -1072,7 +1214,7 @@ class TodoListTab(QWidget):
                 child.widget().deleteLater()
 
         q = self.search.text().strip().lower()
-        groups = self._get_groups()
+        groups = self._get_group_meta()
         pending = [i for i in self.main.data.get("schedules", []) if not i.get("completed", False)]
 
         for g_idx, group_name in enumerate(groups):
@@ -1088,15 +1230,19 @@ class TodoListTab(QWidget):
     def _make_col_widget(self, idx: int, name: str, items: list[dict]) -> QWidget:
         col = QWidget()
         col.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        col.setAcceptDrops(True)
+        col._todo_group_name = name
+        col.dragEnterEvent = lambda event: self._todo_col_drag_enter(event)
+        col.dragMoveEvent = lambda event: self._todo_col_drag_enter(event)
+        col.dropEvent = lambda event, group=name: self._todo_col_drop(event, group)
         cl = QVBoxLayout(col)
         cl.setContentsMargins(4, 4, 4, 4)
         cl.setSpacing(4)
 
-        hdr_color = _GROUP_HDR_COLORS[idx % len(_GROUP_HDR_COLORS)]
         hdr = QLabel(f"  {name}  ({len(items)})")
         hdr.setFixedHeight(30)
         hdr.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-        hdr.setStyleSheet(f"background:{hdr_color};color:white;border-radius:5px;font-weight:800;padding:0 8px;")
+        hdr.setStyleSheet("background:#F8FAFC;color:#111827;border:1px solid #E5E7EB;border-radius:5px;font-weight:700;padding:0 8px;")
         cl.addWidget(hdr)
 
         scroll = QScrollArea()
@@ -1117,11 +1263,53 @@ class TodoListTab(QWidget):
         scroll.setWidget(content)
         cl.addWidget(scroll, 1)
 
-        add_btn = QPushButton("+ 할 일 추가")
-        add_btn.setFixedHeight(28)
-        add_btn.clicked.connect(lambda c=False, g=name: self.edit_item(group=g))
-        cl.addWidget(add_btn)
         return col
+
+    def _todo_card_mouse_press(self, card: QWidget, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            card._drag_start_pos = event.position().toPoint()
+
+    def _todo_card_mouse_move(self, card: QWidget, event) -> None:
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        start = getattr(card, "_drag_start_pos", None)
+        if start is None:
+            return
+        if (event.position().toPoint() - start).manhattanLength() < QApplication.startDragDistance():
+            return
+        item = getattr(card, "_todo_item", None)
+        if not item:
+            return
+        drag = QDrag(card)
+        mime = QMimeData()
+        mime.setText(str(item.get("id", "")))
+        drag.setMimeData(mime)
+        drag.exec(Qt.DropAction.MoveAction)
+
+    def _todo_col_drag_enter(self, event) -> None:
+        if event.mimeData().hasText():
+            event.acceptProposedAction()
+
+    def _todo_col_drop(self, event, group: str) -> None:
+        item_id = event.mimeData().text()
+        for item in self.main.data.get("schedules", []):
+            if item.get("id") == item_id:
+                item["group"] = group
+                item["sort_order"] = self._next_group_sort_order(group)
+                item["updated_at"] = now_iso()
+                self.main.save_data()
+                self.refresh()
+                event.acceptProposedAction()
+                return
+
+    def _next_group_sort_order(self, group: str) -> int:
+        items = [
+            item for item in self.main.data.get("schedules", [])
+            if not item.get("completed") and item.get("group") == group
+        ]
+        if not items:
+            return 0
+        return max(int(item.get("sort_order", 0) or 0) for item in items) + 1
 
     # ── 카드 ─────────────────────────────────────────────────────────────────
 
@@ -1130,6 +1318,10 @@ class TodoListTab(QWidget):
         card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         card.setObjectName("todoCard")
         card.setFixedHeight(40)
+        card.setCursor(Qt.CursorShape.OpenHandCursor)
+        card._todo_item = item
+        card.mousePressEvent = lambda event, c=card: self._todo_card_mouse_press(c, event)
+        card.mouseMoveEvent = lambda event, c=card: self._todo_card_mouse_move(c, event)
         h = QHBoxLayout(card)
         h.setContentsMargins(6, 2, 6, 2)
         h.setSpacing(6)
@@ -1138,6 +1330,8 @@ class TodoListTab(QWidget):
         cb.setChecked(False)
         cb.toggled.connect(lambda checked, i=item: self._on_check(i, checked))
         h.addWidget(cb)
+
+        priority = item.get("priority", "하") or "하"
 
         title_lbl = QLabel(item.get("title", "(제목 없음)"))
         title_lbl.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
@@ -1167,9 +1361,17 @@ class TodoListTab(QWidget):
             except Exception:
                 pass
 
-        h.addWidget(make_icon_button("edit", "수정", lambda c=False, i=item: self.edit_item(i)))
-        h.addWidget(make_icon_button("delete", "삭제", lambda c=False, i=item: self.delete_item(i), True))
-        card.setStyleSheet("QWidget#todoCard{border-radius:5px;border:1px solid #E5E7EB;}")
+        h.setSpacing(4)
+        h.addWidget(make_icon_button("edit", "수정", lambda c=False, i=item: self.edit_item(i), size=QSize(22, 22)))
+        h.addWidget(make_icon_button("delete", "삭제", lambda c=False, i=item: self.delete_item(i), True, size=QSize(22, 22)))
+        if priority in {"상", "중"}:
+            style = PRIORITY_STYLES[priority]
+            card.setStyleSheet(
+                f"QWidget#todoCard{{border-radius:5px;border:1px solid {style['border']};"
+                f"background:{style['background']};}}"
+            )
+        else:
+            card.setStyleSheet("QWidget#todoCard{border-radius:5px;border:1px solid #E5E7EB;}")
         return card
 
     # ── CRUD ─────────────────────────────────────────────────────────────────
@@ -1236,29 +1438,126 @@ class TodoListTab(QWidget):
     def _build_timer_page(self) -> None:
         layout = QVBoxLayout(self._timer_page)
         layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(10)
+        layout.setSpacing(12)
 
-        # 시간 입력
+        # ── 지속시간 입력 섹션 ──
+        self._timer_dur_section = QWidget()
+        self._timer_dur_section.setMinimumWidth(300)
+        self._timer_dur_section.setObjectName("timerPanel")
+        dur_layout = QVBoxLayout(self._timer_dur_section)
+        dur_layout.setContentsMargins(10, 10, 10, 12)
+        dur_layout.setSpacing(8)
+        dur_title = QLabel("시간 설정")
+        dur_title.setObjectName("cardTitle")
+        dur_layout.addWidget(dur_title)
+
         spin_row = QHBoxLayout()
-        spin_row.addStretch(1)
-        self._t_h = QSpinBox(); self._t_h.setRange(0, 23); self._t_h.setSuffix("시간"); self._t_h.setFixedWidth(75)
-        self._t_m = QSpinBox(); self._t_m.setRange(0, 59); self._t_m.setSuffix("분"); self._t_m.setFixedWidth(68)
-        self._t_s = QSpinBox(); self._t_s.setRange(0, 59); self._t_s.setSuffix("초"); self._t_s.setFixedWidth(68)
-        for w in (self._t_h, self._t_m, self._t_s):
+        spin_row.setSpacing(3)
+        self._t_h = QSpinBox()
+        self._t_h.setRange(0, 23)
+        self._t_m = QSpinBox()
+        self._t_m.setRange(0, 59)
+        self._t_s = QSpinBox()
+        self._t_s.setRange(0, 59)
+        for spin in (self._t_h, self._t_m, self._t_s):
+            spin.setObjectName("timerTextValue")
+            spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+            spin.setFrame(False)
+            spin.setFixedWidth(26)
+            spin.setFixedHeight(22)
+            spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            spin.setStyleSheet(_TIMER_VALUE_STYLE)
+        for w, label in ((self._t_h, "시간"), (self._t_m, "분"), (self._t_s, "초")):
             spin_row.addWidget(w)
+            unit = QLabel(label)
+            unit.setObjectName("mutedText")
+            spin_row.addWidget(unit)
         spin_row.addStretch(1)
-        layout.addLayout(spin_row)
+        dur_layout.addLayout(spin_row)
 
-        # 프리셋 버튼
         preset_row = QHBoxLayout()
-        preset_row.addStretch(1)
+        preset_row.setSpacing(4)
         for label, mins in [("5분", 5), ("10분", 10), ("15분", 15), ("30분", 30), ("1시간", 60), ("2시간", 120)]:
             b = QPushButton(label)
-            b.setFixedHeight(26)
+            b.setFixedHeight(28)
+            b.setMinimumWidth(42)
+            b.setStyleSheet(_TIME_BTN_STYLE)
             b.clicked.connect(lambda c=False, m=mins: self._timer_preset(m))
             preset_row.addWidget(b)
         preset_row.addStretch(1)
-        layout.addLayout(preset_row)
+        dur_layout.addLayout(preset_row)
+        self._timer_duration_start_btn = QPushButton("시작")
+        self._timer_duration_start_btn.setFixedHeight(32)
+        self._timer_duration_start_btn.clicked.connect(self._start_duration_timer)
+        dur_layout.addWidget(self._timer_duration_start_btn)
+
+        # ── 특정 시간 입력 섹션 ──
+        self._timer_exact_section = QWidget()
+        self._timer_exact_section.setMinimumWidth(250)
+        self._timer_exact_section.setObjectName("timerPanel")
+        exact_form = QFormLayout(self._timer_exact_section)
+        exact_form.setContentsMargins(10, 10, 10, 12)
+        exact_form.setHorizontalSpacing(10)
+        exact_form.setVerticalSpacing(7)
+        exact_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        exact_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        exact_form.setFormAlignment(Qt.AlignmentFlag.AlignTop)
+        exact_title = QLabel("특정 시간")
+        exact_title.setObjectName("cardTitle")
+        exact_form.addRow(exact_title)
+
+        self._exact_timer_date = QDateEdit()
+        self._exact_timer_date.setCalendarPopup(True)
+        self._exact_timer_date.setDate(QDate.currentDate())
+        self._exact_timer_date.setMinimumWidth(154)
+        self._exact_timer_date.setFixedHeight(28)
+        ecal = self._exact_timer_date.calendarWidget()
+        efmt = QTextCharFormat()
+        efmt.setBackground(QColor("#FFF3B0"))
+        efmt.setForeground(QColor("#111827"))
+        efmt.setFontWeight(700)
+        ecal.setDateTextFormat(QDate.currentDate(), efmt)
+
+        self._exact_timer_hour = QComboBox()
+        self._exact_timer_hour.setObjectName("timerCompactCombo")
+        for h in range(24):
+            self._exact_timer_hour.addItem(f"{h:02d}시")
+        self._exact_timer_hour.setCurrentIndex(datetime.now().hour)
+        fit_combo_to_contents(self._exact_timer_hour, 72)
+        self._exact_timer_hour.setFixedHeight(24)
+        self._exact_timer_hour.setStyleSheet(_TIMER_COMPACT_COMBO_STYLE)
+
+        self._exact_timer_min = QComboBox()
+        self._exact_timer_min.setObjectName("timerCompactCombo")
+        for m in range(0, 60, 10):
+            self._exact_timer_min.addItem(f"{m:02d}분")
+        fit_combo_to_contents(self._exact_timer_min, 72)
+        self._exact_timer_min.setFixedHeight(24)
+        self._exact_timer_min.setStyleSheet(_TIMER_COMPACT_COMBO_STYLE)
+
+        exact_time_row = QHBoxLayout()
+        exact_time_row.setContentsMargins(0, 0, 0, 0)
+        exact_time_row.setSpacing(6)
+        exact_time_row.addWidget(self._exact_timer_hour)
+        exact_time_row.addWidget(self._exact_timer_min)
+        exact_time_row.addStretch(1)
+        exact_time_widget = QWidget()
+        exact_time_widget.setLayout(exact_time_row)
+        exact_time_widget.setFixedHeight(26)
+
+        exact_form.addRow("날짜", self._exact_timer_date)
+        exact_form.addRow("시간", exact_time_widget)
+        self._timer_exact_start_btn = QPushButton("시작")
+        self._timer_exact_start_btn.setFixedHeight(30)
+        self._timer_exact_start_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._timer_exact_start_btn.clicked.connect(self._start_exact_timer)
+        exact_form.addRow(self._timer_exact_start_btn)
+
+        timer_inputs = QHBoxLayout()
+        timer_inputs.setSpacing(10)
+        timer_inputs.addWidget(self._timer_dur_section, 1)
+        timer_inputs.addWidget(self._timer_exact_section, 1)
+        layout.addLayout(timer_inputs)
 
         # 카운트다운 디스플레이
         self._timer_display = QLabel("00:00:00")
@@ -1272,6 +1571,7 @@ class TodoListTab(QWidget):
         form.setVerticalSpacing(8)
         self._timer_action = QComboBox()
         self._timer_action.addItems(["알림", "컴퓨터 종료", "프로그램 시작", "프로그램 종료"])
+        fit_combo_to_contents(self._timer_action, 140)
         self._timer_action.currentIndexChanged.connect(self._on_timer_action_changed)
 
         self._timer_msg = QLineEdit()
@@ -1300,13 +1600,9 @@ class TodoListTab(QWidget):
         # 제어 버튼
         ctrl_row = QHBoxLayout()
         ctrl_row.addStretch(1)
-        self._timer_start_btn = QPushButton("▶ 시작")
-        self._timer_start_btn.setFixedHeight(36)
-        self._timer_start_btn.clicked.connect(self._timer_toggle)
-        self._timer_reset_btn = QPushButton("↺ 초기화")
+        self._timer_reset_btn = QPushButton("초기화")
         self._timer_reset_btn.setFixedHeight(36)
         self._timer_reset_btn.clicked.connect(self._timer_reset)
-        ctrl_row.addWidget(self._timer_start_btn)
         ctrl_row.addWidget(self._timer_reset_btn)
         ctrl_row.addStretch(1)
         layout.addLayout(ctrl_row)
@@ -1318,11 +1614,17 @@ class TodoListTab(QWidget):
         layout.addStretch(1)
 
         # QTimer 연결
-        self._countdown_qTimer_interval = 1000
-        self._countdown_qTimer_connected = True
-        self._countdown_qTimer_obj = QTimer(self._timer_page)
-        self._countdown_qTimer_obj.setInterval(1000)
         self._countdown_qTimer_obj.timeout.connect(self._timer_tick)
+        self._timer_active_mode = ""
+        self._timer_page.setStyleSheet(
+            """
+            QWidget#timerPanel {
+                border: 1px solid #E5E7EB;
+                border-radius: 6px;
+                background: rgba(255,255,255,0.55);
+            }
+            """
+        )
 
     # ── 타이머 헬퍼 ──────────────────────────────────────────────────────────
 
@@ -1345,30 +1647,110 @@ class TodoListTab(QWidget):
         if path:
             self._timer_prog.setText(path)
 
+    def _start_duration_timer(self) -> None:
+        if self._timer_running and self._timer_active_mode == "duration":
+            self._pause_timer()
+            return
+        if self._countdown > 0 and self._timer_active_mode == "duration":
+            self._resume_timer("duration")
+            return
+        h = self._t_h.value()
+        m = self._t_m.value()
+        s = self._t_s.value()
+        seconds = h * 3600 + m * 60 + s
+        if seconds == 0:
+            show_modern_warning(self._timer_page, "설정 오류", "타이머 시간을 설정해주세요.")
+            return
+        self._start_timer(seconds, "duration")
+
+    def _start_exact_timer(self) -> None:
+        if self._timer_running and self._timer_active_mode == "exact":
+            self._pause_timer()
+            return
+        if self._countdown > 0 and self._timer_active_mode == "exact":
+            self._resume_timer("exact")
+            return
+        minute_val = int(self._exact_timer_min.currentText().replace("분", ""))
+        target = datetime.combine(
+            self._exact_timer_date.date().toPyDate(),
+            dt_time(self._exact_timer_hour.currentIndex(), minute_val)
+        )
+        seconds = int((target - datetime.now()).total_seconds())
+        if seconds <= 0:
+            show_modern_warning(self._timer_page, "설정 오류", "지정 시간이 현재 시간보다 이전입니다.")
+            return
+        self._start_timer(seconds, "exact")
+
+    def _start_timer(self, seconds: int, mode: str) -> None:
+        if self._timer_running or self._countdown > 0:
+            self._timer_reset()
+        self._countdown = seconds
+        self._timer_active_mode = mode
+        self._resume_timer(mode)
+
+    def start_quick_timer(self, seconds: int, note: str = "", label: str = "") -> None:
+        if seconds <= 0:
+            return
+        self._timer_msg.setText(note)
+        self._timer_status.setText(f"{label} 시작됨" if label else "빠른 작업에서 시작됨")
+        self._start_timer(seconds, "duration")
+        self._tab_widget.setCurrentWidget(self._timer_page)
+
+    def _pause_timer(self) -> None:
+        self._countdown_qTimer_obj.stop()
+        self._timer_running = False
+        self._timer_status.setText("일시정지됨")
+        self._update_timer_buttons(paused=True)
+
+    def _resume_timer(self, mode: str) -> None:
+        self._timer_active_mode = mode
+        self._countdown_qTimer_obj.start()
+        self._timer_running = True
+        self._timer_status.setText("실행 중...")
+        self._update_timer_buttons()
+
+    def _update_timer_buttons(self, paused: bool = False) -> None:
+        self._timer_duration_start_btn.setText("시작")
+        self._timer_exact_start_btn.setText("시작")
+        if self._timer_active_mode == "duration":
+            self._timer_duration_start_btn.setText("재시작" if paused else "일시정지")
+        elif self._timer_active_mode == "exact":
+            self._timer_exact_start_btn.setText("재시작" if paused else "일시정지")
+
     def _timer_toggle(self) -> None:
         if self._timer_running:
-            self._countdown_qTimer_obj.stop()
-            self._timer_running = False
-            self._timer_start_btn.setText("▶ 재시작")
-            self._timer_status.setText("일시정지됨")
+            self._pause_timer()
         else:
             if self._countdown == 0:
-                h = self._t_h.value(); m = self._t_m.value(); s = self._t_s.value()
-                self._countdown = h * 3600 + m * 60 + s
-                if self._countdown == 0:
-                    show_modern_warning(self._timer_page, "설정 오류", "타이머 시간을 설정해주세요.")
-                    return
-            self._countdown_qTimer_obj.start()
-            self._timer_running = True
-            self._timer_start_btn.setText("⏸ 일시정지")
-            self._timer_status.setText("실행 중...")
+                if self._timer_mode == "exact":
+                    minute_val = int(self._exact_timer_min.currentText().replace("분", ""))
+                    target = datetime.combine(
+                        self._exact_timer_date.date().toPyDate(),
+                        dt_time(self._exact_timer_hour.currentIndex(), minute_val)
+                    )
+                    secs = int((target - datetime.now()).total_seconds())
+                    if secs <= 0:
+                        show_modern_warning(self._timer_page, "설정 오류", "지정 시간이 현재 시간보다 이전입니다.")
+                        return
+                    self._countdown = secs
+                else:
+                    h = self._t_h.value()
+                    m = self._t_m.value()
+                    s = self._t_s.value()
+                    self._countdown = h * 3600 + m * 60 + s
+                    if self._countdown == 0:
+                        show_modern_warning(self._timer_page, "설정 오류", "타이머 시간을 설정해주세요.")
+                        return
+            self._resume_timer(self._timer_mode)
 
     def _timer_reset(self) -> None:
         self._countdown_qTimer_obj.stop()
         self._timer_running = False
         self._countdown = 0
+        self._timer_active_mode = ""
         self._timer_display.setText("00:00:00")
-        self._timer_start_btn.setText("▶ 시작")
+        self._timer_duration_start_btn.setText("시작")
+        self._timer_exact_start_btn.setText("시작")
         self._timer_status.setText("")
 
     def _timer_tick(self) -> None:
@@ -1381,15 +1763,18 @@ class TodoListTab(QWidget):
         else:
             self._countdown_qTimer_obj.stop()
             self._timer_running = False
-            self._timer_start_btn.setText("▶ 시작")
+            self._update_timer_buttons(paused=True)
+            self._timer_duration_start_btn.setText("시작")
+            self._timer_exact_start_btn.setText("시작")
             self._timer_status.setText("완료!")
             self._execute_timer_action()
+            self._timer_active_mode = ""
 
     def _execute_timer_action(self) -> None:
         action = self._timer_action.currentText()
         if action == "알림":
-            msg = self._timer_msg.text().strip() or "타이머가 완료되었습니다! ⏰"
-            show_modern_info(self.main, "⏰ 타이머 완료", msg)
+            msg = self._timer_msg.text().strip() or "타이머가 완료되었습니다!"
+            show_modern_info(self.main, "타이머 완료", msg)
         elif action == "컴퓨터 종료":
             if ask_modern_question(self.main, "컴퓨터 종료",
                                    "컴퓨터를 종료하시겠습니까?\n(60초 후 자동 종료)", yes_text="종료", no_text="취소"):
@@ -1402,7 +1787,7 @@ class TodoListTab(QWidget):
             if path:
                 try:
                     subprocess.Popen([path])
-                    show_modern_info(self.main, "⏰ 타이머 완료", f"프로그램 시작:\n{path}")
+                    show_modern_info(self.main, "타이머 완료", f"프로그램 시작:\n{path}")
                 except Exception as exc:
                     show_modern_warning(self.main, "실행 오류", str(exc))
         elif action == "프로그램 종료":
@@ -1410,6 +1795,6 @@ class TodoListTab(QWidget):
             if name:
                 try:
                     subprocess.run(["taskkill", "/F", "/IM", name], capture_output=True, check=False)
-                    show_modern_info(self.main, "⏰ 타이머 완료", f"프로그램 종료:\n{name}")
+                    show_modern_info(self.main, "타이머 완료", f"프로그램 종료:\n{name}")
                 except Exception as exc:
                     show_modern_warning(self.main, "종료 오류", str(exc))

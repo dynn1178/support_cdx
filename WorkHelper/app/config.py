@@ -36,6 +36,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "quick_memo_hotkey": {"modifiers": ["ctrl", "alt"], "key": "M"},
     "quick_memo_double_alt": True,
     "phrase_popup_hotkey": {"modifiers": ["ctrl"], "key": ";"},
+    "steel_cut_hotkey": {"modifiers": ["ctrl", "alt"], "key": "S"},
     "hotkeys_enabled": True,
     "auto_update_check": True,
     "auto_update_install": True,
@@ -162,6 +163,7 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
             "display_scale": 100,
         }
     ],
+    "steel_cuts": [],
     "macros": [],
     "memos": [
         {
@@ -311,6 +313,7 @@ PRESET_COLLECTION_KEYS = (
     "title_templates",
     "launchers",
     "images",
+    "steel_cuts",
     "macros",
     "memos",
     "schedules",

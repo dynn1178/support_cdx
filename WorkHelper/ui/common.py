@@ -31,6 +31,11 @@ DIALOG_THEME = "light"
 CARD_SIZE_A = 72
 CARD_SIZE_B = 108
 CARD_SIZE_C = 126
+CORNER_CONTROL_HEIGHT = 26
+CORNER_CONTAINER_HEIGHT = 32
+CORNER_SEARCH_WIDTH = 120
+CORNER_SORT_MODE_WIDTH = 92
+CORNER_SORT_ORDER_WIDTH = 104
 
 SORT_MODES = [
     ("등록", "created"),
@@ -41,6 +46,56 @@ SORT_ORDERS = [
     ("내림차순", "desc"),
     ("오름차순", "asc"),
 ]
+
+
+def fit_combo_to_contents(combo: QComboBox, min_width: int = 120, extra: int = 44) -> QComboBox:
+    """Size dropdowns so their current and menu text are visible."""
+    combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+    width = min_width
+    metrics = combo.fontMetrics()
+    for index in range(combo.count()):
+        width = max(width, metrics.horizontalAdvance(combo.itemText(index)) + extra)
+    combo.setMinimumWidth(width)
+    combo.view().setMinimumWidth(width)
+    return combo
+
+
+def set_corner_button_policy(button: QToolButton | QWidget, min_width: int = 92) -> None:
+    button.setFixedHeight(CORNER_CONTROL_HEIGHT)
+    button.setFixedWidth(min_width)
+    font = button.font()
+    font.setBold(False)
+    button.setFont(font)
+    button.setStyleSheet("padding: 1px 6px; font-size: 9pt; font-weight: 400;")
+
+
+def set_corner_combo_policy(combo: QComboBox, width: int) -> None:
+    combo.setFixedHeight(CORNER_CONTROL_HEIGHT)
+    combo.setFixedWidth(width)
+    combo.view().setMinimumWidth(width)
+    combo.setStyleSheet("padding: 1px 6px; font-size: 9pt;")
+
+
+PRIORITY_STYLES = {
+    "상": {"background": "#FFD6D6", "border": "#F4A3A3", "text": "#7F1D1D"},
+    "중": {"background": "#D8EAFE", "border": "#A9CFF5", "text": "#1E3A8A"},
+    "하": {"background": "transparent", "border": "transparent", "text": "#6B7280"},
+}
+
+
+def normalize_todo_group(entry: object, index: int = 0) -> str:
+    if isinstance(entry, dict):
+        name = str(entry.get("name", "")).strip()
+    else:
+        name = str(entry or "").strip()
+    return name
+
+
+def normalize_todo_groups(raw: object) -> list[str]:
+    values = raw if isinstance(raw, list) else []
+    groups = [normalize_todo_group(entry, index) for index, entry in enumerate(values)]
+    groups = [group for group in groups if group]
+    return groups or ["그룹 1"]
 
 ACTION_ICONS = {
     "copy": "📋",
@@ -212,16 +267,24 @@ def confirm_shift_digit_hotkey(parent: QWidget, hotkey: dict | None) -> bool:
     )
 
 
-def make_icon_button(text: str, tooltip: str, callback, danger: bool = False) -> QToolButton:
+def make_icon_button(text: str, tooltip: str, callback, danger: bool = False, size: QSize | None = None) -> QToolButton:
     button = QToolButton()
     button.setObjectName("dangerIconButton" if danger else "iconButton")
     button.setText(ACTION_ICONS.get(text, text))
     button.setToolTip(tooltip)
-    button.setFixedSize(QSize(30, 28))
+    button.setFixedSize(size or QSize(30, 28))
     if text == "pin":
         button.setStyleSheet("QToolButton#iconButton { color: #A3A8B3; font-size: 13pt; font-weight: 900; }")
     if danger:
         button.setStyleSheet("QToolButton#dangerIconButton { color: #D7263D; font-size: 14pt; font-weight: 900; }")
+    if size is not None:
+        selector = "QToolButton#dangerIconButton" if danger else "QToolButton#iconButton"
+        color_rule = "color: #D7263D;" if danger else ""
+        button.setStyleSheet(
+            f"{selector} {{ background: transparent; border: 0; border-radius: 3px; padding: 0; "
+            f"min-width: {size.width()}px; min-height: {size.height()}px; "
+            f"max-width: {size.width()}px; max-height: {size.height()}px; font-size: 10pt; {color_rule} }}"
+        )
     button.clicked.connect(callback)
     return button
 
@@ -397,6 +460,11 @@ def sort_items(
 
     if mode == "name":
         key_func = lambda item: text_value(item).casefold()
+    elif mode == "deadline":
+        key_func = lambda item: item.get("deadline") or str(item.get("datetime", ""))[:10] or "9999-99-99"
+    elif mode == "priority":
+        ranks = {"상": 0, "중": 1, "하": 2, "": 2}
+        key_func = lambda item: (ranks.get(str(item.get("priority", "하") or "하"), 2), created_key(item))
     elif mode == "manual":
         key_func = lambda item: int(item.get("sort_order", 0) or 0)
         reverse = False
@@ -406,26 +474,32 @@ def sort_items(
 
 
 class SortControls(QWidget):
-    def __init__(self, changed: Callable[[], None] | None = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        changed: Callable[[], None] | None = None,
+        parent: QWidget | None = None,
+        modes: list[tuple[str, str]] | None = None,
+        default_order: str = "desc",
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("sortControls")
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 2, 4, 2)
         layout.setSpacing(4)
         self.mode = QComboBox()
-        for text, value in SORT_MODES:
+        for text, value in (modes or SORT_MODES):
             self.mode.addItem(text, value)
         self.order = QComboBox()
         for text, value in SORT_ORDERS:
             self.order.addItem(text, value)
         self.mode.setCurrentIndex(self.mode.findData("created"))
-        self.order.setCurrentIndex(self.order.findData("desc"))
+        self.order.setCurrentIndex(self.order.findData(default_order))
         layout.addWidget(self.mode)
         layout.addWidget(self.order)
-        self.mode.setFixedHeight(26)
-        self.order.setFixedHeight(26)
-        self.mode.setFixedWidth(78)
-        self.order.setFixedWidth(92)
+        self.mode.setFixedHeight(CORNER_CONTROL_HEIGHT)
+        self.order.setFixedHeight(CORNER_CONTROL_HEIGHT)
+        fit_combo_to_contents(self.mode, CORNER_SORT_MODE_WIDTH)
+        fit_combo_to_contents(self.order, CORNER_SORT_ORDER_WIDTH)
         self.setFixedHeight(32)
         self.setStyleSheet(
             """

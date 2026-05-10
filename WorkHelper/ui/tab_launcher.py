@@ -4,6 +4,7 @@ import os
 import subprocess
 import webbrowser
 from pathlib import Path
+from urllib.parse import quote_plus
 
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtWidgets import (
@@ -151,6 +152,14 @@ class LauncherDialog(QDialog):
 
 
 class LauncherTab(QWidget):
+    SEARCH_ENGINES = [
+        ("네이버", "https://search.naver.com/search.naver?query={query}"),
+        ("구글", "https://www.google.com/search?q={query}"),
+        ("유튜브", "https://www.youtube.com/results?search_query={query}"),
+        ("다음", "https://search.daum.net/search?q={query}"),
+        ("빙", "https://www.bing.com/search?q={query}"),
+    ]
+
     def __init__(self, main) -> None:
         super().__init__()
         self.main = main
@@ -160,8 +169,10 @@ class LauncherTab(QWidget):
         self.tabs = QTabWidget()
         self.site_list = GridPanel(columns=2)
         self.file_list = GridPanel(columns=2)
+        self.quick_search_page = QWidget()
         self.tabs.addTab(self.site_list, "사이트")
         self.tabs.addTab(self.file_list, "파일/폴더")
+        self.tabs.addTab(self.quick_search_page, "바로검색")
         self.sort_controls = SortControls(self.refresh)
         self.search = QLineEdit()
         self.search.setPlaceholderText("검색...")
@@ -187,12 +198,44 @@ class LauncherTab(QWidget):
         row.addWidget(self.add_file_btn)
         layout.addLayout(row)
         self.tabs.currentChanged.connect(self.update_add_buttons)
+        self.build_quick_search_tab()
         self.update_add_buttons()
 
     def update_add_buttons(self) -> None:
         is_site_tab = self.tabs.currentIndex() == 0
         self.add_site_btn.setVisible(is_site_tab)
-        self.add_file_btn.setVisible(not is_site_tab)
+        self.add_file_btn.setVisible(self.tabs.currentIndex() == 1)
+
+    def build_quick_search_tab(self) -> None:
+        layout = QVBoxLayout(self.quick_search_page)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+        for name, url in self.SEARCH_ENGINES:
+            row = QWidget()
+            row.setObjectName("card")
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(10, 8, 10, 8)
+            row_layout.setSpacing(8)
+            label = QLabel(name)
+            label.setMinimumWidth(64)
+            label.setObjectName("cardTitle")
+            query = QLineEdit()
+            query.setPlaceholderText(f"{name} 검색어")
+            button = QPushButton("검색")
+            query.returnPressed.connect(lambda value=url, field=query: self.open_quick_search(value, field))
+            button.clicked.connect(lambda checked=False, value=url, field=query: self.open_quick_search(value, field))
+            row_layout.addWidget(label)
+            row_layout.addWidget(query, 1)
+            row_layout.addWidget(button)
+            layout.addWidget(row)
+        layout.addStretch(1)
+
+    def open_quick_search(self, url_template: str, field: QLineEdit) -> None:
+        query = field.text().strip()
+        if not query:
+            field.setFocus()
+            return
+        webbrowser.open(url_template.format(query=quote_plus(query)))
 
     def site_card_subtitle(self, item: dict) -> str:
         lines = [item.get("url", "")]

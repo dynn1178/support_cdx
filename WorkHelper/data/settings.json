@@ -1,4 +1,5 @@
 {
+  "settings_version": 2,
   "theme": "light",
   "window": {
     "width": 900,
@@ -29,10 +30,17 @@
     ],
     "key": ";"
   },
+  "steel_cut_hotkey": {
+    "modifiers": [
+      "ctrl",
+      "shift"
+    ],
+    "key": "S"
+  },
   "hotkeys_enabled": true,
   "auto_update_check": true,
   "auto_update_install": true,
-  "startup_with_windows": true,
+  "startup_with_windows": false,
   "active_preset": 1,
   "color_presets": [
     {

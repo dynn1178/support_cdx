@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -25,7 +24,7 @@ def main() -> int:
     replaced = False
     for attempt in range(8):
         try:
-            shutil.move(new_path, old_path)
+            os.replace(new_path, old_path)
             replaced = True
             break
         except Exception:

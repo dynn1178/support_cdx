@@ -2,7 +2,7 @@
   "meta": {
     "preset_name": "기본 프리셋",
     "version": "1.0.0",
-    "saved_at": "2026-05-10T02:18:06"
+    "saved_at": "2026-05-10T20:54:43"
   },
   "phrases": [
     {
@@ -101,6 +101,32 @@
       "display_scale": 100
     }
   ],
+  "steel_cuts": [
+    {
+      "id": "steel_cea890bfca",
+      "path": "assets/images/steel_f4e109df5c.png",
+      "path_type": "relative",
+      "window_title": "6PM Assistant ﻿1.0.14",
+      "created_at": "2026-05-10T20:47:20",
+      "last_used_at": "2026-05-10T20:47:26",
+      "sort_order": 0,
+      "usage_count": 1,
+      "used_today_date": "2026-05-10",
+      "used_today_count": 1
+    },
+    {
+      "id": "steel_dae95161d9",
+      "path": "assets/images/steel_bcb8401e8c.png",
+      "path_type": "relative",
+      "window_title": "main.py - WorkHelper - Visual Studio Code",
+      "created_at": "2026-05-10T20:53:16",
+      "last_used_at": "2026-05-10T20:54:43",
+      "sort_order": 1,
+      "usage_count": 2,
+      "used_today_date": "2026-05-10",
+      "used_today_count": 2
+    }
+  ],
   "macros": [],
   "memos": [
     {
@@ -137,8 +163,31 @@
       "notify_before_minutes": 0,
       "memo": "",
       "last_notified_at": "",
-      "sort_order": 0,
-      "usage_count": 0
+      "sort_order": 3,
+      "usage_count": 0,
+      "completed": false,
+      "completed_at": null,
+      "group": "중요도 보통",
+      "priority": "중",
+      "deadline": "2030-12-31",
+      "updated_at": "2026-05-10T20:20:27"
+    },
+    {
+      "id": "sc_d90cb0e426",
+      "created_at": "2026-05-10T20:20:26",
+      "sort_order": 1,
+      "usage_count": 0,
+      "title": "칼퇴하기",
+      "group": "중요도 높음",
+      "priority": "상",
+      "deadline": "2030-05-31",
+      "datetime": "2030-05-31T20:19:53",
+      "notify_before_minutes": 30,
+      "repeat": "none",
+      "memo": "",
+      "last_notified_at": "",
+      "completed": false,
+      "completed_at": null
     }
   ],
   "hotstrings": [
@@ -240,5 +289,10 @@
       "usage_count": 0
     }
   ],
-  "phrase_popup_favorites": []
+  "phrase_popup_favorites": [],
+  "todo_groups": [
+    "중요도 높음",
+    "중요도 보통",
+    "중요도 낮음"
+  ]
 }

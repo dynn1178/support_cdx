@@ -28,7 +28,7 @@ from ui.tab_misc import MiscTab, MouseHighlightOverlay
 from ui.tab_phrase import PhraseTab
 from ui.tab_settings import SettingsTab
 from ui.tab_text_tools import TextToolsTab
-from ui.common import apply_modern_dialog_style, ask_modern_question, bump_usage, set_dialog_theme, show_modern_info, show_modern_warning
+from ui.common import apply_modern_dialog_style, ask_modern_question, bump_usage, fit_combo_to_contents, normalize_todo_groups, set_dialog_theme, show_modern_info, show_modern_warning
 
 
 MINI_COPY_BUTTON_WIDTH = 64
@@ -261,11 +261,12 @@ class QuickActionPopup(QDialog):
         self.setWindowFlag(Qt.WindowType.Tool, True)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         apply_modern_dialog_style(self)
-        self.setFixedWidth(400)
+        self.setObjectName("quickActionDialog")
+        self.setFixedWidth(460)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
 
         self.tab_widget = QTabWidget()
         self._build_todo_tab()
@@ -284,7 +285,16 @@ class QuickActionPopup(QDialog):
         layout.addLayout(btn_row)
 
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
-        self.resize(400, 260)
+        self.resize(460, 320)
+        self.setStyleSheet(
+            self.styleSheet()
+            + """
+            QDialog#quickActionDialog { background: #F8FAFC; }
+            QTabWidget::pane { border: 1px solid #E5E7EB; border-radius: 8px; background: #FFFFFF; }
+            QTabBar::tab { padding: 6px 12px; }
+            QFormLayout { background: transparent; }
+            """
+        )
         QTimer.singleShot(0, self._activate)
 
     def _on_tab_changed(self, idx: int) -> None:
@@ -295,67 +305,109 @@ class QuickActionPopup(QDialog):
     def _build_todo_tab(self) -> None:
         tab = QWidget()
         fl = QFormLayout(tab)
-        fl.setContentsMargins(6, 8, 6, 6)
-        fl.setSpacing(5)
+        fl.setContentsMargins(12, 12, 12, 10)
+        fl.setVerticalSpacing(8)
+        fl.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        fl.setFormAlignment(Qt.AlignmentFlag.AlignTop)
+        fl.setHorizontalSpacing(12)
         fl.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
         # 그룹 콤보
         self.todo_group = QComboBox()
-        groups = [g for g in self.owner.data.get("todo_groups", ["그룹 1", "그룹 2", "그룹 3"]) if g]
+        groups = normalize_todo_groups(self.owner.data.get("todo_groups", ["그룹 1", "그룹 2", "그룹 3"]))
         for g in groups:
             self.todo_group.addItem(g)
         if self.todo_group.count() == 0:
             self.todo_group.addItem("그룹 1")
+        fit_combo_to_contents(self.todo_group, 140)
 
         # 제목
         self.todo_title = QLineEdit()
         self.todo_title.setPlaceholderText("할 일 제목...")
 
-        # 날짜/시간 드롭다운 (년월일 / 시 / 10분 단위)
-        dt_row = QHBoxLayout()
-        dt_row.setSpacing(3)
-        self.todo_day_combo = QComboBox()
-        today = date.today()
-        for i in range(31):
-            d = today + timedelta(days=i)
-            if i == 0:
-                label = f"오늘 ({d.strftime('%m/%d')})"
-            elif i == 1:
-                label = f"내일 ({d.strftime('%m/%d')})"
-            else:
-                label = d.strftime("%m/%d (%a)").replace("Mon", "월").replace("Tue", "화").replace("Wed", "수").replace("Thu", "목").replace("Fri", "금").replace("Sat", "토").replace("Sun", "일")
-            self.todo_day_combo.addItem(label)
+        self.todo_priority_combo = QComboBox()
+        self.todo_priority_combo.addItems(["상", "중", "하"])
+        self.todo_priority_combo.setCurrentText("하")
+        fit_combo_to_contents(self.todo_priority_combo, 88)
+
+        # 날짜: QDateEdit with calendar popup + today highlight
+        from PyQt6.QtGui import QTextCharFormat, QColor
+        self.todo_date = QDateEdit()
+        self.todo_date.setCalendarPopup(True)
+        self.todo_date.setDate(QDate.currentDate())
+        self.todo_date.setMinimumWidth(130)
+        cal = self.todo_date.calendarWidget()
+        today_fmt = QTextCharFormat()
+        today_fmt.setBackground(QColor("#FFF3B0"))
+        today_fmt.setForeground(QColor("#111827"))
+        today_fmt.setFontWeight(700)
+        cal.setDateTextFormat(QDate.currentDate(), today_fmt)
+
+        # 시간: hour + min combo
         self.todo_hour_combo = QComboBox()
         for h in range(24):
             self.todo_hour_combo.addItem(f"{h:02d}시")
         self.todo_hour_combo.setCurrentIndex(9)
+        fit_combo_to_contents(self.todo_hour_combo, 72)
+
         self.todo_min_combo = QComboBox()
         for m in range(0, 60, 10):
             self.todo_min_combo.addItem(f"{m:02d}분")
-        dt_row.addWidget(self.todo_day_combo, 4)
-        dt_row.addWidget(self.todo_hour_combo, 2)
-        dt_row.addWidget(self.todo_min_combo, 2)
+        fit_combo_to_contents(self.todo_min_combo, 72)
+
+        dt_row = QHBoxLayout()
+        dt_row.setContentsMargins(0, 0, 0, 0)
+        dt_row.setSpacing(5)
+        dt_row.addWidget(self.todo_date)
+        dt_row.addWidget(self.todo_hour_combo)
+        dt_row.addWidget(self.todo_min_combo)
+        dt_row.addStretch(1)
         dt_widget = QWidget()
         dt_widget.setLayout(dt_row)
 
         # 알림 콤보
         self.todo_notify_combo = QComboBox()
         self.todo_notify_combo.addItems(["알림 없음", "10분 전", "30분 전", "1시간 전"])
-        self.todo_notify_combo.setCurrentIndex(2)  # 30분 전 기본
+        self.todo_notify_combo.setCurrentIndex(2)
+        fit_combo_to_contents(self.todo_notify_combo, 118)
+
+        self.todo_repeat_combo = QComboBox()
+        self.todo_repeat_combo.addItems(["없음", "매일", "매주", "매월", "매년"])
+        fit_combo_to_contents(self.todo_repeat_combo, 130)
+        self.todo_repeat_combo.currentTextChanged.connect(self._on_quick_todo_repeat_changed)
+
+        weekday_widget = QWidget()
+        wd_row = QHBoxLayout(weekday_widget)
+        wd_row.setContentsMargins(0, 0, 0, 0)
+        wd_row.setSpacing(6)
+        self.todo_weekday_checks: list[QCheckBox] = []
+        for day_name in ["월", "화", "수", "목", "금", "토", "일"]:
+            cb = QCheckBox(day_name)
+            self.todo_weekday_checks.append(cb)
+            wd_row.addWidget(cb)
+        wd_row.addStretch(1)
+        self.todo_weekday_widget = weekday_widget
+        self.todo_weekday_widget.setVisible(False)
 
         fl.addRow("그룹", self.todo_group)
+        fl.addRow("중요도", self.todo_priority_combo)
         fl.addRow("제목", self.todo_title)
         fl.addRow("일정", dt_widget)
+        fl.addRow("반복", self.todo_repeat_combo)
+        fl.addRow("", self.todo_weekday_widget)
         fl.addRow("알림", self.todo_notify_combo)
         self.tab_widget.addTab(tab, "할 일")
+
+    def _on_quick_todo_repeat_changed(self, text: str) -> None:
+        self.todo_weekday_widget.setVisible(text == "매주")
 
     # ── 탭 2 : 메모 ───────────────────────────────────────────────────────
 
     def _build_memo_tab(self) -> None:
         tab = QWidget()
         vl = QVBoxLayout(tab)
-        vl.setContentsMargins(6, 8, 6, 6)
-        vl.setSpacing(5)
+        vl.setContentsMargins(12, 12, 12, 10)
+        vl.setSpacing(8)
         self.memo_text = QTextEdit()
         self.memo_text.setPlaceholderText("메모를 입력하세요...")
         self.memo_text.setFixedHeight(100)
@@ -370,8 +422,11 @@ class QuickActionPopup(QDialog):
     def _build_timer_tab(self) -> None:
         tab = QWidget()
         fl = QFormLayout(tab)
-        fl.setContentsMargins(6, 8, 6, 6)
-        fl.setSpacing(5)
+        fl.setContentsMargins(12, 12, 12, 10)
+        fl.setVerticalSpacing(8)
+        fl.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        fl.setFormAlignment(Qt.AlignmentFlag.AlignTop)
+        fl.setHorizontalSpacing(12)
         fl.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
         self.timer_duration_combo = QComboBox()
@@ -380,17 +435,67 @@ class QuickActionPopup(QDialog):
                                 (90, "1시간 30분"), (120, "2시간")]:
             self.timer_duration_combo.addItem(label, minutes)
         self.timer_duration_combo.setCurrentIndex(4)  # 30분 기본
+        fit_combo_to_contents(self.timer_duration_combo, 120)
+
+        self.timer_mode_combo = QComboBox()
+        self.timer_mode_combo.addItems(["시간", "특정 시간"])
+        fit_combo_to_contents(self.timer_mode_combo, 120)
+        self.timer_mode_combo.currentTextChanged.connect(self._on_quick_timer_mode_changed)
+
+        from PyQt6.QtGui import QTextCharFormat, QColor
+        self.timer_exact_date = QDateEdit()
+        self.timer_exact_date.setCalendarPopup(True)
+        self.timer_exact_date.setDate(QDate.currentDate())
+        self.timer_exact_date.setMinimumWidth(130)
+        exact_cal = self.timer_exact_date.calendarWidget()
+        exact_fmt = QTextCharFormat()
+        exact_fmt.setBackground(QColor("#FFF3B0"))
+        exact_fmt.setForeground(QColor("#111827"))
+        exact_fmt.setFontWeight(700)
+        exact_cal.setDateTextFormat(QDate.currentDate(), exact_fmt)
+        self.timer_exact_hour = QComboBox()
+        for h in range(24):
+            self.timer_exact_hour.addItem(f"{h:02d}시")
+        self.timer_exact_hour.setCurrentIndex(datetime.now().hour)
+        fit_combo_to_contents(self.timer_exact_hour, 72)
+        self.timer_exact_min = QComboBox()
+        for m in range(0, 60, 10):
+            self.timer_exact_min.addItem(f"{m:02d}분")
+        fit_combo_to_contents(self.timer_exact_min, 72)
+
+        exact_row = QHBoxLayout()
+        exact_row.setContentsMargins(0, 0, 0, 0)
+        exact_row.setSpacing(5)
+        exact_row.addWidget(self.timer_exact_date)
+        exact_row.addWidget(self.timer_exact_hour)
+        exact_row.addWidget(self.timer_exact_min)
+        exact_row.addStretch(1)
+        self.timer_exact_widget = QWidget()
+        self.timer_exact_widget.setLayout(exact_row)
+        self.timer_exact_widget.setVisible(False)
 
         self.timer_note = QLineEdit()
         self.timer_note.setPlaceholderText("타이머 메모 (선택 사항)...")
 
-        action_lbl = QLabel("알림 (고정)")
+        action_lbl = QLabel("알림")
         action_lbl.setObjectName("mutedText")
 
-        fl.addRow("시간", self.timer_duration_combo)
+        self.timer_duration_label = QLabel("시간")
+        self.timer_exact_label = QLabel("시간")
+        fl.addRow("방식", self.timer_mode_combo)
+        fl.addRow(self.timer_duration_label, self.timer_duration_combo)
+        fl.addRow(self.timer_exact_label, self.timer_exact_widget)
         fl.addRow("메모", self.timer_note)
         fl.addRow("완료 시", action_lbl)
-        self.tab_widget.addTab(tab, "⏱ 타이머")
+        self.timer_exact_label.setVisible(False)
+        self.tab_widget.addTab(tab, "타이머")
+
+    def _on_quick_timer_mode_changed(self, text: str) -> None:
+        exact = text == "특정 시간"
+        self.timer_duration_combo.setVisible(not exact)
+        self.timer_exact_widget.setVisible(exact)
+        self.timer_duration_label.setVisible(not exact)
+        self.timer_exact_label.setVisible(exact)
 
     # ── 저장 / 팝업 공통 ──────────────────────────────────────────────────
 
@@ -424,23 +529,24 @@ class QuickActionPopup(QDialog):
         if not title:
             show_modern_warning(self, "입력 확인", "제목을 입력해주세요.")
             return
-        day_idx = self.todo_day_combo.currentIndex()
-        selected_date = date.today() + timedelta(days=day_idx)
+        selected_date = self.todo_date.date().toPyDate()
         hour = self.todo_hour_combo.currentIndex()
         minute = int(self.todo_min_combo.currentText().replace("분", ""))
         alarm_dt = py_datetime.combine(selected_date, py_time(hour, minute))
         notify_map = {"알림 없음": 0, "10분 전": 10, "30분 전": 30, "1시간 전": 60}
         notify_mins = notify_map.get(self.todo_notify_combo.currentText(), 0)
+        repeat_map = {"없음": "none", "매일": "daily", "매주": "weekly", "매월": "monthly", "매년": "yearly"}
+        repeat_val = repeat_map.get(self.todo_repeat_combo.currentText(), "none")
         group = self.todo_group.currentText()
         item = {
             "id": new_id("sc"),
             "title": title,
             "group": group,
-            "priority": "",
+            "priority": self.todo_priority_combo.currentText() or "하",
             "deadline": alarm_dt.strftime("%Y-%m-%d"),
             "datetime": alarm_dt.isoformat(timespec="seconds"),
             "notify_before_minutes": notify_mins,
-            "repeat": "none",
+            "repeat": repeat_val,
             "completed": False,
             "completed_at": None,
             "memo": "",
@@ -450,6 +556,8 @@ class QuickActionPopup(QDialog):
             "sort_order": len(self.owner.data.setdefault("schedules", [])),
             "usage_count": 0,
         }
+        if repeat_val == "weekly":
+            item["repeat_weekdays"] = [i for i, cb in enumerate(self.todo_weekday_checks) if cb.isChecked()] or [alarm_dt.weekday()]
         self.owner.data["schedules"].append(item)
         self.owner.save_data()
         self.todo_title.clear()
@@ -483,32 +591,32 @@ class QuickActionPopup(QDialog):
         self.reject()
 
     def _save_timer(self) -> None:
-        minutes = self.timer_duration_combo.currentData()
-        if not minutes:
-            return
+        if self.timer_mode_combo.currentText() == "특정 시간":
+            from datetime import datetime as py_datetime, time as py_time
+            minute = int(self.timer_exact_min.currentText().replace("분", ""))
+            target = py_datetime.combine(
+                self.timer_exact_date.date().toPyDate(),
+                py_time(self.timer_exact_hour.currentIndex(), minute),
+            )
+            seconds = int((target - py_datetime.now()).total_seconds())
+            if seconds <= 0:
+                show_modern_warning(self, "설정 확인", "지정 시간이 현재 시간보다 이전입니다.")
+                return
+            duration_label = target.strftime("%Y-%m-%d %H:%M")
+        else:
+            minutes = self.timer_duration_combo.currentData()
+            if not minutes:
+                return
+            seconds = int(minutes) * 60
+            duration_label = self.timer_duration_combo.currentText()
         note = self.timer_note.text().strip()
-        duration_label = self.timer_duration_combo.currentText()
-        ms = minutes * 60 * 1000
-        if not hasattr(self.owner, "_quick_timers"):
-            self.owner._quick_timers = []
-        t = QTimer(self.owner)
-        t.setSingleShot(True)
-
-        def on_timer_done() -> None:
-            msg = f"⏱ {duration_label} 타이머가 완료되었습니다."
-            if note:
-                msg += f"\n{note}"
-            show_modern_info(self.owner, "타이머 알림", msg)
-            try:
-                self.owner._quick_timers.remove(t)
-            except ValueError:
-                pass
-
-        t.timeout.connect(on_timer_done)
-        t.start(ms)
-        self.owner._quick_timers.append(t)
+        timer_tab = next((tab for tab in getattr(self.owner, "tabs", []) if hasattr(tab, "start_quick_timer")), None)
+        if timer_tab is None:
+            show_modern_warning(self, "타이머 시작 실패", "타이머 탭을 찾을 수 없습니다.")
+            return
+        timer_tab.start_quick_timer(seconds, note, duration_label)
         self.accept()
-        show_modern_info(self.owner, "타이머 시작", f"⏱ {duration_label} 타이머가 시작되었습니다.")
+        show_modern_info(self.owner, "타이머 시작", f"{duration_label} 타이머가 시작되었습니다.")
 
 
 class MainWindow(QMainWindow):
@@ -850,6 +958,9 @@ class MainWindow(QMainWindow):
         phrase_popup_hotkey = self.settings.get("phrase_popup_hotkey")
         if phrase_popup_hotkey:
             entries.append(("상용구 미니팝업", phrase_popup_hotkey))
+        steel_cut_hotkey = self.settings.get("steel_cut_hotkey")
+        if steel_cut_hotkey:
+            entries.append(("스틸 컷", steel_cut_hotkey))
         return entries
 
     def first_hotkey_conflict(self, candidate: dict | None = None, original: dict | None = None) -> str:
@@ -905,6 +1016,9 @@ class MainWindow(QMainWindow):
         phrase_popup_hotkey = settings.get("phrase_popup_hotkey")
         if phrase_popup_hotkey:
             self.hotkeys.register(phrase_popup_hotkey.get("modifiers", []), phrase_popup_hotkey.get("key", ""), self.show_phrase_popup, "phrase_popup")
+        steel_cut_hotkey = settings.get("steel_cut_hotkey")
+        if steel_cut_hotkey:
+            self.hotkeys.register(steel_cut_hotkey.get("modifiers", []), steel_cut_hotkey.get("key", ""), self.tabs[3].capture_steel_cut, "steel_cut")
         self.update_hotkey_status()
         self.update_hotkey_toggle_button()
 
@@ -1192,7 +1306,18 @@ class MainWindow(QMainWindow):
         if repeat == "daily":
             schedule["datetime"] = (target + timedelta(days=1)).isoformat(timespec="seconds")
         elif repeat == "weekly":
-            schedule["datetime"] = (target + timedelta(weeks=1)).isoformat(timespec="seconds")
+            weekdays = schedule.get("repeat_weekdays", [target.weekday()])
+            if weekdays:
+                next_day = target + timedelta(days=1)
+                for _ in range(7):
+                    if next_day.weekday() in weekdays:
+                        schedule["datetime"] = datetime.combine(
+                            next_day.date(), target.time()
+                        ).isoformat(timespec="seconds")
+                        break
+                    next_day += timedelta(days=1)
+            else:
+                schedule["datetime"] = (target + timedelta(weeks=1)).isoformat(timespec="seconds")
         elif repeat == "monthly":
             month = target.month + 1
             year = target.year
@@ -1201,6 +1326,23 @@ class MainWindow(QMainWindow):
                 year += 1
             day = min(target.day, calendar.monthrange(year, month)[1])
             schedule["datetime"] = target.replace(year=year, month=month, day=day).isoformat(timespec="seconds")
+        elif repeat == "yearly":
+            try:
+                schedule["datetime"] = target.replace(year=target.year + 1).isoformat(timespec="seconds")
+            except ValueError:
+                schedule["datetime"] = (target + timedelta(days=365)).isoformat(timespec="seconds")
+        elif repeat == "weekday":
+            weekdays = schedule.get("repeat_weekdays", list(range(5)))
+            if weekdays:
+                next_day = target + timedelta(days=1)
+                for _ in range(7):
+                    if next_day.weekday() in weekdays:
+                        schedule["datetime"] = datetime.combine(
+                            next_day.date(), target.time()
+                        ).isoformat(timespec="seconds")
+                        break
+                    next_day += timedelta(days=1)
+            schedule["repeat"] = "weekly"
 
     def show_schedule_notification(self, schedule: dict[str, Any]) -> None:
         bump_usage(schedule)

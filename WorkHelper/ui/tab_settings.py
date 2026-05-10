@@ -107,7 +107,8 @@ class SettingsTab(QWidget):
         self.clipboard_limit = QSpinBox()
         self.clipboard_limit.setRange(10, 500)
         self.auto_update_check = QCheckBox("프로그램 시작 시 자동 확인")
-        self.auto_update_install = QCheckBox("exe 실행 중이면 업데이트 파일 자동 교체")
+        self.auto_update_install = QCheckBox("업데이트 동의 시 앱에서 바로 설치")
+        self.auto_update_install.setEnabled(False)
         self.startup_with_windows = QCheckBox("Windows 시작 시 함께 실행")
         form.addRow("활성 프리셋", self.template)
         form.addRow("프리셋 이름", self.template_name)
@@ -144,6 +145,8 @@ class SettingsTab(QWidget):
         phrase_layout = QFormLayout(phrase_box)
         phrase_layout.setContentsMargins(12, 10, 12, 10)
         phrase_layout.addRow("상용구 미니팝업", self.phrase_popup_hotkey)
+        self.steel_cut_hotkey = HotkeyFields()
+        phrase_layout.addRow("스틸 컷", self.steel_cut_hotkey)
         layout.addWidget(phrase_box)
         self.popup_mode_group.buttonToggled.connect(self.update_mode_enabled)
         self.memo_mode_group.buttonToggled.connect(self.update_mode_enabled)
@@ -232,11 +235,12 @@ class SettingsTab(QWidget):
         self.always_on_top.setChecked(bool(settings.get("window", {}).get("always_on_top", False)))
         self.clipboard_limit.setValue(int(settings.get("clipboard_history_limit", 50)))
         self.auto_update_check.setChecked(bool(settings.get("auto_update_check", False)))
-        self.auto_update_install.setChecked(bool(settings.get("auto_update_install", False)))
+        self.auto_update_install.setChecked(True)
         self.startup_with_windows.setChecked(bool(settings.get("startup_with_windows", False)))
         self.clipboard_popup_hotkey.set_hotkey(settings.get("clipboard_popup_hotkey"))
         self.quick_memo_hotkey.set_hotkey(settings.get("quick_memo_hotkey"))
         self.phrase_popup_hotkey.set_hotkey(settings.get("phrase_popup_hotkey"))
+        self.steel_cut_hotkey.set_hotkey(settings.get("steel_cut_hotkey"))
         self.popup_mode_double_ctrl.setChecked(bool(settings.get("clipboard_popup_double_ctrl", True)))
         self.popup_mode_hotkey.setChecked(not self.popup_mode_double_ctrl.isChecked())
         self.memo_mode_double_alt.setChecked(bool(settings.get("quick_memo_double_alt", True)))
@@ -251,7 +255,7 @@ class SettingsTab(QWidget):
             "always_on_top": self.always_on_top.isChecked(),
             "clipboard_limit": self.clipboard_limit.value(),
             "auto_update_check": self.auto_update_check.isChecked(),
-            "auto_update_install": self.auto_update_install.isChecked(),
+            "auto_update_install": True,
             "startup_with_windows": self.startup_with_windows.isChecked(),
         }
 
@@ -270,8 +274,9 @@ class SettingsTab(QWidget):
         settings["quick_memo_hotkey"] = self.quick_memo_hotkey.value()
         settings["quick_memo_double_alt"] = self.memo_mode_double_alt.isChecked()
         settings["phrase_popup_hotkey"] = self.phrase_popup_hotkey.value()
+        settings["steel_cut_hotkey"] = self.steel_cut_hotkey.value()
         settings["auto_update_check"] = self.auto_update_check.isChecked()
-        settings["auto_update_install"] = self.auto_update_install.isChecked()
+        settings["auto_update_install"] = True
         settings["startup_with_windows"] = self.startup_with_windows.isChecked()
         settings["active_preset"] = self.main.template_index
         window["always_on_top"] = self.always_on_top.isChecked()
@@ -279,7 +284,12 @@ class SettingsTab(QWidget):
         if conflict:
             show_modern_warning(self, "단축키 충돌", conflict)
             return
-        for hotkey in [settings.get("clipboard_popup_hotkey"), settings.get("quick_memo_hotkey"), settings.get("phrase_popup_hotkey")]:
+        for hotkey in [
+            settings.get("clipboard_popup_hotkey"),
+            settings.get("quick_memo_hotkey"),
+            settings.get("phrase_popup_hotkey"),
+            settings.get("steel_cut_hotkey"),
+        ]:
             if not confirm_shift_digit_hotkey(self, hotkey):
                 return
         try:
