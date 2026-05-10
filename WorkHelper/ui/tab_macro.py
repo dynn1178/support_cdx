@@ -53,7 +53,10 @@ class MacroActionsDialog(QDialog):
         action_row = QHBoxLayout()
         delete_row = QPushButton("선택 이력 삭제")
         delete_row.clicked.connect(self.delete_selected_rows)
+        remove_coords_btn = QPushButton("좌표 제거 (현재 위치 클릭)")
+        remove_coords_btn.clicked.connect(self.remove_coords_from_selected)
         action_row.addWidget(delete_row)
+        action_row.addWidget(remove_coords_btn)
         action_row.addStretch(1)
         layout.addLayout(action_row)
 
@@ -69,13 +72,21 @@ class MacroActionsDialog(QDialog):
         for row in rows:
             self.table.removeRow(row)
 
+    def remove_coords_from_selected(self) -> None:
+        rows = {index.row() for index in self.table.selectedIndexes()}
+        for row in rows:
+            type_item = self.table.item(row, 0)
+            if type_item and type_item.text() == "click":
+                self.table.setItem(row, 1, QTableWidgetItem("(현재 위치)"))
+
     def load_actions(self) -> None:
         actions = self.macro.get("actions", [])
         self.table.setRowCount(len(actions))
         for row, action in enumerate(actions):
             self.table.setItem(row, 0, QTableWidgetItem(action.get("type", "")))
             if action.get("type") == "click":
-                value = f"{action.get('x', 0)}, {action.get('y', 0)}"
+                x, y = action.get("x"), action.get("y")
+                value = "(현재 위치)" if x is None or y is None else f"{x}, {y}"
             elif action.get("type") == "hotkey":
                 value = "+".join(action.get("keys", []))
             else:
@@ -94,9 +105,15 @@ class MacroActionsDialog(QDialog):
             except ValueError:
                 delay = 0.0
             if action_type == "click":
-                parts = [part.strip() for part in value.split(",", 1)]
-                if len(parts) == 2:
-                    edited.append({"type": "click", "x": int(float(parts[0])), "y": int(float(parts[1])), "delay": delay})
+                if value == "(현재 위치)":
+                    edited.append({"type": "click", "x": None, "y": None, "delay": delay})
+                else:
+                    parts = [part.strip() for part in value.split(",", 1)]
+                    if len(parts) == 2:
+                        try:
+                            edited.append({"type": "click", "x": int(float(parts[0])), "y": int(float(parts[1])), "delay": delay})
+                        except ValueError:
+                            pass
             elif action_type == "hotkey":
                 keys = [part.strip() for part in value.split("+") if part.strip()]
                 if keys:
@@ -359,7 +376,11 @@ class MacroTab(QWidget):
             for action in macro.get("actions", []):
                 time.sleep(float(action.get("delay", 0)))
                 if action.get("type") == "click":
-                    pyautogui.click(int(action.get("x", 0)), int(action.get("y", 0)))
+                    x, y = action.get("x"), action.get("y")
+                    if x is None or y is None:
+                        pyautogui.click()
+                    else:
+                        pyautogui.click(int(x), int(y))
                 elif action.get("type") == "hotkey":
                     pyautogui.hotkey(*action.get("keys", []))
                 elif action.get("type") == "type":

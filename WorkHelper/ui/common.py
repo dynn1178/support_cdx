@@ -167,6 +167,7 @@ def make_card(
     compact: bool = False,
     card_height: int | None = None,
     card_size: str | None = None,
+    word_wrap: bool = False,
 ) -> QWidget:
     card = QWidget()
     card.setObjectName("card")
@@ -182,7 +183,10 @@ def make_card(
         compact = False
     elif card_height is None:
         card_height = 56 if compact else CARD_SIZE_B
-    card.setFixedHeight(card_height)
+    if word_wrap:
+        card.setMinimumHeight(card_height)
+    else:
+        card.setFixedHeight(card_height)
     layout = QVBoxLayout(card)
     if compact:
         layout.setContentsMargins(10, 6, 10, 6)
@@ -195,14 +199,21 @@ def make_card(
         layout.setSpacing(6)
     row = QHBoxLayout()
     row.setSpacing(10)
-    title_display = title.splitlines()[0] + "..." if "\n" in title or "\r" in title else title
-    title_label = ElidedLabel(title_display)
-    title_label.setObjectName("cardTitle")
-    title_label.setWordWrap(False)
-    title_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-    title_label.setMinimumWidth(0)
-    title_label.setFixedHeight(22)
-    title_label.setToolTip(title)
+    if word_wrap:
+        title_label = QLabel(title)
+        title_label.setObjectName("cardTitle")
+        title_label.setWordWrap(True)
+        title_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        title_label.setMinimumWidth(0)
+    else:
+        title_display = title.splitlines()[0] + "..." if "\n" in title or "\r" in title else title
+        title_label = ElidedLabel(title_display)
+        title_label.setObjectName("cardTitle")
+        title_label.setWordWrap(False)
+        title_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        title_label.setMinimumWidth(0)
+        title_label.setFixedHeight(22)
+        title_label.setToolTip(title)
     row.addWidget(title_label, 1)
     reserve_hotkey = bool(hotkey)
     if reserve_hotkey:

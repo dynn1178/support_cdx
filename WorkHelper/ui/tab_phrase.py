@@ -196,7 +196,7 @@ class PhraseTab(QWidget):
             if q and q not in (item.get("name", "") + " " + item.get("text", "")).lower():
                 continue
             if collection == "phrases":
-                card = make_card(self.single_line_preview(item.get("text", ""), 160), "", display_hotkey(item.get("hotkey")), card_size="a")
+                card = make_card(item.get("text", ""), "", display_hotkey(item.get("hotkey")), card_size="a", word_wrap=True)
             else:
                 card = make_card(item.get("name", "(이름 없음)"), short_preview(item.get("text", "")), display_hotkey(item.get("hotkey")), card_size="b")
             self.add_phrase_actions(card, item, collection, code)
@@ -235,7 +235,7 @@ class PhraseTab(QWidget):
             if q and q not in (item.get("name", "") + " " + item.get("template", "")).lower():
                 continue
             rendered = render_date_template(item.get("template", ""), business_days=bool(item.get("business_days", False)))
-            card = make_card(rendered, "", display_hotkey(item.get("hotkey")), card_size="a")
+            card = make_card(rendered, "", display_hotkey(item.get("hotkey")), card_size="a", word_wrap=True)
             self.add_title_actions(card, item)
             cards.append(card)
         if not cards:

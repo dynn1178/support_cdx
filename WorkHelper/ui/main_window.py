@@ -804,7 +804,7 @@ class MainWindow(QMainWindow):
             self.stack.addWidget(tab)
         content_layout.addWidget(self.stack, 1)
 
-        names = ["홈", "상용구/코드", "바로가기", "컨닝페이퍼", "매크로", "클립보드", "계산기", "텍스트 변환", "메모", "일정 관리", "기타", "설정"]
+        names = ["홈", "상용구/코드", "바로가기", "컨닝페이퍼", "매크로", "클립보드", "계산기", "텍스트 변환", "메모", "일정 관리", "피커 · 기타", "설정"]
         self.buttons: list[QToolButton] = []
         for i, name in enumerate(names):
             button = QToolButton()

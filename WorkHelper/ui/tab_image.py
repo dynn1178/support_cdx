@@ -314,6 +314,12 @@ class ImageTab(QWidget):
         steel_layout.addSpacing(8)
         steel_layout.addWidget(steel_hint)
         steel_layout.addWidget(self.steel_cut_list, 1)
+        reset_row = QHBoxLayout()
+        reset_btn = QPushButton("초기화")
+        reset_btn.clicked.connect(self.clear_steel_cuts)
+        reset_row.addStretch(1)
+        reset_row.addWidget(reset_btn)
+        steel_layout.addLayout(reset_row)
         self.tabs.addTab(steel_page, "스틸 컷")
         layout.addWidget(self.tabs, 1)
 
@@ -518,6 +524,17 @@ class ImageTab(QWidget):
         self.delete_steel_cut_file(item)
         self.main.save_data()
 
+    def clear_steel_cuts(self) -> None:
+        items = self.main.data.get("steel_cuts", [])
+        if not items:
+            QMessageBox.information(self, "초기화", "삭제할 스틸 컷이 없습니다.")
+            return
+        if QMessageBox.question(self, "초기화", f"스틸 컷 {len(items)}개를 모두 삭제할까요?") != QMessageBox.StandardButton.Yes:
+            return
+        for item in list(items):
+            self.delete_steel_cut_file(item)
+        self.main.data["steel_cuts"] = []
+        self.main.save_data()
 
     def edit_image(self, item: dict | None = None) -> None:
         dialog = ImageDialog(item)
