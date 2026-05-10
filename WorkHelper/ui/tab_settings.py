@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import re
+import webbrowser
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
+    QDialog,
     QFileDialog,
     QFormLayout,
     QGridLayout,
@@ -18,6 +20,7 @@ from PyQt6.QtWidgets import (
     QRadioButton,
     QSpinBox,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -292,7 +295,51 @@ class SettingsTab(QWidget):
         self.main.show()
 
     def show_creator(self) -> None:
-        show_modern_info(self, "제작자", "6PM Assistant\n문의: dynn1178@naver.com")
+        from ui.common import dialog_palette
+        HOMEPAGE = "https://6pma.vercel.app/"
+        dlg = QDialog(self)
+        dlg.setWindowTitle("제작자")
+        dlg.setModal(True)
+        dlg.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        colors = dialog_palette(self)
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(22, 20, 22, 16)
+        layout.setSpacing(10)
+        title_lbl = QLabel("제작자")
+        title_lbl.setObjectName("modernDialogTitle")
+        info_lbl = QLabel("6PM Assistant\n문의: dynn1178@naver.com")
+        info_lbl.setWordWrap(True)
+        url_lbl = QLabel(f'<a href="{HOMEPAGE}" style="color:{colors["accent"]}">{HOMEPAGE}</a>')
+        url_lbl.setOpenExternalLinks(True)
+        url_lbl.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextBrowserInteraction
+        )
+        layout.addWidget(title_lbl)
+        layout.addWidget(info_lbl)
+        layout.addWidget(url_lbl)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        open_btn = QToolButton()
+        open_btn.setText("홈페이지 열기")
+        open_btn.setFixedHeight(32)
+        open_btn.clicked.connect(lambda: webbrowser.open(HOMEPAGE))
+        close_btn = QToolButton()
+        close_btn.setText("확인")
+        close_btn.setFixedHeight(32)
+        close_btn.clicked.connect(dlg.accept)
+        btn_row.addWidget(open_btn)
+        btn_row.addWidget(close_btn)
+        layout.addLayout(btn_row)
+        dlg.setStyleSheet(
+            f"""
+            QDialog {{ background: {colors["panel"]}; border: 1px solid {colors["border"]}; border-radius: 10px; }}
+            QLabel {{ color: {colors["text"]}; }}
+            QLabel#modernDialogTitle {{ color: {colors["accent"]}; font-size: 14pt; font-weight: 900; }}
+            QToolButton {{ background: {colors["accent"]}; color: white; border: 0; border-radius: 6px; padding: 0 16px; font-weight: 800; }}
+            """
+        )
+        dlg.resize(360, 200)
+        dlg.exec()
 
     def check_update_now(self) -> None:
         check_update_dialog(
