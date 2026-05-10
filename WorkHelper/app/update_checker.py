@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -29,14 +30,19 @@ class UpdateInfo:
     asset_name: str = ""
 
 
+def normalize_version(version: str) -> str:
+    return version.strip().lstrip("\ufeff").strip().lstrip("vV").strip()
+
+
 def parse_version(version: str) -> tuple[int, ...]:
+    normalized = re.split(r"[-+_ ]", normalize_version(version), maxsplit=1)[0]
     parts = []
-    for chunk in version.lstrip("v").split("."):
-        try:
-            parts.append(int(chunk))
-        except ValueError:
-            parts.append(0)
-    return tuple(parts)
+    for chunk in normalized.split("."):
+        match = re.match(r"\d+", chunk)
+        parts.append(int(match.group(0)) if match else 0)
+    while len(parts) > 1 and parts[-1] == 0:
+        parts.pop()
+    return tuple(parts) if parts else (0,)
 
 
 def check_just_updated() -> str | None:
@@ -52,7 +58,7 @@ def check_just_updated() -> str | None:
 
 
 def _build_update_info(payload: dict, current_version: str) -> UpdateInfo | None:
-    latest = payload.get("tag_name", "").lstrip("v")
+    latest = normalize_version(str(payload.get("tag_name", "")))
     if not latest or parse_version(latest) <= parse_version(current_version):
         return None
     assets = payload.get("assets", [])

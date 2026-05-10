@@ -405,7 +405,8 @@ def template_path(index: int) -> Path:
 
 def read_version() -> str:
     ensure_data_files()
-    return VERSION_PATH.read_text(encoding="utf-8").strip() or DEFAULT_VERSION
+    version = VERSION_PATH.read_text(encoding="utf-8").strip().lstrip("\ufeff").strip()
+    return version or DEFAULT_VERSION
 
 
 def load_template(index: int) -> dict[str, Any]:

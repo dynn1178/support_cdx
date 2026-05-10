@@ -55,7 +55,7 @@ Write-Host " $currentVersion  ->  $Version"
 Write-Host "==========================================="
 Write-Host ""
 
-Set-Content $VersionFile $Version -NoNewline -Encoding utf8
+[System.IO.File]::WriteAllText($VersionFile, $Version, [System.Text.UTF8Encoding]::new($false))
 Write-Host "[1/5] version.txt updated: $Version"
 
 # --- 2. pip install ---
