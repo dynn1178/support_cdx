@@ -47,7 +47,8 @@ class TitleTemplateDialog(QDialog):
         self.item = item or {}
         layout = QVBoxLayout(self)
         form = QFormLayout()
-        self.template = QTextEdit(self.item.get("template", "보고서 {yyyy-mm-dd}"))
+        self.template = QTextEdit()
+        self.template.setPlainText(self.item.get("template", "보고서 {yyyy-mm-dd}"))
         self.business_days = QCheckBox("일 단위 계산 시 영업일 기준")
         self.business_days.setChecked(bool(self.item.get("business_days", False)))
         self.hotkey = HotkeyFields(self.item.get("hotkey"))
@@ -235,7 +236,8 @@ class PhraseTab(QWidget):
             if q and q not in (item.get("name", "") + " " + item.get("template", "")).lower():
                 continue
             rendered = render_date_template(item.get("template", ""), business_days=bool(item.get("business_days", False)))
-            card = make_card(rendered, "", display_hotkey(item.get("hotkey")), card_size="a", word_wrap=True)
+            first_line = rendered.splitlines()[0] if rendered else ""
+            card = make_card(first_line, "", display_hotkey(item.get("hotkey")), card_size="a")
             self.add_title_actions(card, item)
             cards.append(card)
         if not cards:
