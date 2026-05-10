@@ -24,7 +24,10 @@ VERSION_PATH = BASE_DIR / "version.txt"
 APP_ICON_PATH = BASE_DIR / "assets" / "icons" / "app.ico"
 BUNDLED_ICON_PATH = RESOURCE_DIR / "assets" / "icons" / "app.ico"
 
+SETTINGS_VERSION = 2
+
 DEFAULT_SETTINGS: dict[str, Any] = {
+    "settings_version": SETTINGS_VERSION,
     "theme": "light",
     "window": {"width": 900, "height": 580, "always_on_top": False},
     "clipboard_history_limit": 30,
@@ -419,6 +422,21 @@ def merge_template_defaults(data: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+def _migrate_settings(data: dict[str, Any]) -> dict[str, Any]:
+    """이전 버전 settings를 현재 버전으로 마이그레이션."""
+    version = int(data.get("settings_version") or 0)
+    if version < 2:
+        # v2: auto_update_check/install 기본값 True, clipboard_history_limit 기본값 30
+        if not data.get("auto_update_check"):
+            data["auto_update_check"] = True
+        if not data.get("auto_update_install"):
+            data["auto_update_install"] = True
+        if data.get("clipboard_history_limit", 0) > 30:
+            data["clipboard_history_limit"] = 30
+    data["settings_version"] = SETTINGS_VERSION
+    return data
+
+
 def load_settings() -> dict[str, Any]:
     ensure_data_files()
     try:
@@ -426,6 +444,7 @@ def load_settings() -> dict[str, Any]:
             data = json.load(f)
     except Exception:
         data = {}
+    data = _migrate_settings(data)
     settings = copy.deepcopy(DEFAULT_SETTINGS)
     for key, value in data.items():
         if isinstance(value, dict) and isinstance(settings.get(key), dict):
