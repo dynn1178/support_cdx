@@ -9,9 +9,11 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QHeaderView,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -36,8 +38,17 @@ class MacroActionsDialog(QDialog):
         form = QFormLayout()
         self.name = QLineEdit(macro.get("name", ""))
         self.hotkey = HotkeyFields(macro.get("hotkey"))
+        self.repeat = QSpinBox()
+        self.repeat.setRange(1, 999)
+        self.repeat.setValue(macro.get("repeat", 1))
+        repeat_row = QHBoxLayout()
+        repeat_row.setContentsMargins(0, 0, 0, 0)
+        repeat_row.addWidget(self.repeat)
+        repeat_row.addWidget(QLabel("회"))
+        repeat_row.addStretch(1)
         form.addRow("이름", self.name)
         form.addRow("실행 단축키", self.hotkey)
+        form.addRow("반복 횟수", repeat_row)
         layout.addLayout(form)
         self.table = QTableWidget(0, 4)
         self.table.setStyleSheet("QHeaderView::section { padding: 3px 6px; font-weight: 500; }")
@@ -123,7 +134,7 @@ class MacroActionsDialog(QDialog):
         return edited
 
     def value(self) -> dict:
-        return {"name": self.name.text().strip(), "hotkey": self.hotkey.value(), "actions": self.actions()}
+        return {"name": self.name.text().strip(), "hotkey": self.hotkey.value(), "repeat": self.repeat.value(), "actions": self.actions()}
 
     def _text(self, row: int, col: int) -> str:
         item = self.table.item(row, col)
@@ -210,7 +221,9 @@ class MacroTab(QWidget):
         for macro in visible_items:
             if q and q not in macro.get("name", "").lower():
                 continue
-            card = make_card(macro.get("name", "(이름 없음)"), f"{len(macro.get('actions', []))}개 액션", display_hotkey(macro.get("hotkey")), card_size="b")
+            repeat = macro.get("repeat", 1)
+            repeat_label = f" · {repeat}회 반복" if repeat > 1 else ""
+            card = make_card(macro.get("name", "(이름 없음)"), f"{len(macro.get('actions', []))}개 액션{repeat_label}", display_hotkey(macro.get("hotkey")), card_size="b")
             add_card_actions(
                 card,
                 [
@@ -243,6 +256,7 @@ class MacroTab(QWidget):
             return
         macro["name"] = value["name"]
         macro["hotkey"] = value["hotkey"]
+        macro["repeat"] = value["repeat"]
         macro["actions"] = value["actions"]
         self.main.save_data()
 
@@ -372,19 +386,21 @@ class MacroTab(QWidget):
 
             bump_usage(macro)
             self.main.save_usage_data()
+            repeat = max(1, int(macro.get("repeat", 1)))
             time.sleep(1.0)
-            for action in macro.get("actions", []):
-                time.sleep(float(action.get("delay", 0)))
-                if action.get("type") == "click":
-                    x, y = action.get("x"), action.get("y")
-                    if x is None or y is None:
-                        pyautogui.click()
-                    else:
-                        pyautogui.click(int(x), int(y))
-                elif action.get("type") == "hotkey":
-                    pyautogui.hotkey(*action.get("keys", []))
-                elif action.get("type") == "type":
-                    pyautogui.typewrite(action.get("text", ""), interval=0.05)
+            for _ in range(repeat):
+                for action in macro.get("actions", []):
+                    time.sleep(float(action.get("delay", 0)))
+                    if action.get("type") == "click":
+                        x, y = action.get("x"), action.get("y")
+                        if x is None or y is None:
+                            pyautogui.click()
+                        else:
+                            pyautogui.click(int(x), int(y))
+                    elif action.get("type") == "hotkey":
+                        pyautogui.hotkey(*action.get("keys", []))
+                    elif action.get("type") == "type":
+                        pyautogui.typewrite(action.get("text", ""), interval=0.05)
         except Exception as exc:
             QMessageBox.warning(self, "매크로 실행 실패", str(exc))
 
