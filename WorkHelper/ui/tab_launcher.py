@@ -31,6 +31,44 @@ from ui.common import GridPanel, HotkeyFields, SortControls, apply_manual_reorde
 TYPE_ALIASES = {"사이트": "site", "파일": "file", "폴더": "folder", "site": "site", "file": "file", "folder": "folder"}
 
 
+class CustomSearchDialog(QDialog):
+    def __init__(self, item: dict | None = None) -> None:
+        super().__init__()
+        self.item = item or {}
+        action = "수정" if item else "등록"
+        self.setWindowTitle(f"검색 바로가기 {action}")
+        apply_modern_dialog_style(self)
+        self.setMinimumWidth(420)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 14, 14, 12)
+        layout.setSpacing(12)
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(10)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        self.name = QLineEdit(self.item.get("name", ""))
+        self.url = QLineEdit(self.item.get("url", ""))
+        self.url.setPlaceholderText("https://example.com/search?q={query}")
+        form.addRow("이름", self.name)
+        form.addRow("검색 URL", self.url)
+        hint = QLabel("{query} 자리에 검색어가 삽입됩니다.")
+        hint.setObjectName("mutedText")
+        layout.addLayout(form)
+        layout.addWidget(hint)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("확인")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("취소")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def value(self) -> dict:
+        data = dict(self.item)
+        data.update({"name": self.name.text().strip(), "url": self.url.text().strip()})
+        return data
+
+
 def launcher_type(value: str | None) -> str:
     return TYPE_ALIASES.get(str(value or "site").strip().lower(), TYPE_ALIASES.get(str(value or "site").strip(), "site"))
 
@@ -170,6 +208,9 @@ class LauncherTab(QWidget):
         self.site_list = GridPanel(columns=2)
         self.file_list = GridPanel(columns=2)
         self.quick_search_page = QWidget()
+        self._quick_search_page_layout = QVBoxLayout(self.quick_search_page)
+        self._quick_search_page_layout.setContentsMargins(0, 0, 0, 0)
+        self._quick_search_content = None
         self.tabs.addTab(self.site_list, "사이트")
         self.tabs.addTab(self.file_list, "파일/폴더")
         self.tabs.addTab(self.quick_search_page, "바로검색")
@@ -202,33 +243,117 @@ class LauncherTab(QWidget):
         self.update_add_buttons()
 
     def update_add_buttons(self) -> None:
-        is_site_tab = self.tabs.currentIndex() == 0
-        self.add_site_btn.setVisible(is_site_tab)
-        self.add_file_btn.setVisible(self.tabs.currentIndex() == 1)
+        idx = self.tabs.currentIndex()
+        is_quick_search = idx == 2
+        self.search.setVisible(not is_quick_search)
+        self.sort_controls.setVisible(not is_quick_search)
+        self.add_site_btn.setVisible(idx == 0)
+        self.add_file_btn.setVisible(idx == 1)
 
     def build_quick_search_tab(self) -> None:
-        layout = QVBoxLayout(self.quick_search_page)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        if self._quick_search_content is not None:
+            self._quick_search_page_layout.removeWidget(self._quick_search_content)
+            self._quick_search_content.deleteLater()
+            self._quick_search_content = None
+
+        content = QWidget()
+        clayout = QVBoxLayout(content)
+        clayout.setContentsMargins(10, 10, 10, 10)
+        clayout.setSpacing(8)
+
         for name, url in self.SEARCH_ENGINES:
-            row = QWidget()
-            row.setObjectName("card")
-            row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(10, 8, 10, 8)
-            row_layout.setSpacing(8)
-            label = QLabel(name)
-            label.setMinimumWidth(64)
-            label.setObjectName("cardTitle")
-            query = QLineEdit()
-            query.setPlaceholderText(f"{name} 검색어")
-            button = QPushButton("검색")
-            query.returnPressed.connect(lambda value=url, field=query: self.open_quick_search(value, field))
-            button.clicked.connect(lambda checked=False, value=url, field=query: self.open_quick_search(value, field))
-            row_layout.addWidget(label)
-            row_layout.addWidget(query, 1)
-            row_layout.addWidget(button)
-            layout.addWidget(row)
-        layout.addStretch(1)
+            clayout.addWidget(self._make_search_row(name, url))
+
+        for item in self.main.data.get("custom_searches", []):
+            clayout.addWidget(self._make_custom_search_row(item))
+
+        add_btn = QPushButton("+ 검색 추가")
+        add_btn.clicked.connect(self.add_custom_search)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        btn_row.addWidget(add_btn)
+        clayout.addLayout(btn_row)
+        clayout.addStretch(1)
+
+        self._quick_search_content = content
+        self._quick_search_page_layout.addWidget(content)
+
+    def _make_search_row(self, name: str, url: str) -> QWidget:
+        row = QWidget()
+        row.setObjectName("card")
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(10, 8, 10, 8)
+        row_layout.setSpacing(8)
+        label = QLabel(name)
+        label.setMinimumWidth(64)
+        label.setObjectName("cardTitle")
+        query = QLineEdit()
+        query.setPlaceholderText(f"{name} 검색어")
+        query.returnPressed.connect(lambda value=url, field=query: self.open_quick_search(value, field))
+        row_layout.addWidget(label)
+        row_layout.addWidget(query, 1)
+        return row
+
+    def _make_custom_search_row(self, item: dict) -> QWidget:
+        row = QWidget()
+        row.setObjectName("card")
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(10, 8, 10, 8)
+        row_layout.setSpacing(8)
+        label = QLabel(item.get("name", ""))
+        label.setMinimumWidth(64)
+        label.setObjectName("cardTitle")
+        query = QLineEdit()
+        query.setPlaceholderText(f"{item.get('name', '')} 검색어")
+        url = item.get("url", "")
+        query.returnPressed.connect(lambda value=url, field=query: self.open_quick_search(value, field))
+        row_layout.addWidget(label)
+        row_layout.addWidget(query, 1)
+        row_layout.addWidget(make_icon_button("edit", "수정", lambda checked=False, value=item: self.edit_custom_search(value)))
+        row_layout.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=item: self.delete_custom_search(value), True))
+        return row
+
+    def add_custom_search(self) -> None:
+        dialog = CustomSearchDialog()
+        while dialog.exec() == dialog.DialogCode.Accepted:
+            value = dialog.value()
+            if not value.get("name"):
+                show_modern_warning(dialog, "입력 확인", "이름을 입력해주세요.")
+                continue
+            if not value.get("url") or "{query}" not in value.get("url", ""):
+                show_modern_warning(dialog, "입력 확인", "검색 URL에 {query}를 포함해주세요.\n예: https://example.com/search?q={query}")
+                continue
+            value["id"] = new_id("srch")
+            self.main.data.setdefault("custom_searches", []).append(value)
+            self.main.save_data()
+            self.build_quick_search_tab()
+            return
+
+    def edit_custom_search(self, item: dict) -> None:
+        dialog = CustomSearchDialog(item)
+        while dialog.exec() == dialog.DialogCode.Accepted:
+            value = dialog.value()
+            if not value.get("name"):
+                show_modern_warning(dialog, "입력 확인", "이름을 입력해주세요.")
+                continue
+            if not value.get("url") or "{query}" not in value.get("url", ""):
+                show_modern_warning(dialog, "입력 확인", "검색 URL에 {query}를 포함해주세요.\n예: https://example.com/search?q={query}")
+                continue
+            items = self.main.data.get("custom_searches", [])
+            if item in items:
+                items[items.index(item)] = value
+            self.main.save_data()
+            self.build_quick_search_tab()
+            return
+
+    def delete_custom_search(self, item: dict) -> None:
+        if not ask_modern_question(self, "삭제", "선택한 검색 바로가기를 삭제할까요?", None, "삭제", "취소"):
+            return
+        items = self.main.data.get("custom_searches", [])
+        if item in items:
+            items.remove(item)
+        self.main.save_data()
+        self.build_quick_search_tab()
 
     def open_quick_search(self, url_template: str, field: QLineEdit) -> None:
         query = field.text().strip()

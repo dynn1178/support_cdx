@@ -9,6 +9,7 @@ from PyQt6.QtCore import QRect, QSize, Qt
 from PyQt6.QtGui import QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -21,6 +22,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QRubberBand,
     QSizePolicy,
+    QSlider,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -220,6 +222,55 @@ class ImageViewerDialog(QDialog):
         self.resize(scaled.width() + 24, scaled.height() + 24)
 
 
+class SteelCutViewerDialog(QDialog):
+    def __init__(self, image_path: str, title: str) -> None:
+        super().__init__()
+        self.setWindowTitle(title)
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        ctrl = QHBoxLayout()
+        opacity_label = QLabel("투명도")
+        self.opacity_slider = QSlider(Qt.Orientation.Horizontal)
+        self.opacity_slider.setRange(20, 100)
+        self.opacity_slider.setValue(100)
+        self.opacity_slider.setFixedWidth(120)
+        self.opacity_slider.valueChanged.connect(lambda v: self.setWindowOpacity(v / 100.0))
+        self.pin_check = QCheckBox("항상 위")
+        self.pin_check.setChecked(True)
+        self.pin_check.toggled.connect(self._toggle_pin)
+        ctrl.addWidget(opacity_label)
+        ctrl.addWidget(self.opacity_slider)
+        ctrl.addStretch(1)
+        ctrl.addWidget(self.pin_check)
+        layout.addLayout(ctrl)
+
+        self.image_label = QLabel()
+        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        pixmap = QPixmap(image_path)
+        if pixmap.isNull():
+            self.image_label.setText("이미지를 불러오지 못했습니다.")
+        else:
+            screen = QApplication.primaryScreen()
+            max_w = int(screen.geometry().width() * 0.85)
+            max_h = int(screen.geometry().height() * 0.85)
+            scaled = pixmap.scaled(max_w, max_h, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            self.image_label.setPixmap(scaled)
+            self.resize(scaled.width() + 24, scaled.height() + 64)
+        layout.addWidget(self.image_label)
+
+    def _toggle_pin(self, checked: bool) -> None:
+        flags = self.windowFlags()
+        if checked:
+            flags |= Qt.WindowType.WindowStaysOnTopHint
+        else:
+            flags &= ~Qt.WindowType.WindowStaysOnTopHint
+        self.setWindowFlags(flags)
+        self.show()
+
+
 class ImageTab(QWidget):
     def __init__(self, main) -> None:
         super().__init__()
@@ -242,7 +293,7 @@ class ImageTab(QWidget):
         self.tabs = QTabWidget()
         self.tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
         self.list = GridPanel(columns=2)
-        self.steel_cut_list = GridPanel(columns=2)
+        self.steel_cut_list = GridPanel(columns=1)
         add_btn = QPushButton("+ 이미지")
         add_btn.clicked.connect(self.edit_image)
         page = QWidget()
@@ -264,6 +315,7 @@ class ImageTab(QWidget):
         )
         steel_hint.setObjectName("mutedText")
         steel_hint.setWordWrap(True)
+        steel_layout.addSpacing(8)
         steel_layout.addWidget(steel_hint)
         steel_layout.addWidget(self.steel_cut_list, 1)
         self.tabs.addTab(steel_page, "스틸 컷")
@@ -307,14 +359,13 @@ class ImageTab(QWidget):
     def make_steel_cut_card(self, item: dict) -> QWidget:
         card = QWidget()
         card.setObjectName("card")
-        card.setMinimumHeight(150)
         card.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(10, 10, 10, 8)
-        layout.setSpacing(6)
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
 
         image = QLabel()
-        image.setFixedHeight(76)
+        image.setFixedSize(QSize(110, 74))
         image.setAlignment(Qt.AlignmentFlag.AlignCenter)
         image.setStyleSheet("background:#F8FAFC;border:1px solid #E5E7EB;border-radius:5px;")
         path = resolve_image_path(item.get("path", ""), config.BASE_DIR)
@@ -322,23 +373,32 @@ class ImageTab(QWidget):
         if pixmap.isNull():
             image.setText("이미지 없음")
         else:
-            image.setPixmap(pixmap.scaled(QSize(260, 74), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            image.setPixmap(pixmap.scaled(QSize(108, 72), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         layout.addWidget(image)
+
+        right = QVBoxLayout()
+        right.setContentsMargins(0, 0, 0, 0)
+        right.setSpacing(4)
 
         title = QLabel(item.get("window_title") or "창 제목 없음")
         title.setObjectName("cardTitle")
         title.setWordWrap(False)
-        layout.addWidget(title)
+        right.addWidget(title)
+
         created = QLabel(self.format_created_at(item.get("created_at", "")))
         created.setObjectName("mutedText")
-        layout.addWidget(created)
+        right.addWidget(created)
 
-        row = QHBoxLayout()
-        row.setContentsMargins(0, 0, 0, 0)
-        row.addStretch(1)
-        row.addWidget(make_icon_button("view", "보기", lambda checked=False, value=item: self.view_steel_cut(value)))
-        row.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=item: self.delete_steel_cut(value), True))
-        layout.addLayout(row)
+        right.addStretch(1)
+
+        btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(0, 0, 0, 0)
+        btn_row.addStretch(1)
+        btn_row.addWidget(make_icon_button("view", "보기", lambda checked=False, value=item: self.view_steel_cut(value)))
+        btn_row.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=item: self.delete_steel_cut(value), True))
+        right.addLayout(btn_row)
+
+        layout.addLayout(right, 1)
         return card
 
     def format_created_at(self, value: str) -> str:
@@ -420,6 +480,7 @@ class ImageTab(QWidget):
         items.append(value)
         self.main.save_data()
         self.tabs.setCurrentIndex(1)
+        self.view_steel_cut(value)
 
     def view_image(self, item: dict) -> None:
         path = resolve_image_path(item.get("path", ""), config.BASE_DIR)
@@ -438,7 +499,7 @@ class ImageTab(QWidget):
         bump_usage(item)
         item["last_used_at"] = now_iso()
         self.main.save_usage_data()
-        ImageViewerDialog(path, item.get("window_title", "스틸 컷"), 100, stay_on_top=True).exec()
+        SteelCutViewerDialog(path, item.get("window_title", "스틸 컷")).exec()
 
     def delete_steel_cut_file(self, item: dict) -> None:
         try:
