@@ -11,7 +11,10 @@ from pathlib import Path
 
 import requests
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtWidgets import QDialog, QLabel, QMessageBox, QProgressBar, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QDialog, QHBoxLayout, QLabel, QMessageBox,
+    QProgressBar, QScrollArea, QToolButton, QVBoxLayout, QWidget,
+)
 
 from app import config
 
@@ -251,13 +254,117 @@ def install_update(parent: QWidget, update: UpdateInfo, token: str | None = None
     sys.exit(0)
 
 
-def update_message(update: UpdateInfo, auto_install: bool) -> str:
-    action = "지금 업데이트를 설치할까요?" if auto_install and can_self_update(update) else "다운로드 페이지를 열까요?"
-    body = update.body.strip()
-    if len(body) > 1200:
-        body = body[:1200].rstrip() + "\n..."
-    notes = f"\n\n업데이트 내용\n{body}" if body else ""
-    return f"새 버전 {update.latest_version}이 사용 가능합니다.\n{action}{notes}"
+class _UpdateConfirmDialog(QDialog):
+    """모던 스타일 업데이트 확인 다이얼로그."""
+
+    def __init__(self, parent: QWidget, update: UpdateInfo, auto_install: bool) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("업데이트 확인")
+        self.setModal(True)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        self.confirmed = False
+
+        try:
+            from ui.common import dialog_palette
+            colors = dialog_palette(parent)
+        except Exception:
+            colors = {"panel": "#ffffff", "border": "#dddddd", "text": "#222222",
+                      "accent": "#3B6CF5", "field": "#f5f5f5"}
+
+        self_install = auto_install and can_self_update(update)
+        yes_label = "지금 업데이트" if self_install else "다운로드 페이지 열기"
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(22, 20, 22, 16)
+        layout.setSpacing(10)
+
+        title_lbl = QLabel("업데이트 확인")
+        title_lbl.setObjectName("updateDialogTitle")
+
+        desc_lbl = QLabel(f"새 버전 <b>{update.latest_version}</b> 이 사용 가능합니다.")
+        desc_lbl.setWordWrap(True)
+
+        layout.addWidget(title_lbl)
+        layout.addWidget(desc_lbl)
+
+        # 릴리즈 노트
+        body = update.body.strip()
+        if body:
+            if len(body) > 800:
+                body = body[:800].rstrip() + "\n..."
+            notes_label = QLabel("업데이트 내용")
+            notes_label.setObjectName("updateNotesTitle")
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFixedHeight(110)
+            inner = QLabel(body)
+            inner.setWordWrap(True)
+            inner.setContentsMargins(6, 4, 6, 4)
+            inner.setAlignment(Qt.AlignmentFlag.AlignTop)
+            scroll.setWidget(inner)
+            layout.addWidget(notes_label)
+            layout.addWidget(scroll)
+
+        # 버튼 행
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        no_btn = QToolButton()
+        no_btn.setText("나중에")
+        no_btn.setFixedHeight(32)
+        no_btn.setObjectName("updateBtnSecondary")
+        no_btn.clicked.connect(self.reject)
+        yes_btn = QToolButton()
+        yes_btn.setText(yes_label)
+        yes_btn.setFixedHeight(32)
+        yes_btn.clicked.connect(self._on_confirm)
+        btn_row.addWidget(no_btn)
+        btn_row.addWidget(yes_btn)
+        layout.addLayout(btn_row)
+
+        self.setStyleSheet(f"""
+            QDialog {{
+                background: {colors["panel"]};
+                border: 1px solid {colors["border"]};
+                border-radius: 10px;
+            }}
+            QLabel {{ color: {colors["text"]}; font-size: 10pt; }}
+            QLabel#updateDialogTitle {{
+                color: {colors["accent"]};
+                font-size: 14pt;
+                font-weight: 900;
+            }}
+            QLabel#updateNotesTitle {{
+                color: {colors["text"]};
+                font-weight: 700;
+                font-size: 9pt;
+            }}
+            QScrollArea {{
+                border: 1px solid {colors["border"]};
+                border-radius: 6px;
+                background: {colors["field"]};
+            }}
+            QScrollArea QLabel {{
+                background: {colors["field"]};
+                font-size: 9pt;
+            }}
+            QToolButton {{
+                background: {colors["accent"]};
+                color: white;
+                border: 0;
+                border-radius: 6px;
+                padding: 0 16px;
+                font-weight: 800;
+            }}
+            QToolButton#updateBtnSecondary {{
+                background: {colors["border"]};
+                color: {colors["text"]};
+            }}
+        """)
+        self.resize(400, 240 if not body else 380)
+
+    def _on_confirm(self) -> None:
+        self.confirmed = True
+        self.accept()
 
 
 def check_update_dialog(
@@ -280,8 +387,9 @@ def check_update_dialog(
             QMessageBox.information(parent, "업데이트 확인", "현재 최신 버전을 사용 중입니다.")
         return False
 
-    choice = QMessageBox.question(parent, "업데이트 확인", update_message(update, auto_install))
-    if choice == QMessageBox.StandardButton.Yes:
+    dlg = _UpdateConfirmDialog(parent, update, auto_install)
+    dlg.exec()
+    if dlg.confirmed:
         if auto_install and can_self_update(update):
             try:
                 install_update(parent, update, token=token)

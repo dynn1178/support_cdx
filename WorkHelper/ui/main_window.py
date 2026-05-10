@@ -280,6 +280,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         config.ensure_data_files()
         self.app = app
+        self._just_updated = False
         self.version = config.read_version()
         self.settings = config.load_settings()
         self.template_index = int(self.settings.get("active_preset", 1))
@@ -668,10 +669,13 @@ class MainWindow(QMainWindow):
     def _show_just_updated_notice(self) -> None:
         version = check_just_updated()
         if version:
+            self._just_updated = True
             from ui.common import show_modern_info
             show_modern_info(self, "업데이트 완료!", f"v{version} 으로 업데이트 되었습니다. 🎉")
 
     def check_update_on_startup(self) -> None:
+        if self._just_updated:
+            return  # 방금 업데이트 완료 → 재확인 스킵
         settings = self.settings
         if not settings.get("auto_update_check", False):
             return
