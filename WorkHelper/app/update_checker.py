@@ -9,12 +9,13 @@ import tempfile
 import webbrowser
 import zipfile
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import requests
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QDialog, QHBoxLayout, QLabel, QMessageBox,
+    QCheckBox, QDialog, QHBoxLayout, QLabel, QMessageBox,
     QProgressBar, QScrollArea, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -22,6 +23,7 @@ from app import config
 
 JUST_UPDATED_FLAG = Path(tempfile.gettempdir()) / "6pma_just_updated.txt"
 MANUAL_UPDATE_URL = "https://github.com/dynn1178/support_cdx/releases/latest/download/6PM.Assistant.zip"
+UPDATE_SNOOZE_KEY = "update_notice_snooze_until"
 
 
 @dataclass
@@ -325,7 +327,41 @@ def _open_manual_update_folders() -> None:
 
 def open_manual_update_download() -> None:
     webbrowser.open(MANUAL_UPDATE_URL)
-    QTimer.singleShot(3000, _open_manual_update_folders)
+    QTimer.singleShot(5000, _open_manual_update_folders)
+
+
+def _settings_for_parent(parent: QWidget | None) -> dict | None:
+    settings = getattr(parent, "settings", None)
+    if isinstance(settings, dict):
+        return settings
+    main = getattr(parent, "main", None)
+    settings = getattr(main, "settings", None)
+    if isinstance(settings, dict):
+        return settings
+    return None
+
+
+def _is_update_notice_snoozed(settings: dict | None) -> bool:
+    if not settings:
+        return False
+    raw = str(settings.get(UPDATE_SNOOZE_KEY, "") or "")
+    if not raw:
+        return False
+    try:
+        return datetime.fromisoformat(raw) > datetime.now()
+    except ValueError:
+        return False
+
+
+def _save_update_notice_snooze(parent: QWidget | None) -> None:
+    settings = _settings_for_parent(parent)
+    if settings is None:
+        return
+    settings[UPDATE_SNOOZE_KEY] = (datetime.now() + timedelta(days=3)).replace(microsecond=0).isoformat()
+    try:
+        config.save_settings(settings)
+    except Exception:
+        pass
 
 
 class _UpdateStatusDialog(QDialog):
@@ -337,6 +373,7 @@ class _UpdateStatusDialog(QDialog):
         self.setModal(True)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.confirmed = False
+        self.snooze_checked = False
 
         try:
             from ui.common import dialog_palette
@@ -418,20 +455,29 @@ class _UpdateStatusDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.addStretch(1)
         if has_update:
-            manual_btn = QToolButton()
-            manual_btn.setText("수동 업데이트")
-            manual_btn.setFixedHeight(32)
-            manual_btn.setObjectName("usd_btn_secondary")
-            manual_btn.clicked.connect(open_manual_update_download)
-            btn_row.addWidget(manual_btn)
+            later_box = QWidget()
+            later_layout = QVBoxLayout(later_box)
+            later_layout.setContentsMargins(0, 0, 0, 0)
+            later_layout.setSpacing(4)
             cancel_btn = QToolButton()
             cancel_btn.setText("나중에")
             cancel_btn.setFixedHeight(32)
             cancel_btn.setObjectName("usd_btn_secondary")
             cancel_btn.clicked.connect(self.reject)
-            btn_row.addWidget(cancel_btn)
+            self.snooze_updates = QCheckBox("3일간 업데이트 알림 숨기기")
+            self.snooze_updates.setObjectName("usd_snooze_check")
+            later_layout.addWidget(cancel_btn)
+            later_layout.addWidget(self.snooze_updates)
+            btn_row.addWidget(later_box)
+
+            manual_btn = QToolButton()
+            manual_btn.setText("수동 업데이트(권장)")
+            manual_btn.setFixedHeight(32)
+            manual_btn.setObjectName("usd_btn_manual")
+            manual_btn.clicked.connect(open_manual_update_download)
+            btn_row.addWidget(manual_btn)
             confirm_btn = QToolButton()
-            confirm_btn.setText("지금 업데이트" if self_install else "업데이트 불가")
+            confirm_btn.setText("자동 업데이트" if self_install else "자동 업데이트 불가")
             confirm_btn.setFixedHeight(32)
             confirm_btn.setEnabled(self_install)
             confirm_btn.clicked.connect(self._on_confirm)
@@ -503,6 +549,16 @@ class _UpdateStatusDialog(QDialog):
                 background: {colors["border"]};
                 color: {colors["text"]};
             }}
+            QToolButton#usd_btn_manual {{
+                background: {colors.get("danger", "#E05353")};
+                color: white;
+            }}
+            QCheckBox#usd_snooze_check {{
+                color: {colors.get("muted", colors["text"])};
+                background: transparent;
+                font-size: 8.5pt;
+                spacing: 5px;
+            }}
         """)
         base_height = 220
         if body:
@@ -515,6 +571,11 @@ class _UpdateStatusDialog(QDialog):
         self.confirmed = True
         self.accept()
 
+    def done(self, result: int) -> None:
+        checkbox = getattr(self, "snooze_updates", None)
+        self.snooze_checked = bool(checkbox and checkbox.isChecked())
+        super().done(result)
+
 
 def check_update_dialog(
     parent: QWidget,
@@ -524,6 +585,10 @@ def check_update_dialog(
     silent_no_update: bool = True,
     token: str | None = None,
 ) -> bool:
+    settings = _settings_for_parent(parent)
+    if silent_no_update and _is_update_notice_snoozed(settings):
+        return False
+
     try:
         if silent_no_update:
             update = fetch_latest_update(current_version, repo=repo, token=token)
@@ -540,6 +605,8 @@ def check_update_dialog(
 
     dlg = _UpdateStatusDialog(parent, current_version, latest_version, update)
     dlg.exec()
+    if update and dlg.snooze_checked:
+        _save_update_notice_snooze(parent)
     if dlg.confirmed and update:
         if can_self_update(update):
             try:

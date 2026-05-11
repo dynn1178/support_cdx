@@ -40,6 +40,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "hotkeys_enabled": True,
     "auto_update_check": True,
     "auto_update_install": True,
+    "update_notice_snooze_until": "",
     "startup_with_windows": False,
     "active_preset": 1,
     "color_presets": [],
