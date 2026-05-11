@@ -256,6 +256,7 @@ class SettingsTab(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         content = QWidget()
+        content.setStyleSheet("QComboBox, QSpinBox { padding: 3px 8px; min-height: 16px; }")
         layout = QVBoxLayout(content)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(12)
@@ -268,6 +269,7 @@ class SettingsTab(QWidget):
         self.popup_mode_group.addButton(self.popup_mode_hotkey, 0)
         self.popup_mode_group.addButton(self.popup_mode_double_ctrl, 1)
         self.clipboard_popup_hotkey = HotkeyFields()
+        self.clipboard_popup_hotkey.setFixedHeight(28)
         layout.addWidget(self.hotkey_group("클립보드 미니팝업", self.popup_mode_double_ctrl, self.popup_mode_hotkey, self.clipboard_popup_hotkey))
 
         self.memo_mode_group = QButtonGroup(self)
@@ -276,14 +278,18 @@ class SettingsTab(QWidget):
         self.memo_mode_group.addButton(self.memo_mode_hotkey, 0)
         self.memo_mode_group.addButton(self.memo_mode_double_alt, 1)
         self.quick_memo_hotkey = HotkeyFields()
+        self.quick_memo_hotkey.setFixedHeight(28)
         layout.addWidget(self.hotkey_group("빠른 메모", self.memo_mode_double_alt, self.memo_mode_hotkey, self.quick_memo_hotkey))
 
         self.phrase_popup_hotkey = HotkeyFields()
+        self.phrase_popup_hotkey.setFixedHeight(28)
         layout.addWidget(self.single_hotkey_group("상용구 미니팝업", "단축키", self.phrase_popup_hotkey))
 
         self.steel_cut_hotkey = HotkeyFields()
+        self.steel_cut_hotkey.setFixedHeight(28)
         self.steel_cut_capture_mode_group = QButtonGroup(self)
         self.steel_cut_capture_mode_widget = QWidget()
+        self.steel_cut_capture_mode_widget.setObjectName("captureModeRow")
         mode_layout = QHBoxLayout(self.steel_cut_capture_mode_widget)
         mode_layout.setContentsMargins(0, 0, 0, 0)
         mode_layout.setSpacing(16)
@@ -309,6 +315,7 @@ class SettingsTab(QWidget):
         self.steel_cut_fixed_height.setMinimumWidth(150)
 
         self.screen_draw_hotkey = HotkeyFields()
+        self.screen_draw_hotkey.setFixedHeight(28)
 
         steel_box = QWidget()
         steel_box.setObjectName("card")
@@ -328,8 +335,9 @@ class SettingsTab(QWidget):
         fixed_size_row.addWidget(self.steel_cut_fixed_height)
         fixed_size_row.addStretch(1)
         steel_layout.addRow("고정 캡처 크기", fixed_size_row)
-        steel_layout.addRow("화면그리기 단축키", self.screen_draw_hotkey)
         layout.addWidget(steel_box)
+
+        layout.addWidget(self.single_hotkey_group("화면그리기", "단축키", self.screen_draw_hotkey))
 
         self.popup_mode_group.buttonToggled.connect(self.update_mode_enabled)
         self.memo_mode_group.buttonToggled.connect(self.update_mode_enabled)

@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app import config
-from ui.common import HotkeyFields, ask_modern_question, confirm_shift_digit_hotkey, show_modern_warning
+from ui.common import ask_modern_question, show_modern_warning
 
 
 def hex_to_rgb(value: str) -> tuple[int, int, int]:
@@ -563,34 +563,14 @@ class ScreenDrawTab(QWidget):
             "마우스 휠로 굵기를 조절할 수 있고, 마우스 하이라이트나 캡처 기능과 함께 사용할 수 있습니다."
         )
         info.setWordWrap(True)
-        self.hotkey = HotkeyFields(main.settings.get("screen_draw_hotkey"))
-        save_hotkey = QPushButton("단축키 저장")
-        save_hotkey.clicked.connect(self.save_hotkey)
-        hotkey_row = QHBoxLayout()
-        hotkey_row.addWidget(QLabel("시작 단축키"))
-        hotkey_row.addWidget(self.hotkey, 1)
-        hotkey_row.addWidget(save_hotkey)
+        hotkey_note = QLabel("단축키는 설정 → 단축키 탭에서 변경할 수 있습니다.")
+        hotkey_note.setObjectName("mutedText")
         start = QPushButton("화면 그리기 시작")
         start.clicked.connect(self.start_overlay)
         layout.addWidget(info)
-        layout.addLayout(hotkey_row)
+        layout.addWidget(hotkey_note)
         layout.addWidget(start)
         layout.addStretch(1)
-
-    def save_hotkey(self) -> None:
-        value = self.hotkey.value()
-        original = self.main.settings.get("screen_draw_hotkey")
-        self.main.settings["screen_draw_hotkey"] = value
-        conflict = self.main.first_hotkey_conflict()
-        if conflict:
-            self.main.settings["screen_draw_hotkey"] = original
-            show_modern_warning(self, "단축키 충돌", conflict)
-            return
-        if not confirm_shift_digit_hotkey(self, value):
-            self.main.settings["screen_draw_hotkey"] = original
-            return
-        config.save_settings(self.main.settings)
-        self.main.register_hotkeys()
 
     def start_overlay(self) -> None:
         if self.overlay is None or not self.overlay.isVisible():

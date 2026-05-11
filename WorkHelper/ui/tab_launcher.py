@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import os
 import subprocess
+import threading
 import webbrowser
 from pathlib import Path
 from urllib.parse import quote_plus, urlparse
 
-from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtCore import QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
@@ -192,6 +193,8 @@ class LauncherDialog(QDialog):
 
 
 class LauncherTab(QWidget):
+    _favicon_done = pyqtSignal()
+
     SEARCH_ENGINES = [
         ("네이버", "https://search.naver.com/search.naver?query={query}"),
         ("구글", "https://www.google.com/search?q={query}"),
@@ -204,6 +207,7 @@ class LauncherTab(QWidget):
         super().__init__()
         self.main = main
         self.status_labels: dict[str, QLabel] = {}
+        self._favicon_done.connect(self._on_favicon_ready)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.tabs = QTabWidget()
@@ -508,7 +512,7 @@ class LauncherTab(QWidget):
             self.style_launcher_favorite_button(button, item)
         QApplication.processEvents()
         QTimer.singleShot(0, self.main.save_data)
-        QTimer.singleShot(250, self.refresh)
+        QTimer.singleShot(50, self.refresh)
 
     def persist_launcher_favorite(self) -> None:
         self.main.save_data()
@@ -616,19 +620,27 @@ class LauncherTab(QWidget):
         domain = parsed.netloc or parsed.path.split("/")[0]
         if not domain:
             return
-        try:
-            import requests
 
-            icon_dir = config.DATA_DIR / "favicons"
-            icon_dir.mkdir(parents=True, exist_ok=True)
-            target = icon_dir / f"{new_id('favicon')}.png"
-            api_url = f"https://www.google.com/s2/favicons?domain={domain}&sz=64"
-            response = requests.get(api_url, timeout=5)
-            response.raise_for_status()
-            target.write_bytes(response.content)
-            value["favicon_path"] = str(target.resolve().relative_to(config.BASE_DIR.resolve())).replace("\\", "/")
-        except Exception:
-            value.pop("favicon_path", None)
+        def fetch() -> None:
+            try:
+                import requests
+                icon_dir = config.DATA_DIR / "favicons"
+                icon_dir.mkdir(parents=True, exist_ok=True)
+                target = icon_dir / f"{new_id('favicon')}.png"
+                api_url = f"https://www.google.com/s2/favicons?domain={domain}&sz=64"
+                response = requests.get(api_url, timeout=5)
+                response.raise_for_status()
+                target.write_bytes(response.content)
+                value["favicon_path"] = str(target.resolve().relative_to(config.BASE_DIR.resolve())).replace("\\", "/")
+            except Exception:
+                pass
+            self._favicon_done.emit()
+
+        threading.Thread(target=fetch, daemon=True).start()
+
+    def _on_favicon_ready(self) -> None:
+        self.main.save_data()
+        self.refresh()
 
     def delete_launcher(self, item: dict) -> None:
         if not confirm_delete(self, "선택한 바로가기를 삭제할까요?"):

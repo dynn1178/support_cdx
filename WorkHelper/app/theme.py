@@ -246,6 +246,8 @@ def build_stylesheet(colors: dict[str, str]) -> str:
         QTabBar::tab:hover {{ color: {colors["text"]}; }}
         QCheckBox, QRadioButton {{ spacing: 7px; background: transparent; }}
         QWidget#card QRadioButton {{ background: {colors["panel"]}; }}
+        QWidget#captureModeRow {{ background: transparent; border: none; }}
+        QWidget#captureModeRow QRadioButton {{ background: transparent; }}
         QCheckBox::indicator {{
             width: 15px; height: 15px; border: 2px solid {colors["border"]}; border-radius: 3px;
             background: {colors["field"]};

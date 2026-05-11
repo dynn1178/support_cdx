@@ -2,7 +2,7 @@
   "meta": {
     "preset_name": "기본 프리셋",
     "version": "1.0.0",
-    "saved_at": "2026-05-12T00:45:24"
+    "saved_at": "2026-05-12T01:35:52"
   },
   "phrases": [
     {
@@ -16,8 +16,7 @@
         "key": "F1"
       },
       "type": "text",
-      "sort_order": 0,
-      "usage_count": 0
+      "sort_order": 0
     },
     {
       "id": "ph_sample2",
@@ -25,8 +24,7 @@
       "text": "★ 즐겨찾기시 상용구 (ctrl+;) 로도 호출 가능해요. \n단축키 변경은 설정에서 할 수 있어요",
       "hotkey": null,
       "type": "text",
-      "sort_order": 1,
-      "usage_count": 0
+      "sort_order": 1
     }
   ],
   "snippets": [
@@ -37,8 +35,7 @@
       "language": "sql",
       "hotkey": null,
       "type": "code",
-      "sort_order": 0,
-      "usage_count": 0
+      "sort_order": 0
     }
   ],
   "launchers": [
@@ -54,10 +51,7 @@
       "hotkey": null,
       "sort_order": 0,
       "path": "",
-      "show_credentials_on_card": false,
-      "usage_count": 0,
-      "favorite": false,
-      "favicon_path": "data/favicons/favicon_84851fb7d2.png"
+      "show_credentials_on_card": false
     },
     {
       "id": "ln_sample_site2",
@@ -71,19 +65,14 @@
       "show_credentials_on_card": true,
       "hotkey": null,
       "path": "",
-      "sort_order": 1,
-      "usage_count": 2,
-      "favorite": false,
-      "used_today_date": "2026-05-12",
-      "used_today_count": 2,
-      "last_used_at": "2026-05-12T00:29:03"
+      "sort_order": 1
     }
   ],
   "images": [
     {
       "id": "img_sample",
       "name": "엑셀 단축키",
-      "path": "assets/images/capture_07442d0267.png",
+      "path": "assets/images/capture_e05542b42c.png",
       "path_type": "relative",
       "hotkey": {
         "modifiers": [
@@ -93,182 +82,10 @@
         "key": "F1"
       },
       "sort_order": 0,
-      "display_scale": 100,
-      "usage_count": 2,
-      "used_today_date": "2026-05-11",
-      "used_today_count": 2,
-      "last_used_at": "2026-05-11T23:12:21"
-    },
-    {
-      "id": "img_672eb103d1",
-      "name": "python",
-      "path": "save_image/steel_b35c99a814.png",
-      "path_type": "relative",
-      "hotkey": null,
-      "sort_order": 1,
-      "display_scale": 100,
-      "created_at": "2026-05-12T00:45:24",
-      "usage_count": 0
+      "display_scale": 100
     }
   ],
-  "steel_cuts": [
-    {
-      "id": "steel_069f8c9c64",
-      "path": "screenshot/steel_0d318afa26.png",
-      "path_type": "relative",
-      "window_title": "6PM Assistant",
-      "created_at": "2026-05-11T23:10:01",
-      "last_used_at": "2026-05-11T23:11:47",
-      "sort_order": 0,
-      "usage_count": 4,
-      "used_today_date": "2026-05-11",
-      "used_today_count": 4
-    },
-    {
-      "id": "steel_d609af7e1a",
-      "path": "screenshot/steel_e4e7a89f2c.png",
-      "path_type": "relative",
-      "window_title": "6PM Assistant",
-      "created_at": "2026-05-11T23:15:58",
-      "last_used_at": "2026-05-11T23:15:58",
-      "sort_order": 1,
-      "usage_count": 1,
-      "used_today_date": "2026-05-11",
-      "used_today_count": 1
-    },
-    {
-      "id": "steel_4be32a4a4e",
-      "path": "screenshot/steel_6f3b815ae8.png",
-      "path_type": "relative",
-      "window_title": "6PM Assistant",
-      "created_at": "2026-05-11T23:16:09",
-      "last_used_at": "2026-05-11T23:16:10",
-      "sort_order": 2,
-      "usage_count": 1,
-      "used_today_date": "2026-05-11",
-      "used_today_count": 1
-    },
-    {
-      "id": "steel_19e95a6351",
-      "path": "screenshot/steel_fa25d396b9.png",
-      "path_type": "relative",
-      "window_title": "6PM Assistant",
-      "created_at": "2026-05-11T23:16:19",
-      "last_used_at": "2026-05-11T23:16:20",
-      "sort_order": 3,
-      "usage_count": 1,
-      "used_today_date": "2026-05-11",
-      "used_today_count": 1
-    },
-    {
-      "id": "steel_b39d9bd5f4",
-      "path": "screenshot/steel_731273347e.png",
-      "path_type": "relative",
-      "window_title": "6PM Assistant",
-      "created_at": "2026-05-11T23:16:31",
-      "last_used_at": "2026-05-11T23:16:33",
-      "sort_order": 4,
-      "usage_count": 1,
-      "used_today_date": "2026-05-11",
-      "used_today_count": 1
-    },
-    {
-      "id": "steel_841f3cd4a8",
-      "path": "screenshot/steel_269edcd1f7.png",
-      "path_type": "relative",
-      "window_title": "6PM Assistant",
-      "created_at": "2026-05-11T23:17:11",
-      "last_used_at": "2026-05-11T23:17:12",
-      "sort_order": 5,
-      "usage_count": 1,
-      "used_today_date": "2026-05-11",
-      "used_today_count": 1
-    },
-    {
-      "id": "steel_a0d730eb6f",
-      "path": "screenshot/steel_267d9c7634.png",
-      "path_type": "relative",
-      "window_title": "6PM Assistant",
-      "created_at": "2026-05-11T23:17:18",
-      "last_used_at": "2026-05-11T23:17:20",
-      "sort_order": 6,
-      "usage_count": 1,
-      "used_today_date": "2026-05-11",
-      "used_today_count": 1
-    },
-    {
-      "id": "steel_43213c219b",
-      "path": "screenshot/steel_1b91e7929c.png",
-      "path_type": "relative",
-      "window_title": "6PM Assistant",
-      "created_at": "2026-05-11T23:17:22",
-      "last_used_at": "2026-05-11T23:21:01",
-      "sort_order": 7,
-      "usage_count": 2,
-      "used_today_date": "2026-05-11",
-      "used_today_count": 2
-    },
-    {
-      "id": "steel_68185804ac",
-      "path": "screenshot/steel_6148a71922.png",
-      "path_type": "relative",
-      "window_title": "6PM Assistant",
-      "created_at": "2026-05-11T23:24:34",
-      "last_used_at": "2026-05-11T23:25:08",
-      "sort_order": 8,
-      "usage_count": 2,
-      "used_today_date": "2026-05-11",
-      "used_today_count": 2
-    },
-    {
-      "id": "steel_85ffd044d0",
-      "path": "screenshot/steel_106774a68d.png",
-      "path_type": "relative",
-      "window_title": "6PM Assistant",
-      "created_at": "2026-05-11T23:34:03",
-      "last_used_at": "2026-05-11T23:37:43",
-      "sort_order": 9,
-      "usage_count": 2,
-      "used_today_date": "2026-05-11",
-      "used_today_count": 2
-    },
-    {
-      "id": "steel_7a2a6a46dd",
-      "path": "screenshot/steel_8415f66c75.png",
-      "path_type": "relative",
-      "window_title": "main.py - support_cdx - Visual Studio Code",
-      "created_at": "2026-05-11T23:39:45",
-      "last_used_at": "2026-05-12T00:06:08",
-      "sort_order": 10,
-      "usage_count": 3,
-      "used_today_date": "2026-05-12",
-      "used_today_count": 1
-    },
-    {
-      "id": "steel_97456cfb9d",
-      "path": "screenshot/steel_62354791a1.png",
-      "path_type": "relative",
-      "window_title": "6PM Assistant",
-      "created_at": "2026-05-12T00:06:30",
-      "last_used_at": "2026-05-12T00:06:32",
-      "sort_order": 11,
-      "usage_count": 1,
-      "used_today_date": "2026-05-12",
-      "used_today_count": 1
-    },
-    {
-      "id": "steel_7d08ca9e1e",
-      "path": "screenshot/steel_fedad4037e.png",
-      "path_type": "relative",
-      "window_title": "6PM Assistant",
-      "created_at": "2026-05-12T00:06:46",
-      "last_used_at": "2026-05-12T00:06:48",
-      "sort_order": 12,
-      "usage_count": 1,
-      "used_today_date": "2026-05-12",
-      "used_today_count": 1
-    }
-  ],
+  "steel_cuts": [],
   "macros": [
     {
       "id": "mc_sample",
@@ -283,8 +100,7 @@
         }
       ],
       "sort_order": 0,
-      "repeat": 100,
-      "usage_count": 0
+      "repeat": 100
     }
   ],
   "memos": [
@@ -293,24 +109,22 @@
       "title": "메모를 저장하세요",
       "content": "스티커 버튼을 누르면 바탕화면에 띄울 수 있어요.",
       "pinned": false,
-      "created_at": "2026-05-11T00:28:31",
-      "updated_at": "2026-05-11T00:28:31",
+      "created_at": "2026-05-12T01:35:35",
+      "updated_at": "2026-05-12T01:35:35",
       "sort_order": 0,
       "always_on_top": true,
-      "background": "노랑",
-      "usage_count": 0
+      "background": "노랑"
     },
     {
       "id": "mm_sample2",
       "title": "ALT를 2번 빠르게 눌러보세요",
-      "content": "빠르게 메모 입력이 가능합니다. \n(단축키는 설정에서 변경 가능)",
+      "content": "빠르게 메모 입력이 가능합니다. (단축키는 설정에서 변경 가능)",
       "pinned": false,
       "always_on_top": true,
       "background": "노랑",
-      "created_at": "2026-05-11T00:28:31",
-      "updated_at": "2026-05-11T10:36:47",
-      "sort_order": 1,
-      "usage_count": 0
+      "created_at": "2026-05-12T01:35:35",
+      "updated_at": "2026-05-12T01:35:35",
+      "sort_order": 1
     }
   ],
   "schedules": [
@@ -351,54 +165,48 @@
       "trigger": "gg.",
       "text": "google.com",
       "case_sensitive": false,
-      "created_at": "2026-05-11T00:28:31",
-      "sort_order": 0,
-      "usage_count": 0
+      "created_at": "2026-05-12T01:35:35",
+      "sort_order": 0
     },
     {
       "id": "hs_sample2",
       "trigger": "req;",
       "text": "위와 같이 요청 드립니다. 확인 부탁드립니다.",
       "case_sensitive": false,
-      "created_at": "2026-05-11T00:28:31",
-      "sort_order": 1,
-      "usage_count": 0
+      "created_at": "2026-05-12T01:35:35",
+      "sort_order": 1
     },
     {
       "id": "hs_sample3",
       "trigger": "ack;",
       "text": "확인했습니다. 검토 후 회신 드리겠습니다.",
       "case_sensitive": false,
-      "created_at": "2026-05-11T00:28:31",
-      "sort_order": 2,
-      "usage_count": 0
+      "created_at": "2026-05-12T01:35:35",
+      "sort_order": 2
     },
     {
       "id": "hs_sample4",
       "trigger": "sel;",
       "text": "SELECT * FROM WHERE ROWNUM <= 100",
       "case_sensitive": false,
-      "created_at": "2026-05-11T00:28:31",
-      "sort_order": 3,
-      "usage_count": 0
+      "created_at": "2026-05-12T01:35:35",
+      "sort_order": 3
     },
     {
       "id": "hs_sample5",
       "trigger": "tx;",
       "text": "감사합니다.",
       "case_sensitive": false,
-      "created_at": "2026-05-11T00:28:31",
-      "sort_order": 4,
-      "usage_count": 0
+      "created_at": "2026-05-12T01:35:35",
+      "sort_order": 4
     },
     {
       "id": "hs_sample6",
       "trigger": "hi;",
       "text": "안녕하세요. 6PM ASSIST 육땡이입니다.",
       "case_sensitive": false,
-      "created_at": "2026-05-11T00:28:31",
-      "sort_order": 5,
-      "usage_count": 0
+      "created_at": "2026-05-12T01:35:35",
+      "sort_order": 5
     }
   ],
   "title_templates": [
@@ -408,8 +216,7 @@
       "template": "{yymmdd}_데일리 세일즈 리포트 ({m-1d}월 {d-1d}일 ({ddd-1d}) 기준)",
       "business_days": true,
       "hotkey": null,
-      "sort_order": 0,
-      "usage_count": 0
+      "sort_order": 0
     },
     {
       "id": "tt_sample3",
@@ -417,8 +224,7 @@
       "template": "{yyyy-7d}.{mm-7d}.{dd-7d}~{yyyy}.{mm}.{dd} 주간 동향",
       "business_days": false,
       "hotkey": null,
-      "sort_order": 1,
-      "usage_count": 0
+      "sort_order": 1
     },
     {
       "id": "tt_sample4",
@@ -426,8 +232,7 @@
       "template": "[{yyyy}년 {m}월] 월간 성과 보고서\n─────────────────────\n보고일자 : {yyyy}년 {m}월 {d}일 {dddd}\n담당자 : 육땡\n─────────────────────\n\n1. 당월 업무 총평\n\n2. 주요 성과 (Key Achievements)\n\n - 핵심 KPI 달성 현황\n - 주요 프로젝트 성과\n - 정량적 데이터 요약\n\n3. 세부 업무 추진 현황\n\n - 완료 업무\n - 진행 업무 및 진척도\n - 이월/보류 업무\n\n4. 문제점 및 개선 방안 (Issue & Solution)\n\n - 발생 이슈 및 원인 분석\n - 조치 사항 및 대응 결과\n - 향후 재발 방지 대책\n\n5. 익월(6월) 주요 계획\n\n - 차기 달 핵심 목표\n - 주요 일정 및 마일스톤\n - 리소스 투입 계획\n\n6. 건의 및 지원 요청 사항\n \n[첨부 자료]",
       "business_days": true,
       "hotkey": null,
-      "sort_order": 2,
-      "usage_count": 0
+      "sort_order": 2
     },
     {
       "id": "tt_sample5",
@@ -435,11 +240,12 @@
       "template": "날짜 변수로 Date값을 쉽게 호출하세요.",
       "business_days": false,
       "hotkey": null,
-      "sort_order": 3,
-      "usage_count": 0
+      "sort_order": 3
     }
   ],
-  "phrase_popup_favorites": [],
+  "phrase_popup_favorites": [
+    "ph_sample2"
+  ],
   "todo_groups": [
     "그룹 1",
     "그룹 2",
