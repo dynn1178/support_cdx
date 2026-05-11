@@ -36,6 +36,7 @@ $SpecPath       = Join-Path $ProjectRoot "build\WorkHelper.spec"
 $DistDir        = Join-Path $ProjectRoot "dist"
 $UpdaterDistDir = Join-Path $ProjectRoot "build\_updater_dist"
 $ExePath        = Join-Path $DistDir "6PM Assistant.exe"
+$DistUpdaterPath = Join-Path $DistDir "updater.exe"
 
 Set-Location $ProjectRoot
 
@@ -47,6 +48,8 @@ if (-not $Version) {
     $parts[-1] = [string]([int]$parts[-1] + 1)
     $Version = $parts -join '.'
 }
+
+$ZipPath = Join-Path $DistDir "6PM Assistant.zip"
 
 Write-Host ""
 Write-Host "==========================================="
@@ -78,20 +81,26 @@ python -m PyInstaller --clean --noconfirm --onefile --name updater `
 
 $UpdaterPath = Join-Path $UpdaterDistDir "updater.exe"
 if (-not (Test-Path $UpdaterPath)) { throw "updater.exe build failed" }
-Write-Host "[3/5] updater.exe built (will be bundled into main exe)"
+Write-Host "[3/5] updater.exe built"
 
 Write-Host "[3/5] Building main app (this may take a few minutes)..."
 python -m PyInstaller --clean --noconfirm $SpecPath
 
 if (-not (Test-Path $ExePath)) { throw "Build failed: $ExePath not found" }
+Copy-Item -Force $UpdaterPath $DistUpdaterPath
+if (Test-Path $ZipPath) { Remove-Item -Force $ZipPath }
+Compress-Archive -Path $ExePath, $DistUpdaterPath -DestinationPath $ZipPath
 
 $sizeMB = [math]::Round((Get-Item $ExePath).Length / 1MB, 1)
+$zipSizeMB = [math]::Round((Get-Item $ZipPath).Length / 1MB, 1)
 Write-Host "[3/5] Build complete -> $ExePath ($sizeMB MB)"
+Write-Host "[3/5] Updater copied -> $DistUpdaterPath"
+Write-Host "[3/5] Zip package -> $ZipPath ($zipSizeMB MB)"
 
 if ($SkipRelease) {
     Write-Host ""
     Write-Host "Build complete (-SkipRelease: skipping git and GitHub steps)"
-    Write-Host "Output: $ExePath"
+    Write-Host "Output: $ZipPath"
     exit 0
 }
 
@@ -116,13 +125,13 @@ if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
     Write-Host "[INFO] gh CLI not found. Create the release manually:"
     Write-Host "  1. https://github.com/dynn1178/support_cdx/releases/new"
     Write-Host "  2. Tag: $tag"
-    Write-Host "  3. Upload: $ExePath"
+    Write-Host "  3. Upload: $ZipPath"
     Write-Host ""
     Write-Host "  Install gh CLI: winget install --id GitHub.cli"
 } else {
     $notes = if ($ReleaseNote) { $ReleaseNote } else { "## $tag`n`nRelease notes here." }
     gh release create $tag `
-        "$ExePath" `
+        "$ZipPath" `
         --repo "dynn1178/support_cdx" `
         --title $tag `
         --notes $notes
@@ -134,5 +143,5 @@ if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
 Write-Host ""
 Write-Host "==========================================="
 Write-Host " Done: $Version"
-Write-Host " Users only need 6PM Assistant.exe"
+Write-Host " Users only need the zip package"
 Write-Host "==========================================="

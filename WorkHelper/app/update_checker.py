@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -62,11 +63,15 @@ def _build_update_info(payload: dict, current_version: str) -> UpdateInfo | None
     if not latest or parse_version(latest) <= parse_version(current_version):
         return None
     assets = payload.get("assets", [])
+    zip_asset = next(
+        (a for a in assets if str(a.get("name", "")).lower().endswith(".zip")),
+        None,
+    )
     exe_asset = next(
         (a for a in assets if str(a.get("name", "")).lower().endswith(".exe") and "updater" not in str(a.get("name", "")).lower()),
         None,
     )
-    asset = exe_asset or (assets[0] if assets else {})
+    asset = zip_asset or exe_asset or (assets[0] if assets else {})
     download_url = asset.get("browser_download_url", "") if asset else payload.get("html_url", "")
     return UpdateInfo(
         latest_version=latest,
@@ -113,21 +118,50 @@ def _resolve_updater() -> Path | None:
     side_by_side = config.BASE_DIR / "updater.exe"
     if side_by_side.exists():
         return side_by_side
-    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-        bundled = Path(sys._MEIPASS) / "updater.exe"
-        if bundled.exists():
-            tmp = Path(tempfile.gettempdir()) / "6pma_updater.exe"
-            shutil.copy2(str(bundled), str(tmp))
-            return tmp
     return None
 
 
 def can_self_update(update: UpdateInfo) -> bool:
     if not getattr(sys, "frozen", False):
         return False
-    if not update.download_url or not update.asset_name.lower().endswith(".exe"):
+    if not update.download_url or not update.asset_name.lower().endswith((".exe", ".zip")):
         return False
     return _resolve_updater() is not None
+
+
+def _download_suffix(update: UpdateInfo) -> str:
+    name = update.asset_name.lower()
+    if name.endswith(".zip"):
+        return ".zip"
+    return ".exe"
+
+
+def _prepare_downloaded_update(path: Path) -> Path:
+    if path.suffix.lower() != ".zip":
+        return path
+
+    extract_dir = Path(tempfile.gettempdir()) / f"6pma_update_extract_{path.stem}"
+    if extract_dir.exists():
+        shutil.rmtree(extract_dir, ignore_errors=True)
+    extract_dir.mkdir(parents=True, exist_ok=True)
+
+    with zipfile.ZipFile(path) as archive:
+        archive.extractall(extract_dir)
+
+    new_exe = extract_dir / "6PM Assistant.exe"
+    if not new_exe.exists():
+        candidates = [candidate for candidate in extract_dir.rglob("*.exe") if candidate.name.lower() != "updater.exe"]
+        if candidates:
+            new_exe = candidates[0]
+    if not new_exe.exists():
+        raise FileNotFoundError("zip 안에서 6PM Assistant.exe를 찾을 수 없습니다.")
+
+    new_updater = extract_dir / "updater.exe"
+    current_updater = _resolve_updater()
+    if new_updater.exists() and current_updater:
+        shutil.copy2(new_updater, current_updater)
+
+    return new_exe
 
 
 # ── 다운로드 스레드 ──────────────────────────────────────────────────────────
@@ -151,7 +185,7 @@ class _DownloadThread(QThread):
             with requests.get(self.update.download_url, headers=headers, timeout=120, stream=True) as resp:
                 resp.raise_for_status()
                 total = int(resp.headers.get("content-length", 0))
-                target = Path(tempfile.gettempdir()) / f"6pma_update_{self.update.latest_version}.exe"
+                target = Path(tempfile.gettempdir()) / f"6pma_update_{self.update.latest_version}{_download_suffix(self.update)}"
                 downloaded = 0
                 with target.open("wb") as f:
                     for chunk in resp.iter_content(chunk_size=65536):
@@ -259,7 +293,8 @@ def install_update(parent: QWidget, update: UpdateInfo, token: str | None = None
             raise RuntimeError(dlg.error)
         return
 
-    new_path = dlg.result_path
+    downloaded_path = dlg.result_path
+    new_path = _prepare_downloaded_update(downloaded_path) if downloaded_path else None
     if not new_path:
         raise RuntimeError("다운로드된 파일을 찾을 수 없습니다.")
 
@@ -348,6 +383,12 @@ class _UpdateStatusDialog(QDialog):
             layout.addWidget(notes_label)
             layout.addWidget(scroll)
 
+        if has_update:
+            manual_hint = QLabel("자동 업데이트가 실패할 경우 홈페이지에서 직접 다운로드를 통해 수동으로 진행해주세요.")
+            manual_hint.setObjectName("usd_manual_hint")
+            manual_hint.setWordWrap(True)
+            layout.addWidget(manual_hint)
+
         # 버튼 행
         btn_row = QHBoxLayout()
         btn_row.addStretch(1)
@@ -404,6 +445,11 @@ class _UpdateStatusDialog(QDialog):
                 font-weight: 700;
                 font-size: 9pt;
             }}
+            QLabel#usd_manual_hint {{
+                color: {colors.get("muted", colors["text"])};
+                font-size: 9pt;
+                background: transparent;
+            }}
             QScrollArea {{
                 border: 1px solid {colors["border"]};
                 border-radius: 6px;
@@ -429,6 +475,8 @@ class _UpdateStatusDialog(QDialog):
         base_height = 220
         if body:
             base_height += 140
+        if has_update:
+            base_height += 34
         self.resize(400, base_height)
 
     def _on_confirm(self) -> None:
