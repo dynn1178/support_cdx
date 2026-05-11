@@ -39,7 +39,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "phrase_popup_hotkey": {"modifiers": ["ctrl"], "key": ";"},
     "steel_cut_hotkey": {"modifiers": ["ctrl", "shift"], "key": "S"},
     "steel_cut_capture_mode": "region",
-    "screen_draw_hotkey": {"modifiers": ["ctrl", "shift"], "key": "D"},
+    "screen_draw_hotkey": None,
     "steel_cut_fixed_width": 800,
     "steel_cut_fixed_height": 450,
     "steel_cut_fixed_x": None,

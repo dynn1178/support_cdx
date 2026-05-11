@@ -284,20 +284,21 @@ class SettingsTab(QWidget):
         self.steel_cut_hotkey = HotkeyFields()
         self.steel_cut_capture_mode_group = QButtonGroup(self)
         self.steel_cut_capture_mode_widget = QWidget()
-        mode_layout = QVBoxLayout(self.steel_cut_capture_mode_widget)
+        mode_layout = QHBoxLayout(self.steel_cut_capture_mode_widget)
         mode_layout.setContentsMargins(0, 0, 0, 0)
-        mode_layout.setSpacing(6)
+        mode_layout.setSpacing(16)
         self.steel_cut_mode_radios: dict[str, QRadioButton] = {}
         for key, label in [
-            ("region", "드래그 선택영역 캡처"),
-            ("full", "전체 캡처"),
-            ("window", "선택창 캡처"),
-            ("fixed", "특정 사이즈 고정 캡처"),
+            ("region", "드래그"),
+            ("full", "전체 화면"),
+            ("window", "선택 창"),
+            ("fixed", "고정 크기"),
         ]:
             radio = QRadioButton(label)
             self.steel_cut_mode_radios[key] = radio
             self.steel_cut_capture_mode_group.addButton(radio)
             mode_layout.addWidget(radio)
+        mode_layout.addStretch(1)
         self.steel_cut_fixed_width = QSpinBox()
         self.steel_cut_fixed_width.setRange(50, 8000)
         self.steel_cut_fixed_width.setSuffix(" px")
@@ -306,6 +307,8 @@ class SettingsTab(QWidget):
         self.steel_cut_fixed_height.setRange(50, 8000)
         self.steel_cut_fixed_height.setSuffix(" px")
         self.steel_cut_fixed_height.setMinimumWidth(150)
+
+        self.screen_draw_hotkey = HotkeyFields()
 
         steel_box = QWidget()
         steel_box.setObjectName("card")
@@ -325,6 +328,7 @@ class SettingsTab(QWidget):
         fixed_size_row.addWidget(self.steel_cut_fixed_height)
         fixed_size_row.addStretch(1)
         steel_layout.addRow("고정 캡처 크기", fixed_size_row)
+        steel_layout.addRow("화면그리기 단축키", self.screen_draw_hotkey)
         layout.addWidget(steel_box)
 
         self.popup_mode_group.buttonToggled.connect(self.update_mode_enabled)
@@ -374,12 +378,13 @@ class SettingsTab(QWidget):
         title_label = QLabel(title)
         title_label.setObjectName("cardTitle")
         layout.addWidget(title_label)
-        layout.addWidget(default_radio)
-        custom_row = QHBoxLayout()
-        custom_row.setContentsMargins(0, 0, 0, 0)
-        custom_row.addWidget(custom_radio)
-        custom_row.addWidget(fields, 1)
-        layout.addLayout(custom_row)
+        mode_row = QHBoxLayout()
+        mode_row.setContentsMargins(0, 0, 0, 0)
+        mode_row.setSpacing(16)
+        mode_row.addWidget(default_radio)
+        mode_row.addWidget(custom_radio)
+        mode_row.addWidget(fields, 1)
+        layout.addLayout(mode_row)
         return box
 
     def theme_card_style(self, theme: dict, checked: bool) -> str:
@@ -449,6 +454,7 @@ class SettingsTab(QWidget):
         self.quick_memo_hotkey.set_hotkey(settings.get("quick_memo_hotkey"))
         self.phrase_popup_hotkey.set_hotkey(settings.get("phrase_popup_hotkey"))
         self.steel_cut_hotkey.set_hotkey(settings.get("steel_cut_hotkey"))
+        self.screen_draw_hotkey.set_hotkey(settings.get("screen_draw_hotkey"))
         mode = settings.get("steel_cut_capture_mode", "region")
         self.set_steel_cut_capture_mode(mode)
         self.steel_cut_fixed_width.setValue(int(settings.get("steel_cut_fixed_width", 800) or 800))
@@ -493,6 +499,7 @@ class SettingsTab(QWidget):
         settings["steel_cut_capture_mode"] = self.selected_steel_cut_capture_mode()
         settings["steel_cut_fixed_width"] = self.steel_cut_fixed_width.value()
         settings["steel_cut_fixed_height"] = self.steel_cut_fixed_height.value()
+        settings["screen_draw_hotkey"] = self.screen_draw_hotkey.value()
         settings["auto_update_check"] = self.auto_update_check.isChecked()
         settings["auto_update_install"] = True
         settings["startup_with_windows"] = self.startup_with_windows.isChecked()
@@ -507,6 +514,7 @@ class SettingsTab(QWidget):
             settings.get("quick_memo_hotkey"),
             settings.get("phrase_popup_hotkey"),
             settings.get("steel_cut_hotkey"),
+            settings.get("screen_draw_hotkey"),
         ]:
             if not confirm_shift_digit_hotkey(self, hotkey):
                 return
