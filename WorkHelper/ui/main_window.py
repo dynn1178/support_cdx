@@ -961,6 +961,9 @@ class MainWindow(QMainWindow):
         steel_cut_hotkey = self.settings.get("steel_cut_hotkey")
         if steel_cut_hotkey:
             entries.append(("스틸 컷", steel_cut_hotkey))
+        screen_draw_hotkey = self.settings.get("screen_draw_hotkey")
+        if screen_draw_hotkey:
+            entries.append(("화면그리기", screen_draw_hotkey))
         return entries
 
     def first_hotkey_conflict(self, candidate: dict | None = None, original: dict | None = None) -> str:
@@ -1019,8 +1022,17 @@ class MainWindow(QMainWindow):
         steel_cut_hotkey = settings.get("steel_cut_hotkey")
         if steel_cut_hotkey:
             self.hotkeys.register(steel_cut_hotkey.get("modifiers", []), steel_cut_hotkey.get("key", ""), self.tabs[4].capture_steel_cut, "steel_cut")
+        screen_draw_hotkey = settings.get("screen_draw_hotkey")
+        if screen_draw_hotkey:
+            self.hotkeys.register(screen_draw_hotkey.get("modifiers", []), screen_draw_hotkey.get("key", ""), self._trigger_screen_draw, "screen_draw")
         self.update_hotkey_status()
         self.update_hotkey_toggle_button()
+
+    def _trigger_screen_draw(self) -> None:
+        self.show()
+        self.raise_()
+        self.set_tab(10)
+        self.tabs[10].trigger_screen_draw()
 
     def update_hotkey_status(self) -> None:
         return

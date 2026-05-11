@@ -670,9 +670,15 @@ class MiscTab(QWidget):
         super().__init__()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        tabs = QTabWidget()
-        tabs.addTab(ColorToolsTab(main), "컬러")
-        tabs.addTab(EmojiTab(main), "이모지")
-        tabs.addTab(SpecialCharTab(main), "특수문자")
-        tabs.addTab(MouseHighlightTab(main), "마우스 하이라이트")
-        layout.addWidget(tabs, 1)
+        self.inner_tabs = QTabWidget()
+        self.inner_tabs.addTab(ColorToolsTab(main), "컬러")
+        self.inner_tabs.addTab(EmojiTab(main), "이모지")
+        self.inner_tabs.addTab(SpecialCharTab(main), "특수문자")
+        self.inner_tabs.addTab(MouseHighlightTab(main), "마우스 하이라이트")
+        layout.addWidget(self.inner_tabs, 1)
+
+    def trigger_screen_draw(self) -> None:
+        self.inner_tabs.setCurrentIndex(0)
+        color_tab = self.inner_tabs.widget(0)
+        if isinstance(color_tab, ColorToolsTab):
+            color_tab.pick_screen_color()

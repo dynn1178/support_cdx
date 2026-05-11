@@ -37,6 +37,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "quick_memo_double_alt": True,
     "phrase_popup_hotkey": {"modifiers": ["ctrl"], "key": ";"},
     "steel_cut_hotkey": {"modifiers": ["ctrl", "alt"], "key": "S"},
+    "screen_draw_hotkey": None,
     "hotkeys_enabled": True,
     "auto_update_check": True,
     "auto_update_install": True,

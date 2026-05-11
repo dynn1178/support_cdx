@@ -147,6 +147,8 @@ class SettingsTab(QWidget):
         phrase_layout.addRow("상용구 미니팝업", self.phrase_popup_hotkey)
         self.steel_cut_hotkey = HotkeyFields()
         phrase_layout.addRow("스틸 컷", self.steel_cut_hotkey)
+        self.screen_draw_hotkey = HotkeyFields()
+        phrase_layout.addRow("화면그리기", self.screen_draw_hotkey)
         layout.addWidget(phrase_box)
         self.popup_mode_group.buttonToggled.connect(self.update_mode_enabled)
         self.memo_mode_group.buttonToggled.connect(self.update_mode_enabled)
@@ -181,12 +183,13 @@ class SettingsTab(QWidget):
         title_label = QLabel(title)
         title_label.setObjectName("cardTitle")
         layout.addWidget(title_label)
-        layout.addWidget(default_radio)
-        custom_row = QHBoxLayout()
-        custom_row.setContentsMargins(0, 0, 0, 0)
-        custom_row.addWidget(custom_radio)
-        custom_row.addWidget(fields, 1)
-        layout.addLayout(custom_row)
+        mode_row = QHBoxLayout()
+        mode_row.setContentsMargins(0, 0, 0, 0)
+        mode_row.setSpacing(16)
+        mode_row.addWidget(default_radio)
+        mode_row.addWidget(custom_radio)
+        mode_row.addWidget(fields, 1)
+        layout.addLayout(mode_row)
         return box
 
     def theme_card_style(self, theme: dict, checked: bool) -> str:
@@ -241,6 +244,7 @@ class SettingsTab(QWidget):
         self.quick_memo_hotkey.set_hotkey(settings.get("quick_memo_hotkey"))
         self.phrase_popup_hotkey.set_hotkey(settings.get("phrase_popup_hotkey"))
         self.steel_cut_hotkey.set_hotkey(settings.get("steel_cut_hotkey"))
+        self.screen_draw_hotkey.set_hotkey(settings.get("screen_draw_hotkey"))
         self.popup_mode_double_ctrl.setChecked(bool(settings.get("clipboard_popup_double_ctrl", True)))
         self.popup_mode_hotkey.setChecked(not self.popup_mode_double_ctrl.isChecked())
         self.memo_mode_double_alt.setChecked(bool(settings.get("quick_memo_double_alt", True)))
@@ -275,6 +279,7 @@ class SettingsTab(QWidget):
         settings["quick_memo_double_alt"] = self.memo_mode_double_alt.isChecked()
         settings["phrase_popup_hotkey"] = self.phrase_popup_hotkey.value()
         settings["steel_cut_hotkey"] = self.steel_cut_hotkey.value()
+        settings["screen_draw_hotkey"] = self.screen_draw_hotkey.value()
         settings["auto_update_check"] = self.auto_update_check.isChecked()
         settings["auto_update_install"] = True
         settings["startup_with_windows"] = self.startup_with_windows.isChecked()
@@ -289,6 +294,7 @@ class SettingsTab(QWidget):
             settings.get("quick_memo_hotkey"),
             settings.get("phrase_popup_hotkey"),
             settings.get("steel_cut_hotkey"),
+            settings.get("screen_draw_hotkey"),
         ]:
             if not confirm_shift_digit_hotkey(self, hotkey):
                 return
