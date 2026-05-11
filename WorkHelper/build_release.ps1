@@ -109,7 +109,7 @@ $tag = "v$Version"
 Write-Host "[4/5] git commit, tag ($tag), push..."
 Set-Location $GitRoot
 
-git add "WorkHelper/"
+git add "WorkHelper/" ".github/workflows/release.yml"
 git commit -m "chore: release $tag"
 git tag $tag
 git push origin main

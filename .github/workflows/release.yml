@@ -1,6 +1,5 @@
 name: Build & Release
 
-# v* 태그가 푸시될 때 자동 실행 (예: v1.2.0)
 on:
   push:
     tags:
@@ -30,7 +29,6 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
-      # updater.exe 먼저 빌드 → 메인 exe 번들에 포함
       - name: Build updater.exe
         working-directory: WorkHelper
         shell: pwsh
@@ -41,18 +39,30 @@ jobs:
             --workpath build/_updater_build `
             updater.py
 
-      # 메인 앱 빌드 (updater.exe 번들 포함)
-      - name: Build main exe
+      - name: Build app package
         working-directory: WorkHelper
-        run: python -m PyInstaller --clean --noconfirm build/WorkHelper.spec
+        shell: pwsh
+        run: |
+          python -m PyInstaller --clean --noconfirm build/WorkHelper.spec
+          Copy-Item -Force "build/_updater_dist/updater.exe" "dist/updater.exe"
+          Compress-Archive -Force `
+            -Path "dist/6PM Assistant.exe", "dist/updater.exe" `
+            -DestinationPath "dist/6PM Assistant.zip"
 
       - name: Verify build
         working-directory: WorkHelper
         shell: pwsh
         run: |
-          if (-not (Test-Path "dist/6PM Assistant.exe")) { throw "메인 exe 없음" }
+          $zip = "dist/6PM Assistant.zip"
+          if (-not (Test-Path "dist/6PM Assistant.exe")) { throw "6PM Assistant.exe missing" }
+          if (-not (Test-Path "dist/updater.exe")) { throw "updater.exe missing" }
+          if (-not (Test-Path $zip)) { throw "zip package missing" }
           $size = (Get-Item "dist/6PM Assistant.exe").Length / 1MB
+          $updaterSize = (Get-Item "dist/updater.exe").Length / 1MB
+          $zipSize = (Get-Item $zip).Length / 1MB
           Write-Host ("6PM Assistant.exe: {0:N1} MB" -f $size)
+          Write-Host ("updater.exe: {0:N1} MB" -f $updaterSize)
+          Write-Host ("package zip: {0:N1} MB" -f $zipSize)
 
       - name: Read version
         id: ver
@@ -62,7 +72,6 @@ jobs:
           $v = (Get-Content version.txt -Raw).Trim()
           echo "version=$v" >> $env:GITHUB_OUTPUT
 
-      # exe 1개만 업로드
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -72,8 +81,9 @@ jobs:
             ## v${{ steps.ver.outputs.version }}
 
             ### 설치 / 업데이트 방법
-            1. `6PM Assistant.exe` 를 다운로드하세요.
-            2. 기존 파일이 있다면 덮어쓰거나, 앱 내 **설정 → 업데이트 확인** 버튼을 사용하세요.
-          files: WorkHelper/dist/6PM Assistant.exe
+            1. `6PM Assistant.zip`을 다운로드하세요.
+            2. 압축을 푼 뒤 `6PM Assistant.exe`와 `updater.exe`를 같은 폴더에 두세요.
+            3. 이후 앱 내 **설정 -> 업데이트 확인** 버튼을 사용할 수 있습니다.
+          files: WorkHelper/dist/6PM Assistant.zip
           draft: false
           prerelease: false
