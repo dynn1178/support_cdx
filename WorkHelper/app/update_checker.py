@@ -445,7 +445,7 @@ class _UpdateStatusDialog(QDialog):
             manual_hint = QLabel(
                 "자동 업데이트가 실패하거나 같은 버전의 업데이트 확인 창이 반복해서 표시된다면, "
                 "보안 시스템이 자동 업데이트를 차단한 것일 수 있습니다.\n"
-                "아래 수동 업데이트 버튼으로 압축 파일을 내려받은 뒤, 현재 프로그램 폴더에 압축을 풀어 덮어써 주세요."
+                "아래 수동 업데이트 버튼으로 압축 파일을 내려받은 뒤, 현재 프로그램 폴더에 압축을 풀어 덮어씌워 주세요."
             )
             manual_hint.setObjectName("usd_manual_hint")
             manual_hint.setWordWrap(True)
@@ -453,42 +453,42 @@ class _UpdateStatusDialog(QDialog):
 
         # 버튼 행
         btn_row = QHBoxLayout()
-        btn_row.addStretch(1)
+        btn_row.setContentsMargins(0, 0, 0, 0)
+        btn_row.setSpacing(14)
         if has_update:
-            later_box = QWidget()
-            later_layout = QVBoxLayout(later_box)
-            later_layout.setContentsMargins(0, 0, 0, 0)
-            later_layout.setSpacing(4)
             cancel_btn = QToolButton()
             cancel_btn.setText("나중에")
             cancel_btn.setFixedHeight(32)
             cancel_btn.setObjectName("usd_btn_secondary")
             cancel_btn.clicked.connect(self.reject)
-            self.snooze_updates = QCheckBox("3일간 업데이트 알림 숨기기")
-            self.snooze_updates.setObjectName("usd_snooze_check")
-            later_layout.addWidget(cancel_btn)
-            later_layout.addWidget(self.snooze_updates)
-            btn_row.addWidget(later_box)
+            btn_row.addWidget(cancel_btn, 1)
 
             manual_btn = QToolButton()
             manual_btn.setText("수동 업데이트(권장)")
             manual_btn.setFixedHeight(32)
             manual_btn.setObjectName("usd_btn_manual")
             manual_btn.clicked.connect(open_manual_update_download)
-            btn_row.addWidget(manual_btn)
+            btn_row.addWidget(manual_btn, 1)
             confirm_btn = QToolButton()
             confirm_btn.setText("자동 업데이트" if self_install else "자동 업데이트 불가")
             confirm_btn.setFixedHeight(32)
             confirm_btn.setEnabled(self_install)
             confirm_btn.clicked.connect(self._on_confirm)
-            btn_row.addWidget(confirm_btn)
+            btn_row.addWidget(confirm_btn, 1)
         else:
+            btn_row.addStretch(1)
             ok_btn = QToolButton()
             ok_btn.setText("확인")
             ok_btn.setFixedHeight(32)
             ok_btn.clicked.connect(self.accept)
             btn_row.addWidget(ok_btn)
         layout.addLayout(btn_row)
+
+        if has_update:
+            self.snooze_updates = QCheckBox("3일간 업데이트 알림 숨기기")
+            self.snooze_updates.setObjectName("usd_snooze_check")
+            self.snooze_updates.setContentsMargins(0, 4, 0, 0)
+            layout.addWidget(self.snooze_updates)
 
         accent = colors.get("accent", "#3B6CF5")
         ok_color = "#2BA05A"
@@ -564,7 +564,7 @@ class _UpdateStatusDialog(QDialog):
         if body:
             base_height += 140
         if has_update:
-            base_height += 56
+            base_height += 76
         self.resize(400, base_height)
 
     def _on_confirm(self) -> None:
