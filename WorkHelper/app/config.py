@@ -20,6 +20,7 @@ TEMPLATE_DIR = DATA_DIR / "templates"
 SETTINGS_PATH = DATA_DIR / "settings.json"
 CLIPBOARD_HISTORY_PATH = DATA_DIR / "clipboard_history.json"
 CLIPBOARD_IMAGE_DIR = DATA_DIR / "clipboard_images"
+SCREENSHOT_DIR = BASE_DIR / "screenshot"
 VERSION_PATH = BASE_DIR / "version.txt"
 APP_ICON_PATH = BASE_DIR / "assets" / "icons" / "app.ico"
 BUNDLED_ICON_PATH = RESOURCE_DIR / "assets" / "icons" / "app.ico"
@@ -36,7 +37,13 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "quick_memo_hotkey": {"modifiers": ["ctrl", "alt"], "key": "M"},
     "quick_memo_double_alt": True,
     "phrase_popup_hotkey": {"modifiers": ["ctrl"], "key": ";"},
-    "steel_cut_hotkey": {"modifiers": ["ctrl", "alt"], "key": "S"},
+    "steel_cut_hotkey": {"modifiers": ["ctrl", "shift"], "key": "S"},
+    "steel_cut_capture_mode": "region",
+    "screen_draw_hotkey": {"modifiers": ["ctrl", "shift"], "key": "D"},
+    "steel_cut_fixed_width": 800,
+    "steel_cut_fixed_height": 450,
+    "steel_cut_fixed_x": None,
+    "steel_cut_fixed_y": None,
     "hotkeys_enabled": True,
     "auto_update_check": True,
     "auto_update_install": True,

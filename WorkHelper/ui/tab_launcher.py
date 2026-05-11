@@ -4,9 +4,10 @@ import os
 import subprocess
 import webbrowser
 from pathlib import Path
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 
 from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -25,7 +26,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app import config
-from app.utils import display_hotkey, new_id, now_iso, short_preview
+from app.utils import display_hotkey, new_id, now_iso, resolve_image_path, short_preview
 from ui.common import ElidedLabel, ElidedMultilineLabel, GridPanel, HotkeyFields, SortControls, apply_manual_reorder, apply_modern_dialog_style, ask_modern_question, bump_usage, confirm_delete, confirm_shift_digit_hotkey, make_card, make_hotkey_caps, make_icon_button, show_modern_warning
 
 
@@ -381,6 +382,7 @@ class LauncherTab(QWidget):
             source_items,
             lambda value: value.get("name") or value.get("description") or value.get("url") or value.get("path", ""),
         )
+        items = sorted(items, key=lambda value: 0 if value.get("favorite") else 1)
         q = self.search.text().strip().lower()
         site_items = []
         file_items = []
@@ -418,6 +420,17 @@ class LauncherTab(QWidget):
 
         title_row = QHBoxLayout()
         title_row.setSpacing(10)
+        favicon = QLabel()
+        favicon.setFixedSize(20, 20)
+        favicon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        favicon_path = resolve_image_path(item.get("favicon_path", ""), config.BASE_DIR)
+        pixmap = QPixmap(favicon_path)
+        if pixmap.isNull():
+            favicon.setText("◇")
+            favicon.setStyleSheet("color:#9CA3AF; background: transparent; border: 0;")
+        else:
+            favicon.setPixmap(pixmap.scaled(18, 18, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        title_row.addWidget(favicon)
         title = ElidedLabel(item.get("name", "(이름 없음)"))
         title.setObjectName("cardTitle")
         title.setFixedHeight(22)
@@ -462,6 +475,9 @@ class LauncherTab(QWidget):
         actions_layout.setContentsMargins(0, 0, 0, 0)
         actions_layout.setSpacing(4)
         actions_layout.addStretch(1)
+        pin_btn = make_icon_button("pin", "즐겨찾기", lambda checked=False, value=item: self.toggle_launcher_favorite(value, pin_btn))
+        self.style_launcher_favorite_button(pin_btn, item)
+        actions_layout.addWidget(pin_btn)
         actions_layout.addWidget(make_icon_button("open", "열기", lambda checked=False, value=item: self.open_launcher(value)))
         actions_layout.addWidget(make_icon_button("edit", "수정", lambda checked=False, value=item: self.edit_launcher(value)))
         actions_layout.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=item: self.delete_launcher(value), True))
@@ -478,10 +494,31 @@ class LauncherTab(QWidget):
         status.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self.status_labels[item.get("id", "")] = status
         row.addWidget(status, 1)
+        pin_btn = make_icon_button("pin", "즐겨찾기", lambda checked=False, value=item: self.toggle_launcher_favorite(value, pin_btn))
+        self.style_launcher_favorite_button(pin_btn, item)
+        row.addWidget(pin_btn)
         row.addWidget(make_icon_button("open", "열기", lambda checked=False, value=item: self.open_launcher(value)))
         row.addWidget(make_icon_button("edit", "수정", lambda checked=False, value=item: self.edit_launcher(value)))
         row.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=item: self.delete_launcher(value), True))
         card.layout().addLayout(row)
+
+    def toggle_launcher_favorite(self, item: dict, button=None) -> None:
+        item["favorite"] = not bool(item.get("favorite"))
+        if button is not None:
+            self.style_launcher_favorite_button(button, item)
+        QApplication.processEvents()
+        QTimer.singleShot(0, self.main.save_data)
+        QTimer.singleShot(250, self.refresh)
+
+    def persist_launcher_favorite(self) -> None:
+        self.main.save_data()
+
+    def style_launcher_favorite_button(self, button, item: dict) -> None:
+        color = "#F5B301" if item.get("favorite") else "#A3A8B3"
+        button.setText("★")
+        button.setStyleSheet(
+            f"QToolButton#iconButton {{ color: {color}; font-size: 13pt; font-weight: 900; padding: 0 0 2px 0; }}"
+        )
 
     def show_credential_status(self, item: dict) -> None:
         label = self.status_labels.get(item.get("id", ""))
@@ -556,6 +593,7 @@ class LauncherTab(QWidget):
                 value["created_at"] = now_iso()
                 value["sort_order"] = len(self.main.data.setdefault("launchers", []))
                 value["usage_count"] = 0
+            self.ensure_launcher_favicon(value, item)
             items = self.main.data.setdefault("launchers", [])
             if item in items:
                 items[items.index(item)] = value
@@ -564,8 +602,37 @@ class LauncherTab(QWidget):
             self.main.save_data()
             return
 
+    def ensure_launcher_favicon(self, value: dict, original: dict | None = None) -> None:
+        if launcher_type(value.get("type")) != "site":
+            value.pop("favicon_path", None)
+            return
+        url = value.get("url", "").strip()
+        if not url:
+            return
+        if original and original.get("url") == url and original.get("favicon_path"):
+            value["favicon_path"] = original.get("favicon_path")
+            return
+        parsed = urlparse(url if "://" in url else f"https://{url}")
+        domain = parsed.netloc or parsed.path.split("/")[0]
+        if not domain:
+            return
+        try:
+            import requests
+
+            icon_dir = config.DATA_DIR / "favicons"
+            icon_dir.mkdir(parents=True, exist_ok=True)
+            target = icon_dir / f"{new_id('favicon')}.png"
+            api_url = f"https://www.google.com/s2/favicons?domain={domain}&sz=64"
+            response = requests.get(api_url, timeout=5)
+            response.raise_for_status()
+            target.write_bytes(response.content)
+            value["favicon_path"] = str(target.resolve().relative_to(config.BASE_DIR.resolve())).replace("\\", "/")
+        except Exception:
+            value.pop("favicon_path", None)
+
     def delete_launcher(self, item: dict) -> None:
         if not confirm_delete(self, "선택한 바로가기를 삭제할까요?"):
             return
         self.main.data.get("launchers", []).remove(item)
         self.main.save_data()
+

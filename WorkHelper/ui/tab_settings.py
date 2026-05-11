@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QRadioButton,
+    QScrollArea,
     QSpinBox,
     QTabWidget,
     QToolButton,
@@ -122,6 +123,8 @@ class SettingsTab(QWidget):
 
     def build_hotkeys(self) -> None:
         layout = QVBoxLayout(self.hotkey_tab)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
 
         self.popup_mode_group = QButtonGroup(self)
         self.popup_mode_hotkey = QRadioButton("지정 단축키 사용")
@@ -147,10 +150,200 @@ class SettingsTab(QWidget):
         phrase_layout.addRow("상용구 미니팝업", self.phrase_popup_hotkey)
         self.steel_cut_hotkey = HotkeyFields()
         phrase_layout.addRow("스틸 컷", self.steel_cut_hotkey)
+        self.steel_cut_capture_mode_group = QButtonGroup(self)
+        self.steel_cut_capture_mode_widget = QWidget()
+        mode_layout = QVBoxLayout(self.steel_cut_capture_mode_widget)
+        mode_layout.setContentsMargins(0, 0, 0, 0)
+        mode_layout.setSpacing(6)
+        self.steel_cut_mode_radios: dict[str, QRadioButton] = {}
+        for key, label in [
+            ("region", "드래그 선택영역 캡처"),
+            ("full", "전체 캡처"),
+            ("window", "선택창 캡처"),
+            ("fixed", "특정 사이즈 고정 캡처"),
+        ]:
+            radio = QRadioButton(label)
+            self.steel_cut_mode_radios[key] = radio
+            self.steel_cut_capture_mode_group.addButton(radio)
+            mode_layout.addWidget(radio)
+        phrase_layout.addRow("스틸 컷 캡처 방식", self.steel_cut_capture_mode)
+        fixed_size_row = QHBoxLayout()
+        self.steel_cut_fixed_width = QSpinBox()
+        self.steel_cut_fixed_width.setRange(50, 8000)
+        self.steel_cut_fixed_width.setSuffix(" px")
+        self.steel_cut_fixed_height = QSpinBox()
+        self.steel_cut_fixed_height.setRange(50, 8000)
+        self.steel_cut_fixed_height.setSuffix(" px")
+        fixed_size_row.addWidget(self.steel_cut_fixed_width)
+        fixed_size_row.addWidget(QLabel("x"))
+        fixed_size_row.addWidget(self.steel_cut_fixed_height)
+        phrase_layout.addRow("고정 캡처 크기", fixed_size_row)
         layout.addWidget(phrase_box)
+        phrase_box.hide()
+
+        phrase_card = QWidget()
+        phrase_card.setObjectName("card")
+        phrase_card.setMinimumHeight(92)
+        phrase_card_layout = QFormLayout(phrase_card)
+        phrase_card_layout.setContentsMargins(14, 14, 14, 14)
+        phrase_card_layout.setVerticalSpacing(10)
+        phrase_title = QLabel("상용구 미니팝업")
+        phrase_title.setObjectName("cardTitle")
+        phrase_card_layout.addRow(phrase_title)
+        phrase_card_layout.addRow("단축키", self.phrase_popup_hotkey)
+        layout.addWidget(phrase_card)
+
+        steel_card = QWidget()
+        steel_card.setObjectName("card")
+        steel_card.setMinimumHeight(190)
+        steel_card_layout = QFormLayout(steel_card)
+        steel_card_layout.setContentsMargins(14, 14, 14, 14)
+        steel_card_layout.setVerticalSpacing(14)
+        steel_card_layout.setHorizontalSpacing(16)
+        steel_title = QLabel("스틸 컷")
+        steel_title.setObjectName("cardTitle")
+        steel_card_layout.addRow(steel_title)
+        steel_card_layout.addRow("단축키", self.steel_cut_hotkey)
+        steel_card_layout.addRow("캡처 방식", self.steel_cut_capture_mode)
+        fixed_size_row.setSpacing(10)
+        self.steel_cut_fixed_width.setMinimumWidth(150)
+        self.steel_cut_fixed_height.setMinimumWidth(150)
+        fixed_size_row.addStretch(1)
+        steel_card_layout.addRow("고정 캡처 크기", fixed_size_row)
+        layout.addWidget(steel_card)
+        steel_card.hide()
+
+        steel_hotkey_card = QWidget()
+        steel_hotkey_card.setObjectName("card")
+        steel_hotkey_card.setMinimumHeight(92)
+        steel_hotkey_layout = QFormLayout(steel_hotkey_card)
+        steel_hotkey_layout.setContentsMargins(14, 14, 14, 14)
+        steel_hotkey_title = QLabel("스틸 컷 단축키")
+        steel_hotkey_title.setObjectName("cardTitle")
+        steel_hotkey_layout.addRow(steel_hotkey_title)
+        steel_hotkey_layout.addRow("단축키", self.steel_cut_hotkey)
+        layout.addWidget(steel_hotkey_card)
+
+        steel_mode_card = QWidget()
+        steel_mode_card.setObjectName("card")
+        steel_mode_card.setMinimumHeight(92)
+        steel_mode_layout = QFormLayout(steel_mode_card)
+        steel_mode_layout.setContentsMargins(14, 14, 14, 14)
+        steel_mode_title = QLabel("스틸 컷 캡처 방식")
+        steel_mode_title.setObjectName("cardTitle")
+        steel_mode_layout.addRow(steel_mode_title)
+        steel_mode_layout.addRow("방식", self.steel_cut_capture_mode)
+        layout.addWidget(steel_mode_card)
+
+        steel_size_card = QWidget()
+        steel_size_card.setObjectName("card")
+        steel_size_card.setMinimumHeight(98)
+        steel_size_layout = QFormLayout(steel_size_card)
+        steel_size_layout.setContentsMargins(14, 14, 14, 14)
+        steel_size_title = QLabel("고정 캡처 크기")
+        steel_size_title.setObjectName("cardTitle")
+        steel_size_layout.addRow(steel_size_title)
+        steel_size_layout.addRow("크기", fixed_size_row)
+        layout.addWidget(steel_size_card)
         self.popup_mode_group.buttonToggled.connect(self.update_mode_enabled)
         self.memo_mode_group.buttonToggled.connect(self.update_mode_enabled)
         layout.addStretch(1)
+
+    def build_hotkeys(self) -> None:
+        root = QVBoxLayout(self.hotkey_tab)
+        root.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
+        scroll.setWidget(content)
+        root.addWidget(scroll, 1)
+
+        self.popup_mode_group = QButtonGroup(self)
+        self.popup_mode_hotkey = QRadioButton("지정 단축키 사용")
+        self.popup_mode_double_ctrl = QRadioButton("Ctrl 두 번 사용")
+        self.popup_mode_group.addButton(self.popup_mode_hotkey, 0)
+        self.popup_mode_group.addButton(self.popup_mode_double_ctrl, 1)
+        self.clipboard_popup_hotkey = HotkeyFields()
+        layout.addWidget(self.hotkey_group("클립보드 미니팝업", self.popup_mode_double_ctrl, self.popup_mode_hotkey, self.clipboard_popup_hotkey))
+
+        self.memo_mode_group = QButtonGroup(self)
+        self.memo_mode_hotkey = QRadioButton("지정 단축키 사용")
+        self.memo_mode_double_alt = QRadioButton("Alt 두 번 사용")
+        self.memo_mode_group.addButton(self.memo_mode_hotkey, 0)
+        self.memo_mode_group.addButton(self.memo_mode_double_alt, 1)
+        self.quick_memo_hotkey = HotkeyFields()
+        layout.addWidget(self.hotkey_group("빠른 메모", self.memo_mode_double_alt, self.memo_mode_hotkey, self.quick_memo_hotkey))
+
+        self.phrase_popup_hotkey = HotkeyFields()
+        layout.addWidget(self.single_hotkey_group("상용구 미니팝업", "단축키", self.phrase_popup_hotkey))
+
+        self.steel_cut_hotkey = HotkeyFields()
+        self.steel_cut_capture_mode_group = QButtonGroup(self)
+        self.steel_cut_capture_mode_widget = QWidget()
+        mode_layout = QVBoxLayout(self.steel_cut_capture_mode_widget)
+        mode_layout.setContentsMargins(0, 0, 0, 0)
+        mode_layout.setSpacing(6)
+        self.steel_cut_mode_radios: dict[str, QRadioButton] = {}
+        for key, label in [
+            ("region", "드래그 선택영역 캡처"),
+            ("full", "전체 캡처"),
+            ("window", "선택창 캡처"),
+            ("fixed", "특정 사이즈 고정 캡처"),
+        ]:
+            radio = QRadioButton(label)
+            self.steel_cut_mode_radios[key] = radio
+            self.steel_cut_capture_mode_group.addButton(radio)
+            mode_layout.addWidget(radio)
+        self.steel_cut_fixed_width = QSpinBox()
+        self.steel_cut_fixed_width.setRange(50, 8000)
+        self.steel_cut_fixed_width.setSuffix(" px")
+        self.steel_cut_fixed_width.setMinimumWidth(150)
+        self.steel_cut_fixed_height = QSpinBox()
+        self.steel_cut_fixed_height.setRange(50, 8000)
+        self.steel_cut_fixed_height.setSuffix(" px")
+        self.steel_cut_fixed_height.setMinimumWidth(150)
+
+        steel_box = QWidget()
+        steel_box.setObjectName("card")
+        steel_box.setMinimumHeight(178)
+        steel_layout = QFormLayout(steel_box)
+        steel_layout.setContentsMargins(14, 14, 14, 14)
+        steel_layout.setVerticalSpacing(12)
+        title = QLabel("캡처 도구")
+        title.setObjectName("cardTitle")
+        steel_layout.addRow(title)
+        steel_layout.addRow("캡처 단축키", self.steel_cut_hotkey)
+        steel_layout.addRow("캡처 방식", self.steel_cut_capture_mode_widget)
+        fixed_size_row = QHBoxLayout()
+        fixed_size_row.setSpacing(10)
+        fixed_size_row.addWidget(self.steel_cut_fixed_width)
+        fixed_size_row.addWidget(QLabel("x"))
+        fixed_size_row.addWidget(self.steel_cut_fixed_height)
+        fixed_size_row.addStretch(1)
+        steel_layout.addRow("고정 캡처 크기", fixed_size_row)
+        layout.addWidget(steel_box)
+
+        self.popup_mode_group.buttonToggled.connect(self.update_mode_enabled)
+        self.memo_mode_group.buttonToggled.connect(self.update_mode_enabled)
+        self.steel_cut_capture_mode_group.buttonToggled.connect(self.update_mode_enabled)
+        layout.addStretch(1)
+
+    def single_hotkey_group(self, title: str, label: str, fields: HotkeyFields) -> QWidget:
+        box = QWidget()
+        box.setObjectName("card")
+        box.setMinimumHeight(92)
+        layout = QFormLayout(box)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setVerticalSpacing(10)
+        title_label = QLabel(title)
+        title_label.setObjectName("cardTitle")
+        layout.addRow(title_label)
+        layout.addRow(label, fields)
+        return box
 
     def build_theme(self) -> None:
         layout = QVBoxLayout(self.theme_tab)
@@ -204,9 +397,24 @@ class SettingsTab(QWidget):
             button.setChecked(name == key)
             button.setStyleSheet(self.theme_card_style(THEMES[name], name == key))
 
+    def selected_steel_cut_capture_mode(self) -> str:
+        for key, radio in getattr(self, "steel_cut_mode_radios", {}).items():
+            if radio.isChecked():
+                return key
+        return "region"
+
+    def set_steel_cut_capture_mode(self, mode: str) -> None:
+        radios = getattr(self, "steel_cut_mode_radios", {})
+        radio = radios.get(mode) or radios.get("region")
+        if radio is not None:
+            radio.setChecked(True)
+
     def update_mode_enabled(self, *_args) -> None:
         self.clipboard_popup_hotkey.setEnabled(self.popup_mode_hotkey.isChecked())
         self.quick_memo_hotkey.setEnabled(self.memo_mode_hotkey.isChecked())
+        fixed_enabled = self.selected_steel_cut_capture_mode() == "fixed"
+        self.steel_cut_fixed_width.setEnabled(fixed_enabled)
+        self.steel_cut_fixed_height.setEnabled(fixed_enabled)
 
     def refresh_template_combo(self) -> None:
         self.template.blockSignals(True)
@@ -241,6 +449,10 @@ class SettingsTab(QWidget):
         self.quick_memo_hotkey.set_hotkey(settings.get("quick_memo_hotkey"))
         self.phrase_popup_hotkey.set_hotkey(settings.get("phrase_popup_hotkey"))
         self.steel_cut_hotkey.set_hotkey(settings.get("steel_cut_hotkey"))
+        mode = settings.get("steel_cut_capture_mode", "region")
+        self.set_steel_cut_capture_mode(mode)
+        self.steel_cut_fixed_width.setValue(int(settings.get("steel_cut_fixed_width", 800) or 800))
+        self.steel_cut_fixed_height.setValue(int(settings.get("steel_cut_fixed_height", 450) or 450))
         self.popup_mode_double_ctrl.setChecked(bool(settings.get("clipboard_popup_double_ctrl", True)))
         self.popup_mode_hotkey.setChecked(not self.popup_mode_double_ctrl.isChecked())
         self.memo_mode_double_alt.setChecked(bool(settings.get("quick_memo_double_alt", True)))
@@ -257,6 +469,9 @@ class SettingsTab(QWidget):
             "auto_update_check": self.auto_update_check.isChecked(),
             "auto_update_install": True,
             "startup_with_windows": self.startup_with_windows.isChecked(),
+            "steel_cut_capture_mode": self.selected_steel_cut_capture_mode() if hasattr(self, "steel_cut_mode_radios") else "region",
+            "steel_cut_fixed_width": self.steel_cut_fixed_width.value() if hasattr(self, "steel_cut_fixed_width") else 800,
+            "steel_cut_fixed_height": self.steel_cut_fixed_height.value() if hasattr(self, "steel_cut_fixed_height") else 450,
         }
 
     def is_dirty(self) -> bool:
@@ -275,6 +490,9 @@ class SettingsTab(QWidget):
         settings["quick_memo_double_alt"] = self.memo_mode_double_alt.isChecked()
         settings["phrase_popup_hotkey"] = self.phrase_popup_hotkey.value()
         settings["steel_cut_hotkey"] = self.steel_cut_hotkey.value()
+        settings["steel_cut_capture_mode"] = self.selected_steel_cut_capture_mode()
+        settings["steel_cut_fixed_width"] = self.steel_cut_fixed_width.value()
+        settings["steel_cut_fixed_height"] = self.steel_cut_fixed_height.value()
         settings["auto_update_check"] = self.auto_update_check.isChecked()
         settings["auto_update_install"] = True
         settings["startup_with_windows"] = self.startup_with_windows.isChecked()
@@ -413,6 +631,9 @@ class SettingsTab(QWidget):
         self.main.settings["recent_emojis"] = []
         # 특수문자 최근 사용이력 초기화
         self.main.settings["special_char_usage"] = {}
+        self.main.settings["phrase_popup_hotkey"] = {"modifiers": ["ctrl"], "key": ";"}
+        self.main.settings["steel_cut_hotkey"] = {"modifiers": ["ctrl", "shift"], "key": "S"}
+        self.main.settings["steel_cut_capture_mode"] = "region"
         config.save_settings(self.main.settings)
         # 클립보드 이력 초기화 (메모리 + 디스크)
         for tab in self.main.tabs:

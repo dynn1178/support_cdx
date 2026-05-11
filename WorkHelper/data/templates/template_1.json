@@ -2,7 +2,7 @@
   "meta": {
     "preset_name": "기본 프리셋",
     "version": "1.0.0",
-    "saved_at": "2026-05-11T10:36:47"
+    "saved_at": "2026-05-12T00:45:24"
   },
   "phrases": [
     {
@@ -55,7 +55,9 @@
       "sort_order": 0,
       "path": "",
       "show_credentials_on_card": false,
-      "usage_count": 0
+      "usage_count": 0,
+      "favorite": false,
+      "favicon_path": "data/favicons/favicon_84851fb7d2.png"
     },
     {
       "id": "ln_sample_site2",
@@ -70,14 +72,18 @@
       "hotkey": null,
       "path": "",
       "sort_order": 1,
-      "usage_count": 0
+      "usage_count": 2,
+      "favorite": false,
+      "used_today_date": "2026-05-12",
+      "used_today_count": 2,
+      "last_used_at": "2026-05-12T00:29:03"
     }
   ],
   "images": [
     {
       "id": "img_sample",
       "name": "엑셀 단축키",
-      "path": "assets/images/capture_e05542b42c.png",
+      "path": "assets/images/capture_07442d0267.png",
       "path_type": "relative",
       "hotkey": {
         "modifiers": [
@@ -88,10 +94,181 @@
       },
       "sort_order": 0,
       "display_scale": 100,
+      "usage_count": 2,
+      "used_today_date": "2026-05-11",
+      "used_today_count": 2,
+      "last_used_at": "2026-05-11T23:12:21"
+    },
+    {
+      "id": "img_672eb103d1",
+      "name": "python",
+      "path": "save_image/steel_b35c99a814.png",
+      "path_type": "relative",
+      "hotkey": null,
+      "sort_order": 1,
+      "display_scale": 100,
+      "created_at": "2026-05-12T00:45:24",
       "usage_count": 0
     }
   ],
-  "steel_cuts": [],
+  "steel_cuts": [
+    {
+      "id": "steel_069f8c9c64",
+      "path": "screenshot/steel_0d318afa26.png",
+      "path_type": "relative",
+      "window_title": "6PM Assistant",
+      "created_at": "2026-05-11T23:10:01",
+      "last_used_at": "2026-05-11T23:11:47",
+      "sort_order": 0,
+      "usage_count": 4,
+      "used_today_date": "2026-05-11",
+      "used_today_count": 4
+    },
+    {
+      "id": "steel_d609af7e1a",
+      "path": "screenshot/steel_e4e7a89f2c.png",
+      "path_type": "relative",
+      "window_title": "6PM Assistant",
+      "created_at": "2026-05-11T23:15:58",
+      "last_used_at": "2026-05-11T23:15:58",
+      "sort_order": 1,
+      "usage_count": 1,
+      "used_today_date": "2026-05-11",
+      "used_today_count": 1
+    },
+    {
+      "id": "steel_4be32a4a4e",
+      "path": "screenshot/steel_6f3b815ae8.png",
+      "path_type": "relative",
+      "window_title": "6PM Assistant",
+      "created_at": "2026-05-11T23:16:09",
+      "last_used_at": "2026-05-11T23:16:10",
+      "sort_order": 2,
+      "usage_count": 1,
+      "used_today_date": "2026-05-11",
+      "used_today_count": 1
+    },
+    {
+      "id": "steel_19e95a6351",
+      "path": "screenshot/steel_fa25d396b9.png",
+      "path_type": "relative",
+      "window_title": "6PM Assistant",
+      "created_at": "2026-05-11T23:16:19",
+      "last_used_at": "2026-05-11T23:16:20",
+      "sort_order": 3,
+      "usage_count": 1,
+      "used_today_date": "2026-05-11",
+      "used_today_count": 1
+    },
+    {
+      "id": "steel_b39d9bd5f4",
+      "path": "screenshot/steel_731273347e.png",
+      "path_type": "relative",
+      "window_title": "6PM Assistant",
+      "created_at": "2026-05-11T23:16:31",
+      "last_used_at": "2026-05-11T23:16:33",
+      "sort_order": 4,
+      "usage_count": 1,
+      "used_today_date": "2026-05-11",
+      "used_today_count": 1
+    },
+    {
+      "id": "steel_841f3cd4a8",
+      "path": "screenshot/steel_269edcd1f7.png",
+      "path_type": "relative",
+      "window_title": "6PM Assistant",
+      "created_at": "2026-05-11T23:17:11",
+      "last_used_at": "2026-05-11T23:17:12",
+      "sort_order": 5,
+      "usage_count": 1,
+      "used_today_date": "2026-05-11",
+      "used_today_count": 1
+    },
+    {
+      "id": "steel_a0d730eb6f",
+      "path": "screenshot/steel_267d9c7634.png",
+      "path_type": "relative",
+      "window_title": "6PM Assistant",
+      "created_at": "2026-05-11T23:17:18",
+      "last_used_at": "2026-05-11T23:17:20",
+      "sort_order": 6,
+      "usage_count": 1,
+      "used_today_date": "2026-05-11",
+      "used_today_count": 1
+    },
+    {
+      "id": "steel_43213c219b",
+      "path": "screenshot/steel_1b91e7929c.png",
+      "path_type": "relative",
+      "window_title": "6PM Assistant",
+      "created_at": "2026-05-11T23:17:22",
+      "last_used_at": "2026-05-11T23:21:01",
+      "sort_order": 7,
+      "usage_count": 2,
+      "used_today_date": "2026-05-11",
+      "used_today_count": 2
+    },
+    {
+      "id": "steel_68185804ac",
+      "path": "screenshot/steel_6148a71922.png",
+      "path_type": "relative",
+      "window_title": "6PM Assistant",
+      "created_at": "2026-05-11T23:24:34",
+      "last_used_at": "2026-05-11T23:25:08",
+      "sort_order": 8,
+      "usage_count": 2,
+      "used_today_date": "2026-05-11",
+      "used_today_count": 2
+    },
+    {
+      "id": "steel_85ffd044d0",
+      "path": "screenshot/steel_106774a68d.png",
+      "path_type": "relative",
+      "window_title": "6PM Assistant",
+      "created_at": "2026-05-11T23:34:03",
+      "last_used_at": "2026-05-11T23:37:43",
+      "sort_order": 9,
+      "usage_count": 2,
+      "used_today_date": "2026-05-11",
+      "used_today_count": 2
+    },
+    {
+      "id": "steel_7a2a6a46dd",
+      "path": "screenshot/steel_8415f66c75.png",
+      "path_type": "relative",
+      "window_title": "main.py - support_cdx - Visual Studio Code",
+      "created_at": "2026-05-11T23:39:45",
+      "last_used_at": "2026-05-12T00:06:08",
+      "sort_order": 10,
+      "usage_count": 3,
+      "used_today_date": "2026-05-12",
+      "used_today_count": 1
+    },
+    {
+      "id": "steel_97456cfb9d",
+      "path": "screenshot/steel_62354791a1.png",
+      "path_type": "relative",
+      "window_title": "6PM Assistant",
+      "created_at": "2026-05-12T00:06:30",
+      "last_used_at": "2026-05-12T00:06:32",
+      "sort_order": 11,
+      "usage_count": 1,
+      "used_today_date": "2026-05-12",
+      "used_today_count": 1
+    },
+    {
+      "id": "steel_7d08ca9e1e",
+      "path": "screenshot/steel_fedad4037e.png",
+      "path_type": "relative",
+      "window_title": "6PM Assistant",
+      "created_at": "2026-05-12T00:06:46",
+      "last_used_at": "2026-05-12T00:06:48",
+      "sort_order": 12,
+      "usage_count": 1,
+      "used_today_date": "2026-05-12",
+      "used_today_count": 1
+    }
+  ],
   "macros": [
     {
       "id": "mc_sample",
@@ -262,9 +439,7 @@
       "usage_count": 0
     }
   ],
-  "phrase_popup_favorites": [
-    "ph_sample2"
-  ],
+  "phrase_popup_favorites": [],
   "todo_groups": [
     "그룹 1",
     "그룹 2",

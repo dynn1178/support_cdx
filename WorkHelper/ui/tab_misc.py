@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import colorsys
 
-from PyQt6.QtCore import QPoint, QRect, QTimer, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QCursor, QPainter, QPen
+from PyQt6.QtCore import QPoint, QPointF, QRect, QTimer, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QCursor, QPainter, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QColorDialog,
@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app import config
-from ui.common import ask_modern_question
+from ui.common import HotkeyFields, ask_modern_question, confirm_shift_digit_hotkey, show_modern_warning
 
 
 def hex_to_rgb(value: str) -> tuple[int, int, int]:
@@ -404,6 +404,203 @@ class MouseHighlightTab(QWidget):
         self.main.set_mouse_highlight(False)
 
 
+class ScreenDrawOverlay(QWidget):
+    def __init__(self) -> None:
+        super().__init__()
+        flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint
+        self.setWindowFlags(flags)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setCursor(Qt.CursorShape.CrossCursor)
+        rect = QApplication.primaryScreen().virtualGeometry()
+        for screen in QApplication.screens():
+            rect = rect.united(screen.geometry())
+        self.setGeometry(rect)
+        self.canvas = QPixmap(rect.size())
+        self.canvas.fill(Qt.GlobalColor.transparent)
+        self.last_pos: QPoint | None = None
+        self.last_mid: QPointF | None = None
+        self.color = QColor("#FFDD33")
+        self.stroke_width = 8
+        self.mode = "highlight"
+
+        toolbar = QWidget(self)
+        toolbar.setObjectName("screenDrawToolbar")
+        toolbar.setStyleSheet(
+            """
+            QWidget#screenDrawToolbar { background: rgba(17, 24, 39, 230); border-radius: 10px; }
+            QPushButton, QComboBox, QSpinBox { min-height: 28px; border: 0; border-radius: 6px; padding: 2px 10px; background: #FFFFFF; color: #111827; font-weight: 700; }
+            QPushButton#closeButton { background: #EF4444; color: white; }
+            """
+        )
+        row = QHBoxLayout(toolbar)
+        row.setContentsMargins(8, 8, 8, 8)
+        row.setSpacing(6)
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItem("형광펜", "highlight")
+        self.mode_combo.addItem("펜", "pen")
+        self.mode_combo.addItem("지우개", "eraser")
+        self.mode_combo.setMinimumWidth(110)
+        self.mode_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.width_spin = QSpinBox()
+        self.width_spin.setRange(1, 60)
+        self.width_spin.setValue(self.stroke_width)
+        self.width_spin.setSuffix(" px")
+        self.width_spin.setMinimumWidth(88)
+        color_btn = QPushButton("색상")
+        clear_btn = QPushButton("초기화")
+        close_btn = QPushButton("닫기")
+        close_btn.setObjectName("closeButton")
+        row.addWidget(self.mode_combo)
+        row.addWidget(QLabel("굵기"))
+        row.addWidget(self.width_spin)
+        row.addWidget(color_btn)
+        row.addWidget(clear_btn)
+        row.addWidget(close_btn)
+        toolbar.adjustSize()
+        toolbar.move(24, 24)
+        self.toolbar = toolbar
+
+        self.mode_combo.currentIndexChanged.connect(lambda _=0: setattr(self, "mode", self.mode_combo.currentData()))
+        self.width_spin.valueChanged.connect(self.set_stroke_width)
+        color_btn.clicked.connect(self.pick_color)
+        clear_btn.clicked.connect(self.clear_canvas)
+        close_btn.clicked.connect(self.close)
+
+    def pick_color(self) -> None:
+        color = QColorDialog.getColor(self.color, self, "화면 그리기 색상")
+        if color.isValid():
+            self.color = color
+
+    def set_stroke_width(self, value: int) -> None:
+        self.stroke_width = max(1, min(60, value))
+        if self.width_spin.value() != self.stroke_width:
+            self.width_spin.setValue(self.stroke_width)
+
+    def clear_canvas(self) -> None:
+        self.canvas.fill(Qt.GlobalColor.transparent)
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(0, 0, 0, 1))
+        painter.drawPixmap(0, 0, self.canvas)
+        painter.end()
+
+    def mousePressEvent(self, event) -> None:
+        if self.toolbar.geometry().contains(event.position().toPoint()):
+            return
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.last_pos = event.position().toPoint()
+            self.last_mid = QPointF(self.last_pos)
+            self.draw_to(self.last_pos)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self.last_pos is None:
+            return
+        pos = event.position().toPoint()
+        self.draw_to(pos)
+
+    def draw_to(self, pos: QPoint) -> None:
+        target = self.canvas
+        if self.mode == "highlight":
+            target = QPixmap(self.canvas.size())
+            target.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(target)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if self.mode == "eraser":
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
+            painter.setPen(QPen(Qt.GlobalColor.transparent, self.stroke_width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        else:
+            color = QColor(self.color)
+            color.setAlpha(90 if self.mode == "highlight" else 230)
+            cap = Qt.PenCapStyle.FlatCap if self.mode == "highlight" else Qt.PenCapStyle.RoundCap
+            painter.setPen(QPen(color, self.stroke_width, Qt.PenStyle.SolidLine, cap, Qt.PenJoinStyle.RoundJoin))
+        if self.last_pos == pos:
+            painter.drawPoint(pos)
+        elif self.mode == "eraser":
+            painter.drawLine(self.last_pos, pos)
+        else:
+            start = self.last_mid if self.last_mid is not None else QPointF(self.last_pos)
+            mid = QPointF((self.last_pos.x() + pos.x()) / 2, (self.last_pos.y() + pos.y()) / 2)
+            path = QPainterPath(start)
+            path.quadTo(QPointF(self.last_pos), mid)
+            painter.drawPath(path)
+            self.last_mid = mid
+        painter.end()
+        if self.mode == "highlight":
+            painter = QPainter(self.canvas)
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+            painter.drawPixmap(0, 0, target)
+            painter.end()
+        self.last_pos = pos
+        self.update()
+
+    def mouseReleaseEvent(self, event) -> None:
+        self.last_pos = None
+        self.last_mid = None
+
+    def wheelEvent(self, event) -> None:
+        delta = event.angleDelta().y()
+        if delta:
+            step = 1 if delta > 0 else -1
+            self.set_stroke_width(self.stroke_width + step)
+        event.accept()
+
+
+class ScreenDrawTab(QWidget):
+    def __init__(self, main) -> None:
+        super().__init__()
+        self.main = main
+        self.overlay: ScreenDrawOverlay | None = None
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 14, 14, 14)
+        info = QLabel(
+            "발표 중 현재 화면 위에 형광펜, 펜, 지우개로 표시할 수 있습니다.\n"
+            "마우스 휠로 굵기를 조절할 수 있고, 마우스 하이라이트나 캡처 기능과 함께 사용할 수 있습니다."
+        )
+        info.setWordWrap(True)
+        self.hotkey = HotkeyFields(main.settings.get("screen_draw_hotkey"))
+        save_hotkey = QPushButton("단축키 저장")
+        save_hotkey.clicked.connect(self.save_hotkey)
+        hotkey_row = QHBoxLayout()
+        hotkey_row.addWidget(QLabel("시작 단축키"))
+        hotkey_row.addWidget(self.hotkey, 1)
+        hotkey_row.addWidget(save_hotkey)
+        start = QPushButton("화면 그리기 시작")
+        start.clicked.connect(self.start_overlay)
+        layout.addWidget(info)
+        layout.addLayout(hotkey_row)
+        layout.addWidget(start)
+        layout.addStretch(1)
+
+    def save_hotkey(self) -> None:
+        value = self.hotkey.value()
+        original = self.main.settings.get("screen_draw_hotkey")
+        self.main.settings["screen_draw_hotkey"] = value
+        conflict = self.main.first_hotkey_conflict()
+        if conflict:
+            self.main.settings["screen_draw_hotkey"] = original
+            show_modern_warning(self, "단축키 충돌", conflict)
+            return
+        if not confirm_shift_digit_hotkey(self, value):
+            self.main.settings["screen_draw_hotkey"] = original
+            return
+        config.save_settings(self.main.settings)
+        self.main.register_hotkeys()
+
+    def start_overlay(self) -> None:
+        if self.overlay is None or not self.overlay.isVisible():
+            self.overlay = ScreenDrawOverlay()
+        self.overlay.show()
+        self.overlay.raise_()
+        self.overlay.activateWindow()
+        self.overlay.setFocus()
+
+
 class EmojiTab(QWidget):
     CATEGORIES = {
         "사용 이력": [],
@@ -675,4 +872,16 @@ class MiscTab(QWidget):
         tabs.addTab(EmojiTab(main), "이모지")
         tabs.addTab(SpecialCharTab(main), "특수문자")
         tabs.addTab(MouseHighlightTab(main), "마우스 하이라이트")
+        tabs.addTab(ScreenDrawTab(main), "화면 그리기")
         layout.addWidget(tabs, 1)
+
+    def start_screen_draw(self) -> None:
+        tab_widget = self.findChild(QTabWidget)
+        if tab_widget is None:
+            return
+        for index in range(tab_widget.count()):
+            widget = tab_widget.widget(index)
+            if isinstance(widget, ScreenDrawTab):
+                tab_widget.setCurrentIndex(index)
+                widget.start_overlay()
+                return

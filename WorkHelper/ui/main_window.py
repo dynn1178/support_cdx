@@ -804,7 +804,7 @@ class MainWindow(QMainWindow):
             self.stack.addWidget(tab)
         content_layout.addWidget(self.stack, 1)
 
-        names = ["홈", "상용구", "바로가기", "클립보드", "컨닝페이퍼", "일정 관리", "메모", "매크로", "계산기", "텍스트 변환", "피커 · 기타", "설정"]
+        names = ["홈", "상용구", "바로가기", "클립보드", "캡처 도구", "일정 관리", "메모", "매크로", "계산기", "텍스트 변환", "피커 · 기타", "설정"]
         self.buttons: list[QToolButton] = []
         for i, name in enumerate(names):
             button = QToolButton()
@@ -938,7 +938,7 @@ class MainWindow(QMainWindow):
             ("snippets", "코드"),
             ("title_templates", "제목 생성"),
             ("launchers", "바로가기"),
-            ("images", "컨닝페이퍼"),
+            ("images", "캡처 도구"),
             ("macros", "매크로"),
         ]:
             for item in self.data.get(collection, []):
@@ -960,7 +960,10 @@ class MainWindow(QMainWindow):
             entries.append(("상용구 미니팝업", phrase_popup_hotkey))
         steel_cut_hotkey = self.settings.get("steel_cut_hotkey")
         if steel_cut_hotkey:
-            entries.append(("스틸 컷", steel_cut_hotkey))
+            entries.append(("캡처 단축키", steel_cut_hotkey))
+        screen_draw_hotkey = self.settings.get("screen_draw_hotkey")
+        if screen_draw_hotkey:
+            entries.append(("화면 그리기", screen_draw_hotkey))
         return entries
 
     def first_hotkey_conflict(self, candidate: dict | None = None, original: dict | None = None) -> str:
@@ -1019,6 +1022,9 @@ class MainWindow(QMainWindow):
         steel_cut_hotkey = settings.get("steel_cut_hotkey")
         if steel_cut_hotkey:
             self.hotkeys.register(steel_cut_hotkey.get("modifiers", []), steel_cut_hotkey.get("key", ""), self.tabs[4].capture_steel_cut, "steel_cut")
+        screen_draw_hotkey = settings.get("screen_draw_hotkey")
+        if screen_draw_hotkey:
+            self.hotkeys.register(screen_draw_hotkey.get("modifiers", []), screen_draw_hotkey.get("key", ""), self.tabs[10].start_screen_draw, "screen_draw")
         self.update_hotkey_status()
         self.update_hotkey_toggle_button()
 

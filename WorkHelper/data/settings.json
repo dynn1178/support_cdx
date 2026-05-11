@@ -37,9 +37,16 @@
     ],
     "key": "S"
   },
+  "steel_cut_capture_mode": "region",
+  "screen_draw_hotkey": null,
+  "steel_cut_fixed_width": 800,
+  "steel_cut_fixed_height": 450,
+  "steel_cut_fixed_x": 3015,
+  "steel_cut_fixed_y": 680,
   "hotkeys_enabled": true,
   "auto_update_check": true,
   "auto_update_install": true,
+  "update_notice_snooze_until": "",
   "startup_with_windows": false,
   "active_preset": 1,
   "color_presets": [
