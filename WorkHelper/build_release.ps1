@@ -49,7 +49,7 @@ if (-not $Version) {
     $Version = $parts -join '.'
 }
 
-$ZipPath = Join-Path $DistDir "6PM Assistant.zip"
+$ZipPath = Join-Path $DistDir "6PM.Assistant.zip"
 
 Write-Host ""
 Write-Host "==========================================="
@@ -75,6 +75,7 @@ if (-not $SkipInstall) {
 Write-Host "[3/5] Building updater.exe..."
 New-Item -ItemType Directory -Force -Path $UpdaterDistDir | Out-Null
 python -m PyInstaller --clean --noconfirm --onefile --name updater `
+    --windowed `
     --distpath $UpdaterDistDir `
     --workpath (Join-Path $ProjectRoot "build\_updater_build") `
     updater.py

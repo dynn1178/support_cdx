@@ -35,6 +35,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path build/_updater_dist | Out-Null
           python -m PyInstaller --clean --noconfirm --onefile --name updater `
+            --windowed `
             --distpath build/_updater_dist `
             --workpath build/_updater_build `
             updater.py
@@ -47,13 +48,13 @@ jobs:
           Copy-Item -Force "build/_updater_dist/updater.exe" "dist/updater.exe"
           Compress-Archive -Force `
             -Path "dist/6PM Assistant.exe", "dist/updater.exe" `
-            -DestinationPath "dist/6PM Assistant.zip"
+            -DestinationPath "dist/6PM.Assistant.zip"
 
       - name: Verify build
         working-directory: WorkHelper
         shell: pwsh
         run: |
-          $zip = "dist/6PM Assistant.zip"
+          $zip = "dist/6PM.Assistant.zip"
           if (-not (Test-Path "dist/6PM Assistant.exe")) { throw "6PM Assistant.exe missing" }
           if (-not (Test-Path "dist/updater.exe")) { throw "updater.exe missing" }
           if (-not (Test-Path $zip)) { throw "zip package missing" }
@@ -81,9 +82,9 @@ jobs:
             ## v${{ steps.ver.outputs.version }}
 
             ### 설치 / 업데이트 방법
-            1. `6PM Assistant.zip`을 다운로드하세요.
+            1. `6PM.Assistant.zip`을 다운로드하세요.
             2. 압축을 푼 뒤 `6PM Assistant.exe`와 `updater.exe`를 같은 폴더에 두세요.
             3. 이후 앱 내 **설정 -> 업데이트 확인** 버튼을 사용할 수 있습니다.
-          files: WorkHelper/dist/6PM Assistant.zip
+          files: WorkHelper/dist/6PM.Assistant.zip
           draft: false
           prerelease: false

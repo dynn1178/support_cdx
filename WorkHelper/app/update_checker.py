@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import webbrowser
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +21,7 @@ from PyQt6.QtWidgets import (
 from app import config
 
 JUST_UPDATED_FLAG = Path(tempfile.gettempdir()) / "6pma_just_updated.txt"
+MANUAL_UPDATE_URL = "https://github.com/dynn1178/support_cdx/releases/latest/download/6PM.Assistant.zip"
 
 
 @dataclass
@@ -307,6 +309,10 @@ def install_update(parent: QWidget, update: UpdateInfo, token: str | None = None
     sys.exit(0)
 
 
+def open_manual_update_download() -> None:
+    webbrowser.open(MANUAL_UPDATE_URL)
+
+
 class _UpdateStatusDialog(QDialog):
     """버전 정보 + 업데이트 상태를 통합 표시하는 다이얼로그."""
 
@@ -393,6 +399,12 @@ class _UpdateStatusDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.addStretch(1)
         if has_update:
+            manual_btn = QToolButton()
+            manual_btn.setText("수동 업데이트")
+            manual_btn.setFixedHeight(32)
+            manual_btn.setObjectName("usd_btn_secondary")
+            manual_btn.clicked.connect(open_manual_update_download)
+            btn_row.addWidget(manual_btn)
             cancel_btn = QToolButton()
             cancel_btn.setText("나중에")
             cancel_btn.setFixedHeight(32)
