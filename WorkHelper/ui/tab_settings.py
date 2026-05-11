@@ -75,7 +75,7 @@ class SettingsTab(QWidget):
         export_btn = QPushButton("현재 프리셋 내보내기")
         import_btn = QPushButton("현재 프리셋 가져오기")
         reset_btn = QPushButton("현재 프리셋 초기화")
-        creator_btn = QPushButton("제작자")
+        creator_btn = QPushButton("문의 및 홈페이지")
         save_btn.clicked.connect(self.save_settings)
         update_btn.clicked.connect(self.check_update_now)
         export_btn.clicked.connect(self.export_template)

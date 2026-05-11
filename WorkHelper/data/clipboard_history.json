@@ -1,6 +1,16 @@
 {
   "history": [
     {
+      "id": "cb_7a99a4f2f1",
+      "type": "text",
+      "text": "https://github.com/dynn1178/support_cdx/releases/latest/download/6PM.Assistant.zip",
+      "copied_at": "2026-05-11T11:59:08",
+      "created_at": "2026-05-11T11:59:08",
+      "sort_order": 7,
+      "usage_count": 0,
+      "pinned": false
+    },
+    {
       "id": "cb_2a29355828",
       "type": "text",
       "text": ".\\build_release.ps1 -ReleaseNote \"업데이트 방식 변경\"",
