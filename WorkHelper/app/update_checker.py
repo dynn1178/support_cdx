@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import requests
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog, QHBoxLayout, QLabel, QMessageBox,
     QProgressBar, QScrollArea, QToolButton, QVBoxLayout, QWidget,
@@ -309,8 +309,23 @@ def install_update(parent: QWidget, update: UpdateInfo, token: str | None = None
     sys.exit(0)
 
 
+def _open_folder(path: Path) -> None:
+    try:
+        if path.exists():
+            os.startfile(path)
+    except Exception:
+        pass
+
+
+def _open_manual_update_folders() -> None:
+    downloads = Path.home() / "Downloads"
+    _open_folder(downloads if downloads.exists() else Path.home())
+    _open_folder(config.BASE_DIR)
+
+
 def open_manual_update_download() -> None:
     webbrowser.open(MANUAL_UPDATE_URL)
+    QTimer.singleShot(3000, _open_manual_update_folders)
 
 
 class _UpdateStatusDialog(QDialog):
@@ -390,7 +405,11 @@ class _UpdateStatusDialog(QDialog):
             layout.addWidget(scroll)
 
         if has_update:
-            manual_hint = QLabel("자동 업데이트가 실패할 경우 홈페이지에서 직접 다운로드를 통해 수동으로 진행해주세요.")
+            manual_hint = QLabel(
+                "자동 업데이트가 실패하거나 같은 버전의 업데이트 확인 창이 반복해서 표시된다면, "
+                "보안 시스템이 자동 업데이트를 차단한 것일 수 있습니다.\n"
+                "아래 수동 업데이트 버튼으로 압축 파일을 내려받은 뒤, 현재 프로그램 폴더에 압축을 풀어 덮어써 주세요."
+            )
             manual_hint.setObjectName("usd_manual_hint")
             manual_hint.setWordWrap(True)
             layout.addWidget(manual_hint)
@@ -458,8 +477,9 @@ class _UpdateStatusDialog(QDialog):
                 font-size: 9pt;
             }}
             QLabel#usd_manual_hint {{
-                color: {colors.get("muted", colors["text"])};
+                color: {colors.get("danger", "#E05353")};
                 font-size: 9pt;
+                font-weight: 700;
                 background: transparent;
             }}
             QScrollArea {{
@@ -488,7 +508,7 @@ class _UpdateStatusDialog(QDialog):
         if body:
             base_height += 140
         if has_update:
-            base_height += 34
+            base_height += 56
         self.resize(400, base_height)
 
     def _on_confirm(self) -> None:
