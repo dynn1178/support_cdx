@@ -173,8 +173,13 @@ def build_stylesheet(colors: dict[str, str]) -> str:
             background: {colors["panel"]}; color: #D99229; border: 1px solid {colors["border"]};
             border-radius: 6px; padding: 4px 9px; font-weight: 800;
         }}
-        QLabel#kbd, QLabel#keyCap {{
+        QLabel#kbd {{
             color: {colors["text"]}; background: {kbd_bg}; border: 1px solid {colors["border"]};
+            border-radius: 4px; padding: 1px 5px;
+            font-family: Consolas, "Courier New"; font-weight: 700; font-size: 7.5pt; min-height: 16px;
+        }}
+        QLabel#keyCap {{
+            color: {colors["text"]}; background: {colors["panel"]}; border: 1px solid {colors["border"]};
             border-radius: 4px; padding: 1px 5px;
             font-family: Consolas, "Courier New"; font-weight: 700; font-size: 7.5pt; min-height: 16px;
         }}

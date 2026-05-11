@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -25,7 +26,7 @@ from PyQt6.QtWidgets import (
 
 from app import config
 from app.utils import display_hotkey, new_id, now_iso, short_preview
-from ui.common import GridPanel, HotkeyFields, SortControls, apply_manual_reorder, apply_modern_dialog_style, ask_modern_question, bump_usage, confirm_delete, confirm_shift_digit_hotkey, make_card, make_icon_button, show_modern_warning
+from ui.common import ElidedLabel, ElidedMultilineLabel, GridPanel, HotkeyFields, SortControls, apply_manual_reorder, apply_modern_dialog_style, ask_modern_question, bump_usage, confirm_delete, confirm_shift_digit_hotkey, make_card, make_hotkey_caps, make_icon_button, show_modern_warning
 
 
 TYPE_ALIASES = {"사이트": "site", "파일": "file", "폴더": "folder", "site": "site", "file": "file", "folder": "folder"}
@@ -387,12 +388,13 @@ class LauncherTab(QWidget):
             if q and q not in (item.get("name", "") + " " + item.get("url", "") + " " + item.get("path", "")).lower():
                 continue
             item_type = launcher_type(item.get("type"))
-            card = make_card(item.get("name", "(이름 없음)"), self.site_card_subtitle(item), display_hotkey(item.get("hotkey")), card_size="c") if item_type == "site" else make_card(item.get("name", "(이름 없음)"), short_preview(item.get("path", "")), display_hotkey(item.get("hotkey")), card_size="b")
-            self.add_launcher_actions(card, item)
             if item_type == "site":
+                card = self.make_site_card(item)
                 site_items.append(item)
                 site_cards.append(card)
             else:
+                card = make_card(item.get("name", "(이름 없음)"), short_preview(item.get("path", "")), display_hotkey(item.get("hotkey")), card_size="b")
+                self.add_launcher_actions(card, item)
                 file_items.append(item)
                 file_cards.append(card)
         site_callback = (lambda old, new: self.reorder_items(source_items, site_items, old, new)) if self.sort_controls.is_manual() else None
@@ -404,9 +406,73 @@ class LauncherTab(QWidget):
         apply_manual_reorder(source, visible, old, new)
         self.main.save_data()
 
+    def make_site_card(self, item: dict) -> QWidget:
+        card = QWidget()
+        card.setObjectName("card")
+        card.setFixedHeight(75)
+        card.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(12, 6, 12, 6)
+        layout.setSpacing(3)
+
+        title_row = QHBoxLayout()
+        title_row.setSpacing(10)
+        title = ElidedLabel(item.get("name", "(이름 없음)"))
+        title.setObjectName("cardTitle")
+        title.setFixedHeight(22)
+        title_row.addWidget(title, 1)
+
+        status = QLabel("")
+        status.setStyleSheet("color: #168A4A; font-weight: 700;")
+        status.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        status.setFixedHeight(22)
+        status.setMaximumWidth(170)
+        self.status_labels[item.get("id", "")] = status
+        title_row.addWidget(status)
+
+        hotkey = display_hotkey(item.get("hotkey"))
+        if hotkey:
+            hotkey_slot = QWidget()
+            hotkey_slot.setObjectName("hotkeySlot")
+            hotkey_slot.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+            hotkey_slot.setFixedSize(150, 22)
+            hotkey_slot.setStyleSheet("QWidget#hotkeySlot { background: transparent; border: 0; }")
+            hotkey_layout = QHBoxLayout(hotkey_slot)
+            hotkey_layout.setContentsMargins(0, 0, 0, 0)
+            hotkey_layout.setSpacing(0)
+            hotkey_layout.addStretch(1)
+            hotkey_layout.addWidget(make_hotkey_caps(hotkey))
+            title_row.addWidget(hotkey_slot)
+        layout.addLayout(title_row)
+
+        body_row = QHBoxLayout()
+        body_row.setContentsMargins(0, 0, 0, 0)
+        body_row.setSpacing(8)
+        subtitle = ElidedMultilineLabel(self.site_card_subtitle(item), max_lines=2)
+        subtitle.setObjectName("cardSubtitle")
+        subtitle.setFixedHeight(38)
+        body_row.addWidget(subtitle, 3)
+
+        actions = QWidget()
+        actions.setObjectName("launcherCardActions")
+        actions.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        actions.setStyleSheet("QWidget#launcherCardActions { background: transparent; border: 0; }")
+        actions_layout = QHBoxLayout(actions)
+        actions_layout.setContentsMargins(0, 0, 0, 0)
+        actions_layout.setSpacing(4)
+        actions_layout.addStretch(1)
+        actions_layout.addWidget(make_icon_button("open", "열기", lambda checked=False, value=item: self.open_launcher(value)))
+        actions_layout.addWidget(make_icon_button("edit", "수정", lambda checked=False, value=item: self.edit_launcher(value)))
+        actions_layout.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=item: self.delete_launcher(value), True))
+        body_row.addWidget(actions, 2)
+        layout.addLayout(body_row)
+        return card
+
     def add_launcher_actions(self, card: QWidget, item: dict) -> None:
         row = QHBoxLayout()
-        row.setContentsMargins(0, 2, 0, 0)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
         status = QLabel("")
         status.setStyleSheet("color: #168A4A; font-weight: 700;")
         status.setAlignment(Qt.AlignmentFlag.AlignVCenter)

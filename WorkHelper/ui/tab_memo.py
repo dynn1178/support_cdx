@@ -99,6 +99,19 @@ _TIMER_COMPACT_COMBO_STYLE = (
 )
 
 
+def memo_card_preview(text: str, limit: int = 160, max_lines: int = 2) -> str:
+    lines = [line.strip() for line in text.splitlines()]
+    lines = [line for line in lines if line]
+    if not lines:
+        return ""
+    preview = "\n".join(lines[:max_lines])
+    if len(lines) > max_lines:
+        preview += " ..."
+    if len(preview) <= limit:
+        return preview
+    return preview[: limit - 1].rstrip() + "..."
+
+
 def display_datetime(value: str, repeat: str = "none") -> str:
     try:
         parsed = datetime.fromisoformat(value)
@@ -146,7 +159,8 @@ class StickyMemoDialog(QDialog):
         self.drag_bar = QLabel("")
         self.drag_bar.setFixedHeight(12)
         layout.addWidget(self.drag_bar)
-        self.text = QTextEdit(memo.get("content", ""))
+        self.text = QTextEdit()
+        self.text.setPlainText(memo.get("content", ""))
         self.text.textChanged.connect(self.schedule_save)
         layout.addWidget(self.text, 1)
         controls = QHBoxLayout()
@@ -281,7 +295,8 @@ class MemoDialog(QDialog):
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.title = QLineEdit(self.memo.get("title", ""))
-        self.content = QTextEdit(self.memo.get("content", ""))
+        self.content = QTextEdit()
+        self.content.setPlainText(self.memo.get("content", ""))
         self.pinned = QCheckBox("메모 목록 상단에 고정")
         self.pinned.setToolTip("체크하면 메모 탭 목록에서 이 메모가 위쪽에 먼저 표시됩니다.")
         self.pinned.setChecked(bool(self.memo.get("pinned")))
@@ -433,7 +448,8 @@ class ScheduleDialog(QDialog):
         notify_widget = QWidget()
         notify_widget.setLayout(notify_row)
         self.update_notify_label()
-        self.memo = QTextEdit(self.schedule.get("memo", ""))
+        self.memo = QTextEdit()
+        self.memo.setPlainText(self.schedule.get("memo", ""))
         form.addRow("제목", self.title)
         form.addRow("중요도", self.priority)
         form.addRow("일시", datetime_widget)
@@ -548,7 +564,7 @@ class MemoListTab(QWidget):
         for memo in memos:
             if q and q not in (memo.get("title", "") + " " + memo.get("content", "")).lower():
                 continue
-            card = make_card(memo.get("title", "(제목 없음)"), short_preview(memo.get("content", ""), 160), card_size="b")
+            card = make_card(memo.get("title", "(제목 없음)"), memo_card_preview(memo.get("content", ""), 160), card_size="c")
             self.add_memo_actions(card, memo)
             cards.append(card)
         callback = (lambda old, new: self.reorder_items(source_items, memos, old, new)) if self.sort_controls.is_manual() else None
@@ -906,7 +922,8 @@ class TodoDialog(QDialog):
         notify_widget.setLayout(n_row)
 
         # 메모
-        self.memo_edit = QTextEdit(self.item.get("memo", ""))
+        self.memo_edit = QTextEdit()
+        self.memo_edit.setPlainText(self.item.get("memo", ""))
         self.memo_edit.setFixedHeight(60)
 
         form.addRow("제목", self.title_edit)

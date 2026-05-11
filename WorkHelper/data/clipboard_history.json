@@ -1,6 +1,59 @@
 {
   "history": [
     {
+      "id": "cb_21171aa480",
+      "type": "text",
+      "text": "C:\\Users\\User\\Documents\\GitHub\\support_cdx\\WorkHelper",
+      "copied_at": "2026-05-11T10:49:17",
+      "created_at": "2026-05-11T10:49:17",
+      "sort_order": 5,
+      "usage_count": 0,
+      "pinned": false
+    },
+    {
+      "id": "cb_77d7302207",
+      "type": "text",
+      "text": "C:\\Users\\User\\Documents\\GitHub\\support_cdx",
+      "copied_at": "2026-05-11T10:48:20",
+      "created_at": "2026-05-11T10:48:20",
+      "sort_order": 4,
+      "usage_count": 0,
+      "pinned": false
+    },
+    {
+      "id": "cb_3d97d81f50",
+      "type": "text",
+      "text": ".\\build_release.ps1 -SkipRelease",
+      "copied_at": "2026-05-11T10:47:01",
+      "created_at": "2026-05-11T10:47:01",
+      "sort_order": 3,
+      "usage_count": 0,
+      "pinned": false
+    },
+    {
+      "id": "cbimg_68eeb22c86",
+      "type": "image",
+      "path": "C:\\Users\\User\\Documents\\GitHub\\support_cdx\\WorkHelper\\data\\clipboard_images\\cbimg_68eeb22c86.png",
+      "copied_at": "2026-05-11T10:45:14",
+      "created_at": "2026-05-11T10:45:14",
+      "sort_order": 2,
+      "usage_count": 0,
+      "pinned": false,
+      "image_signature": "348x103:53f87df7050b5027f29a791828940aab31b83aab",
+      "width": 348,
+      "height": 103
+    },
+    {
+      "id": "cb_bb217ed8a4",
+      "type": "text",
+      "text": "dynn1178@ybtour.com User1234!",
+      "copied_at": "2026-05-11T10:29:38",
+      "created_at": "2026-05-11T10:29:38",
+      "sort_order": 1,
+      "usage_count": 0,
+      "pinned": false
+    },
+    {
       "id": "cbimg_1c2eb16e92",
       "type": "image",
       "path": "C:\\Users\\kjh\\Documents\\GitHub\\support_cdx\\WorkHelper\\data\\clipboard_images\\cbimg_1c2eb16e92.png",

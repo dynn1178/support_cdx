@@ -169,18 +169,19 @@ def make_card(
     card_size: str | None = None,
     word_wrap: bool = False,
     title_bold: bool = True,
+    dense: bool = False,
 ) -> QWidget:
     card = QWidget()
     card.setObjectName("card")
     card.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
     if card_size == "a":
-        card_height = CARD_SIZE_A
+        card_height = CARD_SIZE_A if card_height is None else card_height
         compact = True
     elif card_size == "b":
-        card_height = CARD_SIZE_B
+        card_height = CARD_SIZE_B if card_height is None else card_height
         compact = False
     elif card_size == "c":
-        card_height = CARD_SIZE_C
+        card_height = CARD_SIZE_C if card_height is None else card_height
         compact = False
     elif card_height is None:
         card_height = 56 if compact else CARD_SIZE_B
@@ -189,6 +190,9 @@ def make_card(
     if compact:
         layout.setContentsMargins(10, 6, 10, 6)
         layout.setSpacing(4)
+    elif dense:
+        layout.setContentsMargins(12, 6, 12, 6)
+        layout.setSpacing(3)
     elif card_size == "c":
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(5)
