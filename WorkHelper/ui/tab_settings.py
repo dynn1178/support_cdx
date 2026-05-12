@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import webbrowser
+from datetime import datetime
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -112,13 +113,17 @@ class SettingsTab(QWidget):
         self.auto_update_install = QCheckBox("업데이트 동의 시 앱에서 바로 설치")
         self.auto_update_install.setEnabled(False)
         self.startup_with_windows = QCheckBox("Windows 시작 시 함께 실행")
+        self.update_snooze_label = QLabel("업데이트 알림 숨김")
+        self.update_snooze_until = QLabel("")
+        self.update_snooze_until.setObjectName("mutedText")
         form.addRow("활성 프리셋", self.template)
         form.addRow("프리셋 이름", self.template_name)
         form.addRow("창 옵션", self.always_on_top)
         form.addRow("클립보드 최대 개수", self.clipboard_limit)
-        form.addRow("업데이트 확인", self.auto_update_check)
-        form.addRow("자동 업데이트", self.auto_update_install)
         form.addRow("시작 프로그램", self.startup_with_windows)
+        form.addRow("자동 업데이트", self.auto_update_install)
+        form.addRow("업데이트 확인", self.auto_update_check)
+        form.addRow(self.update_snooze_label, self.update_snooze_until)
         layout.addLayout(form)
         layout.addStretch(1)
 
@@ -461,6 +466,10 @@ class SettingsTab(QWidget):
         actual_startup = is_startup_enabled()
         self.startup_with_windows.setChecked(actual_startup)
         settings["startup_with_windows"] = actual_startup
+        snooze_text = self.format_update_snooze_until(settings.get("update_notice_snooze_until", ""))
+        self.update_snooze_until.setText(snooze_text)
+        self.update_snooze_label.setVisible(bool(snooze_text))
+        self.update_snooze_until.setVisible(bool(snooze_text))
         self.clipboard_popup_hotkey.set_hotkey(settings.get("clipboard_popup_hotkey"))
         self.quick_memo_hotkey.set_hotkey(settings.get("quick_memo_hotkey"))
         self.phrase_popup_hotkey.set_hotkey(settings.get("phrase_popup_hotkey"))
@@ -491,6 +500,16 @@ class SettingsTab(QWidget):
             "steel_cut_fixed_width": self.steel_cut_fixed_width.value() if hasattr(self, "steel_cut_fixed_width") else 800,
             "steel_cut_fixed_height": self.steel_cut_fixed_height.value() if hasattr(self, "steel_cut_fixed_height") else 450,
         }
+
+    def format_update_snooze_until(self, value: str) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        try:
+            dt = datetime.fromisoformat(raw)
+        except ValueError:
+            return raw
+        return dt.strftime("%Y-%m-%d %H:%M까지")
 
     def selected_theme_key(self) -> str:
         for key, button in getattr(self, "theme_cards", {}).items():
