@@ -667,6 +667,8 @@ class MainWindow(QMainWindow):
         self.app.installNativeEventFilter(self.hotkey_event_filter)
         self._last_ctrl_release = 0.0
         self._last_alt_release = 0.0
+        self._ctrl_combo_used = False
+        self._alt_combo_used = False
         self._home_tip_index = 0
         self.ctrl_double_tapped.connect(self.show_clipboard_popup)
         self.alt_double_tapped.connect(self.show_quick_action_popup)
@@ -1086,10 +1088,14 @@ class MainWindow(QMainWindow):
             alt_was_down = False
             while not self.ctrl_listener_stop.is_set():
                 ctrl_down = bool(USER32.GetAsyncKeyState(0x11) & 0x8000)
+                if ctrl_down and self.is_non_modifier_key_down():
+                    self._ctrl_combo_used = True
                 if was_down and not ctrl_down:
                     self.handle_ctrl_release()
                 was_down = ctrl_down
                 alt_down = bool(USER32.GetAsyncKeyState(0x12) & 0x8000)
+                if alt_down and self.is_non_modifier_key_down():
+                    self._alt_combo_used = True
                 if alt_was_down and not alt_down:
                     self.handle_alt_release()
                 alt_was_down = alt_down
@@ -1105,6 +1111,10 @@ class MainWindow(QMainWindow):
         if not self.data.get("settings", {}).get("clipboard_popup_double_ctrl", True):
             self._last_ctrl_release = 0.0
             return
+        if self._ctrl_combo_used:
+            self._ctrl_combo_used = False
+            self._last_ctrl_release = 0.0
+            return
         now = time.monotonic()
         if 0 < now - self._last_ctrl_release <= 0.35:
             self._last_ctrl_release = 0.0
@@ -1112,11 +1122,21 @@ class MainWindow(QMainWindow):
             return
         self._last_ctrl_release = now
 
+    def is_non_modifier_key_down(self) -> bool:
+        for vk in list(range(0x30, 0x5B)) + list(range(0x60, 0x6F)) + list(range(0xBA, 0xC1)) + list(range(0xDB, 0xDF)):
+            if USER32.GetAsyncKeyState(vk) & 0x8000:
+                return True
+        return False
+
     def handle_alt_release(self) -> None:
         if not self.settings.get("hotkeys_enabled", True):
             self._last_alt_release = 0.0
             return
         if not self.settings.get("quick_memo_double_alt", True):
+            self._last_alt_release = 0.0
+            return
+        if self._alt_combo_used:
+            self._alt_combo_used = False
             self._last_alt_release = 0.0
             return
         now = time.monotonic()
