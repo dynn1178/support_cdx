@@ -840,8 +840,18 @@ class MainWindow(QMainWindow):
         if hasattr(self, "stack") and self.stack.currentIndex() == 11 and index != 11:
             settings_tab = self.tabs[11]
             if hasattr(settings_tab, "is_dirty") and settings_tab.is_dirty():
-                if ask_modern_question(self, "변경 내역 저장", "설정 - 일반에 저장되지 않은 변경 내역이 있습니다.\n저장하고 이동할까요?", None, "저장", "저장안함"):
-                    settings_tab.save_settings()
+                changes = settings_tab.changed_settings_summary() if hasattr(settings_tab, "changed_settings_summary") else []
+                detail = "\n".join(changes[:8])
+                if len(changes) > 8:
+                    detail += f"\n- 외 {len(changes) - 8}개"
+                message = "저장되지 않은 항목이 있습니다. 저장하시겠습니까?"
+                if detail:
+                    message = f"변경된 내역\n{detail}\n\n{message}"
+                if ask_modern_question(self, "변경 내역 저장", message, None, "저장", "취소"):
+                    if settings_tab.save_settings() is False:
+                        return
+                elif hasattr(settings_tab, "discard_changes"):
+                    QTimer.singleShot(0, settings_tab.discard_changes)
         self.stack.setCurrentIndex(index)
         for i, button in enumerate(self.buttons):
             button.setChecked(i == index)

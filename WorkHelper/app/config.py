@@ -489,6 +489,8 @@ def load_settings() -> dict[str, Any]:
         else:
             settings[key] = value
     settings.setdefault("window", copy.deepcopy(DEFAULT_SETTINGS["window"]))
+    if not settings.get("steel_cut_hotkey"):
+        settings["steel_cut_hotkey"] = copy.deepcopy(DEFAULT_SETTINGS["steel_cut_hotkey"])
     settings["active_preset"] = max(1, min(TEMPLATE_COUNT, int(settings.get("active_preset", 1) or 1)))
     return settings
 

@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
 from app import config
 from app.theme import THEMES
 from app.update_checker import check_update_dialog
-from app.utils import resolve_image_path, set_startup_enabled
+from app.utils import display_hotkey, resolve_image_path, set_startup_enabled
 from ui.common import HotkeyFields, ask_modern_question, confirm_shift_digit_hotkey, show_modern_info, show_modern_warning
 
 
@@ -96,6 +96,7 @@ class SettingsTab(QWidget):
         layout.addLayout(preset_buttons)
         layout.addLayout(action_buttons)
         self._general_snapshot = {}
+        self._settings_snapshot = {}
 
     def build_general(self) -> None:
         layout = QVBoxLayout(self.general_tab)
@@ -473,6 +474,7 @@ class SettingsTab(QWidget):
         self.memo_mode_hotkey.setChecked(not self.memo_mode_double_alt.isChecked())
         self.update_mode_enabled()
         self._general_snapshot = self.current_general_state()
+        self._settings_snapshot = self.current_settings_state()
         self._refreshing = False
 
     def current_general_state(self) -> dict:
@@ -488,12 +490,140 @@ class SettingsTab(QWidget):
             "steel_cut_fixed_height": self.steel_cut_fixed_height.value() if hasattr(self, "steel_cut_fixed_height") else 450,
         }
 
+    def selected_theme_key(self) -> str:
+        for key, button in getattr(self, "theme_cards", {}).items():
+            if button.isChecked():
+                return key
+        return self.main.settings.get("theme", "light")
+
+    def current_settings_state(self) -> dict:
+        state = self.current_general_state()
+        state.update(
+            {
+                "theme": self.selected_theme_key(),
+                "clipboard_popup_double_ctrl": self.popup_mode_double_ctrl.isChecked(),
+                "clipboard_popup_hotkey": self.clipboard_popup_hotkey.value(),
+                "quick_memo_double_alt": self.memo_mode_double_alt.isChecked(),
+                "quick_memo_hotkey": self.quick_memo_hotkey.value(),
+                "phrase_popup_hotkey": self.phrase_popup_hotkey.value(),
+                "steel_cut_hotkey": self.steel_cut_hotkey.value(),
+                "screen_draw_hotkey": self.screen_draw_hotkey.value(),
+            }
+        )
+        return state
+
+    def format_setting_value(self, key: str, value) -> str:
+        if key == "theme":
+            return THEME_LABELS.get(value, str(value))
+        if key == "steel_cut_capture_mode":
+            labels = {"region": "드래그", "full": "전체 화면", "window": "선택 창", "fixed": "고정 크기"}
+            return labels.get(value, str(value))
+        if key.endswith("_hotkey"):
+            return display_hotkey(value) or "없음"
+        if key in {"clipboard_popup_double_ctrl", "quick_memo_double_alt", "always_on_top", "auto_update_check", "startup_with_windows"}:
+            return "사용" if value else "사용 안 함"
+        return str(value)
+
+    def changed_settings_summary(self) -> list[str]:
+        labels = {
+            "template_name": "프리셋 이름",
+            "always_on_top": "창 항상 위",
+            "clipboard_limit": "클립보드 최대 개수",
+            "auto_update_check": "업데이트 자동 확인",
+            "startup_with_windows": "시작 프로그램",
+            "steel_cut_capture_mode": "캡처 방식",
+            "steel_cut_fixed_width": "고정 캡처 너비",
+            "steel_cut_fixed_height": "고정 캡처 높이",
+            "theme": "테마",
+            "clipboard_popup_double_ctrl": "클립보드 기본 단축키",
+            "clipboard_popup_hotkey": "클립보드 지정 단축키",
+            "quick_memo_double_alt": "빠른 메모 기본 단축키",
+            "quick_memo_hotkey": "빠른 메모 지정 단축키",
+            "phrase_popup_hotkey": "상용구 미니팝업 단축키",
+            "steel_cut_hotkey": "캡처 단축키",
+            "screen_draw_hotkey": "화면그리기 단축키",
+        }
+        before = getattr(self, "_settings_snapshot", {})
+        current = self.current_settings_state()
+        changes = []
+        for key, label in labels.items():
+            if before.get(key) != current.get(key):
+                old_value = self.format_setting_value(key, before.get(key))
+                new_value = self.format_setting_value(key, current.get(key))
+                changes.append(f"- {label}: {old_value} → {new_value}")
+        return changes
+
     def is_dirty(self) -> bool:
         if self._refreshing:
             return False
-        return self.current_general_state() != getattr(self, "_general_snapshot", {})
+        return self.current_settings_state() != getattr(self, "_settings_snapshot", {})
 
-    def save_settings(self) -> None:
+    def discard_changes(self) -> None:
+        snapshot = getattr(self, "_settings_snapshot", {})
+        if not snapshot:
+            self.refresh()
+            return
+        self._refreshing = True
+        settings = self.main.settings
+        window = settings.setdefault("window", {"width": 900, "height": 580, "always_on_top": False})
+        self.main.data.setdefault("meta", {})["preset_name"] = snapshot.get("template_name", f"프리셋 {self.main.template_index}")
+        window["always_on_top"] = bool(snapshot.get("always_on_top", False))
+        settings["clipboard_history_limit"] = int(snapshot.get("clipboard_limit", 30) or 30)
+        settings["auto_update_check"] = bool(snapshot.get("auto_update_check", False))
+        settings["auto_update_install"] = True
+        settings["startup_with_windows"] = bool(snapshot.get("startup_with_windows", False))
+        settings["steel_cut_capture_mode"] = snapshot.get("steel_cut_capture_mode", "region")
+        settings["steel_cut_fixed_width"] = int(snapshot.get("steel_cut_fixed_width", 800) or 800)
+        settings["steel_cut_fixed_height"] = int(snapshot.get("steel_cut_fixed_height", 450) or 450)
+        settings["theme"] = snapshot.get("theme", "light")
+        settings["clipboard_popup_double_ctrl"] = bool(snapshot.get("clipboard_popup_double_ctrl", True))
+        settings["clipboard_popup_hotkey"] = snapshot.get("clipboard_popup_hotkey")
+        settings["quick_memo_double_alt"] = bool(snapshot.get("quick_memo_double_alt", True))
+        settings["quick_memo_hotkey"] = snapshot.get("quick_memo_hotkey")
+        settings["phrase_popup_hotkey"] = snapshot.get("phrase_popup_hotkey")
+        settings["steel_cut_hotkey"] = snapshot.get("steel_cut_hotkey") or {"modifiers": ["ctrl", "shift"], "key": "S"}
+        settings["screen_draw_hotkey"] = snapshot.get("screen_draw_hotkey")
+        self.template_name.setText(str(snapshot.get("template_name", f"프리셋 {self.main.template_index}")))
+        self.select_theme(settings.get("theme", "light"))
+        self.always_on_top.setChecked(bool(snapshot.get("always_on_top", False)))
+        self.clipboard_limit.setValue(int(snapshot.get("clipboard_limit", 30) or 30))
+        self.auto_update_check.setChecked(bool(snapshot.get("auto_update_check", False)))
+        self.auto_update_install.setChecked(True)
+        self.startup_with_windows.setChecked(bool(snapshot.get("startup_with_windows", False)))
+        self.set_hotkey_field(self.clipboard_popup_hotkey, snapshot.get("clipboard_popup_hotkey"))
+        self.set_hotkey_field(self.quick_memo_hotkey, snapshot.get("quick_memo_hotkey"))
+        self.set_hotkey_field(self.phrase_popup_hotkey, snapshot.get("phrase_popup_hotkey"))
+        self.set_hotkey_field(self.steel_cut_hotkey, snapshot.get("steel_cut_hotkey") or {"modifiers": ["ctrl", "shift"], "key": "S"})
+        self.set_hotkey_field(self.screen_draw_hotkey, snapshot.get("screen_draw_hotkey"))
+        self.set_steel_cut_capture_mode(snapshot.get("steel_cut_capture_mode", "region"))
+        self.steel_cut_fixed_width.setValue(int(snapshot.get("steel_cut_fixed_width", 800) or 800))
+        self.steel_cut_fixed_height.setValue(int(snapshot.get("steel_cut_fixed_height", 450) or 450))
+        self.popup_mode_double_ctrl.setChecked(bool(snapshot.get("clipboard_popup_double_ctrl", True)))
+        self.popup_mode_hotkey.setChecked(not self.popup_mode_double_ctrl.isChecked())
+        self.memo_mode_double_alt.setChecked(bool(snapshot.get("quick_memo_double_alt", True)))
+        self.memo_mode_hotkey.setChecked(not self.memo_mode_double_alt.isChecked())
+        self.update_mode_enabled()
+        self._general_snapshot = self.current_general_state()
+        self._settings_snapshot = self.current_settings_state()
+        self._refreshing = False
+
+    def set_hotkey_field(self, field: HotkeyFields, hotkey: dict | None) -> None:
+        field.ctrl.blockSignals(True)
+        field.alt.blockSignals(True)
+        field.shift.blockSignals(True)
+        field.key.blockSignals(True)
+        field.ctrl.setChecked(False)
+        field.alt.setChecked(False)
+        field.shift.setChecked(False)
+        if field.key.count():
+            field.key.setCurrentIndex(0)
+        field.ctrl.blockSignals(False)
+        field.alt.blockSignals(False)
+        field.shift.blockSignals(False)
+        field.key.blockSignals(False)
+        field.set_hotkey(hotkey)
+
+    def save_settings(self) -> bool:
         settings = self.main.settings
         window = settings.setdefault("window", {"width": 900, "height": 580, "always_on_top": False})
         self.main.data.setdefault("meta", {})["preset_name"] = self.template_name.text().strip() or f"프리셋 {self.main.template_index}"
@@ -516,7 +646,7 @@ class SettingsTab(QWidget):
         conflict = self.main.first_hotkey_conflict()
         if conflict:
             show_modern_warning(self, "단축키 충돌", conflict)
-            return
+            return False
         for hotkey in [
             settings.get("clipboard_popup_hotkey"),
             settings.get("quick_memo_hotkey"),
@@ -525,18 +655,20 @@ class SettingsTab(QWidget):
             settings.get("screen_draw_hotkey"),
         ]:
             if not confirm_shift_digit_hotkey(self, hotkey):
-                return
+                return False
         try:
             set_startup_enabled(self.startup_with_windows.isChecked())
         except Exception as exc:
             show_modern_warning(self, "시작 프로그램 설정 실패", str(exc))
-            return
+            return False
         self.main.apply_current_settings()
         self.main.save_data()
         self.refresh_template_combo()
         self._general_snapshot = self.current_general_state()
+        self._settings_snapshot = self.current_settings_state()
         self.main.set_tab(self.main.stack.currentIndex())
         self.main.show()
+        return True
 
     def show_creator(self) -> None:
         from ui.common import dialog_palette

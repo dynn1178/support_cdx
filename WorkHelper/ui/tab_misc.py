@@ -25,7 +25,8 @@ from PyQt6.QtWidgets import (
 )
 
 from app import config
-from ui.common import ask_modern_question, show_modern_warning
+from app.utils import new_id, now_iso
+from ui.common import ask_modern_question, show_modern_info, show_modern_warning
 
 
 def hex_to_rgb(value: str) -> tuple[int, int, int]:
@@ -405,8 +406,9 @@ class MouseHighlightTab(QWidget):
 
 
 class ScreenDrawOverlay(QWidget):
-    def __init__(self) -> None:
+    def __init__(self, main) -> None:
         super().__init__()
+        self.main = main
         flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
@@ -421,11 +423,16 @@ class ScreenDrawOverlay(QWidget):
         self.setGeometry(rect)
         self.canvas = QPixmap(rect.size())
         self.canvas.fill(Qt.GlobalColor.transparent)
+        self.draw_bounds: QRect | None = None
         self.last_pos: QPoint | None = None
         self.last_mid: QPointF | None = None
         self.color = QColor("#FFDD33")
         self.stroke_width = 8
         self.mode = "highlight"
+        self.background_mode = "screen"
+        self.screen_scope = "all"
+        self.background_snapshot: QPixmap | None = None
+        self.background_blur_snapshot: QPixmap | None = None
 
         toolbar = QWidget(self)
         toolbar.setObjectName("screenDrawToolbar")
@@ -450,30 +457,154 @@ class ScreenDrawOverlay(QWidget):
         self.width_spin.setValue(self.stroke_width)
         self.width_spin.setSuffix(" px")
         self.width_spin.setMinimumWidth(88)
-        color_btn = QPushButton("색상")
+        self.color_btn = QPushButton("색상")
         clear_btn = QPushButton("초기화")
+        save_btn = QPushButton("컨닝페이퍼 저장")
         close_btn = QPushButton("닫기")
         close_btn.setObjectName("closeButton")
+        self.bg_combo = QComboBox()
+        self.bg_combo.addItem("윈도우 화면", "screen")
+        self.bg_combo.addItem("어두운 배경", "dark")
+        self.bg_combo.addItem("밝은 배경", "glass")
+        self.bg_combo.setMinimumWidth(128)
+        self.bg_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        row.addWidget(self.bg_combo)
         row.addWidget(self.mode_combo)
         row.addWidget(QLabel("굵기"))
         row.addWidget(self.width_spin)
-        row.addWidget(color_btn)
+        row.addWidget(self.color_btn)
         row.addWidget(clear_btn)
+        row.addWidget(save_btn)
         row.addWidget(close_btn)
         toolbar.adjustSize()
-        toolbar.move(24, 24)
         self.toolbar = toolbar
+        self.place_toolbar_on_target_screen()
 
         self.mode_combo.currentIndexChanged.connect(lambda _=0: setattr(self, "mode", self.mode_combo.currentData()))
+        self.bg_combo.currentIndexChanged.connect(self.set_background_mode)
         self.width_spin.valueChanged.connect(self.set_stroke_width)
-        color_btn.clicked.connect(self.pick_color)
+        self.color_btn.clicked.connect(self.pick_color)
         clear_btn.clicked.connect(self.clear_canvas)
-        close_btn.clicked.connect(self.close)
+        save_btn.clicked.connect(self.save_to_cheat_sheet)
+        close_btn.clicked.connect(self.hide)
+        self.apply_default_color_for_background()
+
+    def virtual_screen_rect(self) -> QRect:
+        rect = QApplication.primaryScreen().virtualGeometry()
+        for screen in QApplication.screens():
+            rect = rect.united(screen.geometry())
+        return rect
+
+    def active_screen_rect(self) -> QRect:
+        screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
+        return screen.geometry() if screen else self.virtual_screen_rect()
+
+    def target_screen_rect(self) -> QRect:
+        return self.active_screen_rect() if self.screen_scope == "active" else self.virtual_screen_rect()
+
+    def place_toolbar_on_target_screen(self) -> None:
+        primary = QApplication.primaryScreen()
+        if self.screen_scope == "active":
+            target = self.active_screen_rect()
+        elif primary:
+            target = primary.geometry()
+        else:
+            target = self.geometry()
+        if target.isNull():
+            self.toolbar.move(24, 24)
+            return
+        local_top_left = target.topLeft() - self.geometry().topLeft()
+        self.toolbar.move(local_top_left + QPoint(24, 24))
+
+    def refresh_geometry(self, screen_scope: str | None = None) -> None:
+        if screen_scope:
+            self.screen_scope = screen_scope
+        rect = self.target_screen_rect()
+        if rect == self.geometry():
+            self.place_toolbar_on_target_screen()
+            return
+        old_canvas = self.canvas
+        old_geometry = self.geometry()
+        self.setGeometry(rect)
+        self.canvas = QPixmap(rect.size())
+        self.canvas.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(self.canvas)
+        offset = old_geometry.topLeft() - rect.topLeft()
+        painter.drawPixmap(offset, old_canvas)
+        painter.end()
+        if self.draw_bounds is not None:
+            self.draw_bounds.translate(offset)
+            self.draw_bounds = self.draw_bounds.intersected(self.canvas.rect())
+        self.place_toolbar_on_target_screen()
+
+    def set_background_mode(self) -> None:
+        self.background_mode = self.bg_combo.currentData() or "screen"
+        self.apply_default_color_for_background()
+        if self.background_mode == "glass":
+            self.capture_virtual_background()
+        self.update()
+
+    def set_background_mode_value(self, mode: str) -> None:
+        index = self.bg_combo.findData(mode)
+        if index >= 0:
+            self.bg_combo.setCurrentIndex(index)
+        self.background_mode = mode
+        self.apply_default_color_for_background()
+        if self.background_mode == "glass":
+            self.capture_virtual_background()
+        self.update()
+
+    def apply_default_color_for_background(self) -> None:
+        default_colors = {
+            "screen": "#FFDD33",
+            "dark": "#FFFFFF",
+            "glass": "#111111",
+        }
+        self.color = QColor(default_colors.get(self.background_mode, "#FFDD33"))
+        text_color = "#111827" if self.color.lightness() > 180 else "#FFFFFF"
+        self.color_btn.setStyleSheet(f"background:{self.color.name()}; color:{text_color};")
+
+    def capture_virtual_background(self) -> None:
+        was_visible = self.isVisible()
+        if was_visible:
+            self.hide()
+            QApplication.processEvents()
+        snapshot = QPixmap(self.size())
+        snapshot.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(snapshot)
+        origin = self.geometry().topLeft()
+        for screen in QApplication.screens():
+            geometry = screen.geometry()
+            if not geometry.intersects(self.geometry()):
+                continue
+            pixmap = screen.grabWindow(0, 0, 0, geometry.width(), geometry.height())
+            painter.drawPixmap(geometry.topLeft() - origin, pixmap)
+        painter.end()
+        if was_visible:
+            self.show()
+            self.raise_()
+            self.activateWindow()
+            self.setFocus()
+        self.background_snapshot = snapshot
+        small_width = max(1, snapshot.width() // 12)
+        small_height = max(1, snapshot.height() // 12)
+        self.background_blur_snapshot = snapshot.scaled(
+            small_width,
+            small_height,
+            Qt.AspectRatioMode.IgnoreAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        ).scaled(
+            snapshot.size(),
+            Qt.AspectRatioMode.IgnoreAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
 
     def pick_color(self) -> None:
         color = QColorDialog.getColor(self.color, self, "화면 그리기 색상")
         if color.isValid():
             self.color = color
+            text_color = "#111827" if self.color.lightness() > 180 else "#FFFFFF"
+            self.color_btn.setStyleSheet(f"background:{self.color.name()}; color:{text_color};")
 
     def set_stroke_width(self, value: int) -> None:
         self.stroke_width = max(1, min(60, value))
@@ -482,11 +613,24 @@ class ScreenDrawOverlay(QWidget):
 
     def clear_canvas(self) -> None:
         self.canvas.fill(Qt.GlobalColor.transparent)
+        self.draw_bounds = None
         self.update()
+
+    def paint_background(self, painter: QPainter, target: QRect | None = None) -> None:
+        rect = target or self.rect()
+        if self.background_mode == "dark":
+            painter.fillRect(rect, QColor(0, 0, 0, 120))
+        elif self.background_mode == "glass":
+            if self.background_blur_snapshot is not None and not self.background_blur_snapshot.isNull():
+                painter.drawPixmap(0, 0, self.background_blur_snapshot)
+            painter.fillRect(rect, QColor(255, 255, 255, 132))
+            painter.fillRect(rect, QColor(232, 238, 246, 45))
+        else:
+            painter.fillRect(rect, QColor(0, 0, 0, 1))
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(0, 0, 0, 1))
+        self.paint_background(painter)
         painter.drawPixmap(0, 0, self.canvas)
         painter.end()
 
@@ -505,16 +649,14 @@ class ScreenDrawOverlay(QWidget):
         self.draw_to(pos)
 
     def draw_to(self, pos: QPoint) -> None:
-        target = self.canvas
-        if self.mode == "highlight":
-            target = QPixmap(self.canvas.size())
-            target.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(target)
+        previous = self.last_pos
+        painter = QPainter(self.canvas)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         if self.mode == "eraser":
             painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
             painter.setPen(QPen(Qt.GlobalColor.transparent, self.stroke_width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         else:
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
             color = QColor(self.color)
             color.setAlpha(90 if self.mode == "highlight" else 230)
             cap = Qt.PenCapStyle.FlatCap if self.mode == "highlight" else Qt.PenCapStyle.RoundCap
@@ -531,13 +673,96 @@ class ScreenDrawOverlay(QWidget):
             painter.drawPath(path)
             self.last_mid = mid
         painter.end()
-        if self.mode == "highlight":
-            painter = QPainter(self.canvas)
-            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-            painter.drawPixmap(0, 0, target)
-            painter.end()
+        self.remember_draw_bounds(previous or pos, pos)
         self.last_pos = pos
-        self.update()
+        update_rect = QRect(previous or pos, pos).normalized().adjusted(-self.stroke_width - 8, -self.stroke_width - 8, self.stroke_width + 8, self.stroke_width + 8)
+        self.update(update_rect)
+
+    def remember_draw_bounds(self, start: QPoint, end: QPoint) -> None:
+        margin = self.stroke_width // 2 + 8
+        rect = QRect(start, end).normalized().adjusted(-margin, -margin, margin, margin)
+        rect = rect.intersected(self.canvas.rect())
+        self.draw_bounds = rect if self.draw_bounds is None else self.draw_bounds.united(rect).intersected(self.canvas.rect())
+
+    def grab_background(self, crop: QRect) -> QPixmap:
+        was_visible = self.isVisible()
+        if was_visible:
+            self.hide()
+            QApplication.processEvents()
+        global_top_left = self.geometry().topLeft() + crop.topLeft()
+        center = global_top_left + crop.center()
+        screen = QApplication.screenAt(center) or QApplication.primaryScreen()
+        screen_top_left = screen.geometry().topLeft()
+        local_top_left = global_top_left - screen_top_left
+        shot = screen.grabWindow(0, local_top_left.x(), local_top_left.y(), crop.width(), crop.height())
+        if was_visible:
+            self.show()
+            self.raise_()
+            self.activateWindow()
+            self.setFocus()
+        if shot.isNull():
+            shot = QPixmap(crop.size())
+            shot.fill(Qt.GlobalColor.transparent)
+        return shot
+
+    def compose_crop(self, crop: QRect) -> QPixmap:
+        result = self.grab_background(crop)
+        painter = QPainter(result)
+        if self.background_mode == "dark":
+            painter.fillRect(result.rect(), QColor(0, 0, 0, 120))
+        elif self.background_mode == "glass":
+            small_width = max(1, result.width() // 12)
+            small_height = max(1, result.height() // 12)
+            blurred = result.scaled(
+                small_width,
+                small_height,
+                Qt.AspectRatioMode.IgnoreAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            ).scaled(result.size(), Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            painter.drawPixmap(0, 0, blurred)
+            painter.fillRect(result.rect(), QColor(255, 255, 255, 132))
+            painter.fillRect(result.rect(), QColor(232, 238, 246, 45))
+        painter.drawPixmap(0, 0, self.canvas.copy(crop))
+        painter.end()
+        return result
+
+    def relative_asset_path(self, path) -> str:
+        try:
+            return str(path.resolve().relative_to(config.BASE_DIR.resolve())).replace("\\", "/")
+        except ValueError:
+            return str(path)
+
+    def save_to_cheat_sheet(self) -> None:
+        if self.draw_bounds is None or self.draw_bounds.isEmpty():
+            show_modern_warning(self, "저장할 그리기 없음", "먼저 화면 위에 표시를 그려주세요.")
+            return
+        crop = self.draw_bounds.adjusted(-30, -30, 30, 30).intersected(self.canvas.rect())
+        pixmap = self.compose_crop(crop)
+        image_dir = config.BASE_DIR / "assets" / "images"
+        image_dir.mkdir(parents=True, exist_ok=True)
+        image_id = new_id("img")
+        path = image_dir / f"screen_draw_{image_id}.png"
+        if not pixmap.save(str(path), "PNG"):
+            show_modern_warning(self, "저장 실패", "그리기 이미지를 저장하지 못했습니다.")
+            return
+        QApplication.clipboard().setPixmap(pixmap)
+        images = self.main.data.setdefault("images", [])
+        created_at = now_iso()
+        images.append(
+            {
+                "id": image_id,
+                "name": f"화면 그리기 {created_at[:16].replace('T', ' ')}",
+                "path": self.relative_asset_path(path),
+                "path_type": "relative",
+                "hotkey": None,
+                "sort_order": len(images),
+                "display_scale": 100,
+                "created_at": created_at,
+                "usage_count": 0,
+            }
+        )
+        self.main.save_data()
+        show_modern_info(self, "저장 완료", "그린 영역을 컨닝페이퍼에 등록하고 클립보드에 복사했습니다.")
 
     def mouseReleaseEvent(self, event) -> None:
         self.last_pos = None
@@ -565,16 +790,39 @@ class ScreenDrawTab(QWidget):
         info.setWordWrap(True)
         hotkey_note = QLabel("단축키는 설정 → 단축키 탭에서 변경할 수 있습니다.")
         hotkey_note.setObjectName("mutedText")
+        option_grid = QGridLayout()
+        option_grid.setContentsMargins(0, 0, 0, 0)
+        option_grid.setHorizontalSpacing(14)
+        option_grid.setVerticalSpacing(6)
+        bg_label = QLabel("배경 화면")
+        self.background_combo = QComboBox()
+        self.background_combo.addItem("윈도우 화면", "screen")
+        self.background_combo.addItem("어두운 배경", "dark")
+        self.background_combo.addItem("밝은 배경", "glass")
+        self.background_combo.setMinimumWidth(180)
+        screen_label = QLabel("그리기 범위")
+        self.screen_scope_combo = QComboBox()
+        self.screen_scope_combo.addItem("전체 모니터", "all")
+        self.screen_scope_combo.addItem("현재 마우스 위치 모니터", "active")
+        self.screen_scope_combo.setMinimumWidth(180)
+        option_grid.addWidget(bg_label, 0, 0)
+        option_grid.addWidget(self.background_combo, 0, 1)
+        option_grid.addWidget(screen_label, 0, 2)
+        option_grid.addWidget(self.screen_scope_combo, 0, 3)
+        option_grid.setColumnStretch(4, 1)
         start = QPushButton("화면 그리기 시작")
         start.clicked.connect(self.start_overlay)
         layout.addWidget(info)
         layout.addWidget(hotkey_note)
+        layout.addLayout(option_grid)
         layout.addWidget(start)
         layout.addStretch(1)
 
     def start_overlay(self) -> None:
-        if self.overlay is None or not self.overlay.isVisible():
-            self.overlay = ScreenDrawOverlay()
+        if self.overlay is None:
+            self.overlay = ScreenDrawOverlay(self.main)
+        self.overlay.refresh_geometry(self.screen_scope_combo.currentData() or "all")
+        self.overlay.set_background_mode_value(self.background_combo.currentData() or "screen")
         self.overlay.show()
         self.overlay.raise_()
         self.overlay.activateWindow()
