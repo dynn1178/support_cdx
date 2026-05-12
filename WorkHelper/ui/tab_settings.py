@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
 from app import config
 from app.theme import THEMES
 from app.update_checker import check_update_dialog
-from app.utils import display_hotkey, resolve_image_path, set_startup_enabled
+from app.utils import display_hotkey, is_startup_enabled, resolve_image_path, set_startup_enabled
 from ui.common import HotkeyFields, ask_modern_question, confirm_shift_digit_hotkey, show_modern_info, show_modern_warning
 
 
@@ -458,7 +458,9 @@ class SettingsTab(QWidget):
         self.clipboard_limit.setValue(int(settings.get("clipboard_history_limit", 50)))
         self.auto_update_check.setChecked(bool(settings.get("auto_update_check", False)))
         self.auto_update_install.setChecked(True)
-        self.startup_with_windows.setChecked(bool(settings.get("startup_with_windows", False)))
+        actual_startup = is_startup_enabled()
+        self.startup_with_windows.setChecked(actual_startup)
+        settings["startup_with_windows"] = actual_startup
         self.clipboard_popup_hotkey.set_hotkey(settings.get("clipboard_popup_hotkey"))
         self.quick_memo_hotkey.set_hotkey(settings.get("quick_memo_hotkey"))
         self.phrase_popup_hotkey.set_hotkey(settings.get("phrase_popup_hotkey"))
