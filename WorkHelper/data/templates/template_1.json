@@ -2,7 +2,7 @@
   "meta": {
     "preset_name": "기본 프리셋",
     "version": "1.0.0",
-    "saved_at": "2026-05-12T11:18:40"
+    "saved_at": "2026-05-12T18:48:09"
   },
   "phrases": [
     {
@@ -132,9 +132,18 @@
       "always_on_top": true,
       "background": "노랑",
       "created_at": "2026-05-12T01:35:35",
-      "updated_at": "2026-05-12T01:35:35",
+      "updated_at": "2026-05-12T18:48:09",
       "sort_order": 1,
-      "usage_count": 0
+      "usage_count": 3,
+      "used_today_date": "2026-05-12",
+      "used_today_count": 3,
+      "last_used_at": "2026-05-12T18:48:09",
+      "sticker_open": false,
+      "opacity": 95,
+      "width": 300,
+      "height": 240,
+      "x": 875,
+      "y": 566
     }
   ],
   "schedules": [

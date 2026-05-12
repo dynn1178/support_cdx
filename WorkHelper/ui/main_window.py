@@ -33,6 +33,9 @@ from ui.common import apply_modern_dialog_style, ask_modern_question, bump_usage
 
 MINI_COPY_BUTTON_WIDTH = 64
 MINI_COPY_BUTTON_HEIGHT = 26
+CTRL_ONLY_VKS = {0x11, 0xA2, 0xA3}
+ALT_ONLY_VKS = {0x12, 0xA4, 0xA5}
+KEYBOARD_VKS = list(range(0x08, 0xFF))
 
 
 class HotkeyEventFilter(QAbstractNativeEventFilter):
@@ -663,6 +666,7 @@ class MainWindow(QMainWindow):
         self.hotstring_buffer = ""
         self.hotstring_busy = False
         self.mouse_highlight_overlay = None
+        self._quick_action_popup: QuickActionPopup | None = None
         self.hotkey_event_filter = HotkeyEventFilter(self.hotkeys)
         self.app.installNativeEventFilter(self.hotkey_event_filter)
         self._last_ctrl_release = 0.0
@@ -1088,13 +1092,17 @@ class MainWindow(QMainWindow):
             alt_was_down = False
             while not self.ctrl_listener_stop.is_set():
                 ctrl_down = bool(USER32.GetAsyncKeyState(0x11) & 0x8000)
-                if ctrl_down and self.is_non_modifier_key_down():
+                if ctrl_down and not was_down:
+                    self.clear_key_press_history(CTRL_ONLY_VKS)
+                if ctrl_down and self.has_disallowed_key_activity(CTRL_ONLY_VKS):
                     self._ctrl_combo_used = True
                 if was_down and not ctrl_down:
                     self.handle_ctrl_release()
                 was_down = ctrl_down
                 alt_down = bool(USER32.GetAsyncKeyState(0x12) & 0x8000)
-                if alt_down and self.is_non_modifier_key_down():
+                if alt_down and not alt_was_down:
+                    self.clear_key_press_history(ALT_ONLY_VKS)
+                if alt_down and self.has_disallowed_key_activity(ALT_ONLY_VKS):
                     self._alt_combo_used = True
                 if alt_was_down and not alt_down:
                     self.handle_alt_release()
@@ -1122,9 +1130,17 @@ class MainWindow(QMainWindow):
             return
         self._last_ctrl_release = now
 
-    def is_non_modifier_key_down(self) -> bool:
-        for vk in list(range(0x30, 0x5B)) + list(range(0x60, 0x6F)) + list(range(0xBA, 0xC1)) + list(range(0xDB, 0xDF)):
-            if USER32.GetAsyncKeyState(vk) & 0x8000:
+    def clear_key_press_history(self, allowed_vks: set[int]) -> None:
+        for vk in KEYBOARD_VKS:
+            if vk not in allowed_vks:
+                USER32.GetAsyncKeyState(vk)
+
+    def has_disallowed_key_activity(self, allowed_vks: set[int]) -> bool:
+        for vk in KEYBOARD_VKS:
+            if vk in allowed_vks:
+                continue
+            state = USER32.GetAsyncKeyState(vk)
+            if state & 0x8000 or state & 0x0001:
                 return True
         return False
 
@@ -1161,7 +1177,18 @@ class MainWindow(QMainWindow):
         NumberedTextPopup(self, "상용구", items, self.paste_text).exec()
 
     def show_quick_action_popup(self) -> None:
-        QuickActionPopup(self).exec()
+        if self._quick_action_popup is not None and self._quick_action_popup.isVisible():
+            self._quick_action_popup.raise_()
+            self._quick_action_popup.activateWindow()
+            return
+        popup = QuickActionPopup(self)
+        self._quick_action_popup = popup
+        popup.finished.connect(lambda _result, dialog=popup: self.clear_quick_action_popup(dialog))
+        popup.exec()
+
+    def clear_quick_action_popup(self, dialog: QuickActionPopup) -> None:
+        if self._quick_action_popup is dialog:
+            self._quick_action_popup = None
 
     def show_quick_memo_popup(self) -> None:
         """직접 호출용으로 유지 (QuickActionPopup 메모 탭과 동일 동작)."""
@@ -1309,7 +1336,7 @@ class MainWindow(QMainWindow):
             return
         for memo in self.data.get("memos", []):
             if memo.get("sticker_open"):
-                self.tabs[6].show_sticker(memo, track_usage=False, raise_window=False)
+                self.tabs[6].show_sticker(memo, track_usage=False, raise_window=False, toggle_existing=False)
 
     def wait_for_modifier_release(self, timeout: float = 1.0) -> None:
         deadline = time.monotonic() + timeout

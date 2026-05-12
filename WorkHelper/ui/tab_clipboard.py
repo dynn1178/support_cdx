@@ -267,6 +267,7 @@ class ClipboardTab(QWidget):
         super().__init__()
         self.main = main
         self.history = config.load_clipboard_history()
+        self._mini_popup: ClipboardMiniPopup | None = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.search = QLineEdit()
@@ -510,8 +511,19 @@ class ClipboardTab(QWidget):
         return removed
 
     def show_mini_popup(self) -> None:
+        if self._mini_popup is not None and self._mini_popup.isVisible():
+            self._mini_popup.raise_()
+            self._mini_popup.activateWindow()
+            return
         limit = int(self.main.data.get("settings", {}).get("clipboard_history_limit", 50))
-        ClipboardMiniPopup(self, self.history.get("history", [])[:limit]).exec()
+        popup = ClipboardMiniPopup(self, self.history.get("history", [])[:limit])
+        self._mini_popup = popup
+        popup.finished.connect(lambda _result, dialog=popup: self.clear_mini_popup(dialog))
+        popup.exec()
+
+    def clear_mini_popup(self, dialog: ClipboardMiniPopup) -> None:
+        if self._mini_popup is dialog:
+            self._mini_popup = None
 
     def make_image_card(self, item: dict) -> QWidget:
         card = QWidget()

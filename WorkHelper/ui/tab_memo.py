@@ -522,7 +522,7 @@ class MemoListTab(QWidget):
     def __init__(self, main) -> None:
         super().__init__()
         self.main = main
-        self.sticky_windows: list[StickyMemoDialog] = []
+        self.sticky_windows: dict[str, StickyMemoDialog] = {}
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.search = QLineEdit()
@@ -594,21 +594,33 @@ class MemoListTab(QWidget):
         apply_manual_reorder(source, visible, old, new)
         self.main.save_data()
 
-    def show_sticker(self, memo: dict, track_usage: bool = True, raise_window: bool = True) -> None:
+    def memo_key(self, memo: dict) -> str:
+        return str(memo.get("id") or id(memo))
+
+    def show_sticker(self, memo: dict, track_usage: bool = True, raise_window: bool = True, toggle_existing: bool = True) -> None:
+        key = self.memo_key(memo)
+        dialog = self.sticky_windows.get(key)
+        if dialog is not None and dialog.isVisible():
+            if toggle_existing:
+                dialog.accept()
+                return
+            if raise_window:
+                dialog.raise_()
+                dialog.activateWindow()
+            return
         if track_usage:
             bump_usage(memo)
             self.main.save_usage_data()
         dialog = StickyMemoDialog(memo, self.main, self.refresh)
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-        dialog.destroyed.connect(lambda _obj=None, dlg=dialog: self.forget_sticker(dlg))
-        self.sticky_windows.append(dialog)
+        dialog.destroyed.connect(lambda _obj=None, memo_key=key: self.forget_sticker(memo_key))
+        self.sticky_windows[key] = dialog
         dialog.show()
         if raise_window:
             dialog.raise_()
 
-    def forget_sticker(self, dialog: StickyMemoDialog) -> None:
-        if dialog in self.sticky_windows:
-            self.sticky_windows.remove(dialog)
+    def forget_sticker(self, memo_key: str) -> None:
+        self.sticky_windows.pop(memo_key, None)
 
     def edit_memo(self, memo: dict | None = None) -> None:
         dialog = MemoDialog(memo)

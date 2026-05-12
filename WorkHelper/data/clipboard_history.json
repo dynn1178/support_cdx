@@ -1,6 +1,16 @@
 {
   "history": [
     {
+      "id": "cb_aba93b866d",
+      "type": "text",
+      "text": "cd C:\\Users\\User\\Documents\\GitHub\\support_cdx\\WorkHelper",
+      "copied_at": "2026-05-12T18:40:58",
+      "created_at": "2026-05-12T18:40:58",
+      "sort_order": 2,
+      "usage_count": 0,
+      "pinned": false
+    },
+    {
       "id": "cb_dc58fe4436",
       "type": "text",
       "text": "업데이트 확인 칸 바로 아래에 행을 하나 추가해서 언제까지 업데이트 알림을 표시하지 않는지 날짜를 보여줘. 만약 ",
