@@ -512,7 +512,7 @@ class LauncherTab(QWidget):
             self.style_launcher_favorite_button(button, item)
         QApplication.processEvents()
         QTimer.singleShot(0, self.main.save_data)
-        QTimer.singleShot(50, self.refresh)
+        QTimer.singleShot(1000, self.refresh)
 
     def persist_launcher_favorite(self) -> None:
         self.main.save_data()

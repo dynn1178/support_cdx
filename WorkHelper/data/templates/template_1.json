@@ -2,7 +2,7 @@
   "meta": {
     "preset_name": "기본 프리셋",
     "version": "1.0.0",
-    "saved_at": "2026-05-12T10:24:01"
+    "saved_at": "2026-05-12T11:18:40"
   },
   "phrases": [
     {
@@ -70,7 +70,8 @@
       "hotkey": null,
       "path": "",
       "sort_order": 1,
-      "usage_count": 0
+      "usage_count": 0,
+      "favorite": false
     }
   ],
   "images": [
