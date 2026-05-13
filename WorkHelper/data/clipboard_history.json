@@ -1,6 +1,35 @@
 {
   "history": [
     {
+      "id": "cbimg_bfb09a0dff",
+      "type": "image",
+      "path": "C:\\Users\\kjh\\Documents\\GitHub\\support_cdx\\WorkHelper\\data\\clipboard_images\\cbimg_bfb09a0dff.png",
+      "copied_at": "2026-05-13T20:56:59",
+      "created_at": "2026-05-13T20:56:59",
+      "sort_order": 4,
+      "usage_count": 1,
+      "pinned": false,
+      "image_signature": "1344x889:5027e9816d20be7703ab976a135374891e5c3ed1",
+      "width": 1344,
+      "height": 889,
+      "used_today_date": "2026-05-13",
+      "used_today_count": 1,
+      "last_used_at": "2026-05-13T20:57:11"
+    },
+    {
+      "id": "cbimg_cbe6c26cdf",
+      "type": "image",
+      "path": "C:\\Users\\kjh\\Documents\\GitHub\\support_cdx\\WorkHelper\\data\\clipboard_images\\cbimg_cbe6c26cdf.png",
+      "copied_at": "2026-05-13T20:56:49",
+      "created_at": "2026-05-13T20:56:49",
+      "sort_order": 3,
+      "usage_count": 0,
+      "pinned": false,
+      "image_signature": "760x484:a074272677af0346269f5b185884b4be7946ab1b",
+      "width": 760,
+      "height": 484
+    },
+    {
       "id": "cb_aba93b866d",
       "type": "text",
       "text": "cd C:\\Users\\User\\Documents\\GitHub\\support_cdx\\WorkHelper",

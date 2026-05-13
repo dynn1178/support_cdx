@@ -63,6 +63,45 @@ def active_window_rect() -> QRect:
     return screen.geometry() if screen else QRect()
 
 
+def _scaled_pixels(value: int, scale: float) -> int:
+    return max(1, int(value * scale + 0.9999))
+
+
+def screen_capture_scale(rect: QRect) -> float:
+    scales = [
+        float(screen.devicePixelRatio())
+        for screen in QApplication.screens()
+        if rect.intersects(screen.geometry())
+    ]
+    if scales:
+        return max(scales)
+    screen = QApplication.primaryScreen()
+    return float(screen.devicePixelRatio()) if screen else 1.0
+
+
+def capture_screen_rect(rect: QRect) -> QPixmap:
+    """Capture a logical screen rect while preserving native high-DPI pixels."""
+    if rect.width() < 1 or rect.height() < 1:
+        return QPixmap()
+    scale = screen_capture_scale(rect)
+    pixmap = QPixmap(_scaled_pixels(rect.width(), scale), _scaled_pixels(rect.height(), scale))
+    pixmap.setDevicePixelRatio(scale)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    for screen in QApplication.screens():
+        intersected = rect.intersected(screen.geometry())
+        if intersected.isEmpty():
+            continue
+        local = intersected.translated(-screen.geometry().topLeft())
+        part = screen.grabWindow(0, local.x(), local.y(), local.width(), local.height())
+        if part.isNull():
+            continue
+        painter.drawPixmap(intersected.topLeft() - rect.topLeft(), part)
+    painter.end()
+    return pixmap
+
+
 class ScreenCaptureDialog(QDialog):
     def __init__(self) -> None:
         super().__init__()
@@ -293,17 +332,7 @@ class ImageDialog(QDialog):
         if capture.exec() != capture.DialogCode.Accepted or capture.selection.width() < 3 or capture.selection.height() < 3:
             return
         rect = capture.selection
-        pixmap = QPixmap(rect.size())
-        pixmap.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(pixmap)
-        for screen in screens:
-            intersected = rect.intersected(screen.geometry())
-            if intersected.isEmpty():
-                continue
-            local = intersected.translated(-screen.geometry().topLeft())
-            part = screen.grabWindow(0, local.x(), local.y(), local.width(), local.height())
-            painter.drawPixmap(intersected.topLeft() - rect.topLeft(), part)
-        painter.end()
+        pixmap = capture_screen_rect(rect)
         percent = int(self.capture_scale.currentText().replace("%", ""))
         if percent != 100:
             pixmap = pixmap.scaled(
@@ -946,18 +975,7 @@ class ImageTab(QWidget):
             QMessageBox.warning(self, "폴더 열기 실패", str(exc))
 
     def capture_selection(self, rect: QRect) -> QPixmap:
-        pixmap = QPixmap(rect.size())
-        pixmap.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(pixmap)
-        for screen in QApplication.screens():
-            intersected = rect.intersected(screen.geometry())
-            if intersected.isEmpty():
-                continue
-            local = intersected.translated(-screen.geometry().topLeft())
-            part = screen.grabWindow(0, local.x(), local.y(), local.width(), local.height())
-            painter.drawPixmap(intersected.topLeft() - rect.topLeft(), part)
-        painter.end()
-        return pixmap
+        return capture_screen_rect(rect)
 
     def steel_cut_capture_rect(self) -> QRect:
         mode = self.main.settings.get("steel_cut_capture_mode", "region")

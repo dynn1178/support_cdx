@@ -2,7 +2,7 @@
   "meta": {
     "preset_name": "기본 프리셋",
     "version": "1.0.0",
-    "saved_at": "2026-05-12T18:48:09"
+    "saved_at": "2026-05-13T20:57:15"
   },
   "phrases": [
     {
@@ -92,7 +92,32 @@
       "usage_count": 0
     }
   ],
-  "steel_cuts": [],
+  "steel_cuts": [
+    {
+      "id": "steel_801308454b",
+      "path": "screenshot/steel_dfaa96c470.png",
+      "path_type": "relative",
+      "window_title": "6PM Assistant",
+      "created_at": "2026-05-13T20:56:49",
+      "last_used_at": "2026-05-13T20:56:49",
+      "sort_order": 0,
+      "usage_count": 1,
+      "used_today_date": "2026-05-13",
+      "used_today_count": 1
+    },
+    {
+      "id": "steel_7d70202988",
+      "path": "screenshot/steel_fa2c47b49e.png",
+      "path_type": "relative",
+      "window_title": "6PM Assistant",
+      "created_at": "2026-05-13T20:56:59",
+      "last_used_at": "2026-05-13T20:57:15",
+      "sort_order": 1,
+      "usage_count": 2,
+      "used_today_date": "2026-05-13",
+      "used_today_count": 2
+    }
+  ],
   "macros": [
     {
       "id": "mc_sample",

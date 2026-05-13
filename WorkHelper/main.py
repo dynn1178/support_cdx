@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import sys
 
 from PyQt6.QtGui import QIcon
@@ -9,7 +10,29 @@ from app import config
 from ui.main_window import MainWindow
 
 
+def enable_dpi_awareness() -> None:
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        # PER_MONITOR_AWARE_V2 keeps screen geometry and captured pixels aligned
+        # on mixed-DPI Windows setups.
+        if ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4)):
+            return
+    except Exception:
+        pass
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        return
+    except Exception:
+        pass
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+
 def main() -> int:
+    enable_dpi_awareness()
     config.ensure_data_files()
     app = QApplication(sys.argv)
     icon_path = config.APP_ICON_PATH if config.APP_ICON_PATH.exists() else config.BUNDLED_ICON_PATH
