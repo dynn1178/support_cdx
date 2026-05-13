@@ -131,11 +131,14 @@ if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
     Write-Host "  Install gh CLI: winget install --id GitHub.cli"
 } else {
     $notes = if ($ReleaseNote) { $ReleaseNote } else { "## $tag`n`nRelease notes here." }
+    $notesTmp = [System.IO.Path]::GetTempFileName()
+    [System.IO.File]::WriteAllText($notesTmp, $notes, [System.Text.UTF8Encoding]::new($false))
     gh release create $tag `
         "$ZipPath" `
         --repo "dynn1178/support_cdx" `
         --title $tag `
-        --notes $notes
+        --notes-file $notesTmp
+    Remove-Item $notesTmp -ErrorAction SilentlyContinue
 
     Write-Host "[5/5] GitHub Release created"
     Write-Host "      https://github.com/dynn1178/support_cdx/releases/tag/$tag"
