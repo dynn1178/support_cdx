@@ -3,11 +3,12 @@ from __future__ import annotations
 import threading
 import time
 import calendar
+import sys
 from ctypes import wintypes
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from PyQt6.QtCore import QAbstractNativeEventFilter, QDate, QDateTime, QTime, QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import QAbstractNativeEventFilter, QDate, QDateTime, QEvent, QTime, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QCursor, QIcon, QKeyEvent, QPixmap
 from PyQt6.QtWidgets import QApplication, QCheckBox, QComboBox, QDateEdit, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QStackedWidget, QTabWidget, QTextEdit, QToolButton, QVBoxLayout, QWidget
 
@@ -288,6 +289,9 @@ class QuickActionPopup(QDialog):
         layout.addLayout(btn_row)
 
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
+        self.installEventFilter(self)
+        for child in self.findChildren(QWidget):
+            child.installEventFilter(self)
         self.resize(460, 320)
         self.setStyleSheet(
             self.styleSheet()
@@ -299,6 +303,17 @@ class QuickActionPopup(QDialog):
             """
         )
         QTimer.singleShot(0, self._activate)
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
+            if (
+                self.tab_widget.currentIndex() in (0, 1)
+                and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+                and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+            ):
+                self._on_save()
+                return True
+        return super().eventFilter(obj, event)
 
     def _on_tab_changed(self, idx: int) -> None:
         self.save_btn.setText("시작" if idx == 2 else "저장")
@@ -326,6 +341,7 @@ class QuickActionPopup(QDialog):
 
         # 제목
         self.todo_title = QLineEdit()
+        self.todo_title.installEventFilter(self)
         self.todo_title.setPlaceholderText("할 일 제목...")
 
         self.todo_priority_combo = QComboBox()
@@ -412,6 +428,7 @@ class QuickActionPopup(QDialog):
         vl.setContentsMargins(12, 12, 12, 10)
         vl.setSpacing(8)
         self.memo_text = QTextEdit()
+        self.memo_text.installEventFilter(self)
         self.memo_text.setPlaceholderText("메모를 입력하세요...")
         self.memo_text.setFixedHeight(100)
         vl.addWidget(self.memo_text)
@@ -905,14 +922,21 @@ class MainWindow(QMainWindow):
         settings = self.settings
         window = settings.get("window", {})
         self.setFixedSize(int(window.get("width", 900)), int(window.get("height", 580)))
-        flags = self.windowFlags()
-        if window.get("always_on_top"):
-            flags |= Qt.WindowType.WindowStaysOnTopHint
-        else:
-            flags &= ~Qt.WindowType.WindowStaysOnTopHint
-        self.setWindowFlags(flags)
+        self.apply_always_on_top(bool(window.get("always_on_top")))
         set_dialog_theme(settings.get("theme", "light"))
         apply_theme(self.app, settings.get("theme", "light"))
+
+    def apply_always_on_top(self, enabled: bool) -> None:
+        if sys.platform.startswith("win"):
+            try:
+                hwnd = int(self.winId())
+                insert_after = -1 if enabled else -2  # HWND_TOPMOST / HWND_NOTOPMOST
+                flags = 0x0001 | 0x0002 | 0x0010  # NOSIZE | NOMOVE | NOACTIVATE
+                if USER32.SetWindowPos(wintypes.HWND(hwnd), wintypes.HWND(insert_after), 0, 0, 0, 0, flags):
+                    return
+            except Exception:
+                pass
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, enabled)
 
     def save_data(self) -> None:
         self.data["settings"] = self.settings

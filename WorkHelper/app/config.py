@@ -417,6 +417,14 @@ def read_version() -> str:
     return version or DEFAULT_VERSION
 
 
+def _write_json_atomic(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(f"{path.name}.tmp")
+    with temp_path.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+    temp_path.replace(path)
+
+
 def load_template(index: int) -> dict[str, Any]:
     ensure_data_files()
     with template_path(index).open("r", encoding="utf-8") as f:
@@ -433,8 +441,7 @@ def save_template(index: int, data: dict[str, Any]) -> None:
         data_to_save.setdefault(collection, [])
     data_to_save.setdefault("meta", {})
     data_to_save["meta"]["saved_at"] = now_iso()
-    with template_path(index).open("w", encoding="utf-8") as f:
-        json.dump(data_to_save, f, ensure_ascii=False, indent=2)
+    _write_json_atomic(template_path(index), data_to_save)
 
 
 def merge_template_defaults(data: dict[str, Any]) -> dict[str, Any]:
@@ -505,8 +512,7 @@ def save_settings(settings: dict[str, Any]) -> None:
             data[key].update(value)
         else:
             data[key] = value
-    with SETTINGS_PATH.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    _write_json_atomic(SETTINGS_PATH, data)
 
 
 def load_clipboard_history() -> dict[str, Any]:
@@ -520,8 +526,7 @@ def load_clipboard_history() -> dict[str, Any]:
 def save_clipboard_history(data: dict[str, Any]) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     data.setdefault("history", [])
-    with CLIPBOARD_HISTORY_PATH.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    _write_json_atomic(CLIPBOARD_HISTORY_PATH, data)
 
 
 def _strip_for_export(data: dict[str, Any]) -> dict[str, Any]:

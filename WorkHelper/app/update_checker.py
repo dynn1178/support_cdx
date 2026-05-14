@@ -15,7 +15,7 @@ from pathlib import Path
 import requests
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox, QDialog, QHBoxLayout, QLabel, QMessageBox,
+    QApplication, QCheckBox, QDialog, QHBoxLayout, QLabel, QMessageBox,
     QProgressBar, QScrollArea, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -325,9 +325,18 @@ def _open_manual_update_folders() -> None:
     _open_folder(config.BASE_DIR)
 
 
+def _quit_after_manual_update() -> None:
+    app = QApplication.instance()
+    if app is None:
+        return
+    QApplication.closeAllWindows()
+    QTimer.singleShot(0, app.quit)
+
+
 def open_manual_update_download() -> None:
     webbrowser.open(MANUAL_UPDATE_URL)
     QTimer.singleShot(5000, _open_manual_update_folders)
+    QTimer.singleShot(5500, _quit_after_manual_update)
 
 
 def _settings_for_parent(parent: QWidget | None) -> dict | None:

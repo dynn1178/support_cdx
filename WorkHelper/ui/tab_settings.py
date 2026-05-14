@@ -6,6 +6,7 @@ from datetime import datetime
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QApplication,
     QButtonGroup,
     QCheckBox,
     QComboBox,
@@ -644,7 +645,34 @@ class SettingsTab(QWidget):
         field.key.blockSignals(False)
         field.set_hotkey(hotkey)
 
+    def show_saving_dialog(self) -> QDialog:
+        dlg = QDialog(self)
+        dlg.setWindowTitle("저장중")
+        dlg.setModal(True)
+        dlg.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        dlg.setFixedSize(240, 96)
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(18, 18, 18, 18)
+        label = QLabel("저장중입니다...")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setStyleSheet("font-size: 11pt; font-weight: 800;")
+        layout.addWidget(label, 1)
+        dlg.setStyleSheet(
+            """
+            QDialog {
+                background: #FFFFFF;
+                border: 1px solid #D1D5DB;
+                border-radius: 10px;
+            }
+            QLabel { color: #111827; }
+            """
+        )
+        dlg.show()
+        QApplication.processEvents()
+        return dlg
+
     def save_settings(self) -> bool:
+        before = dict(getattr(self, "_settings_snapshot", {}) or {})
         settings = self.main.settings
         window = settings.setdefault("window", {"width": 900, "height": 580, "always_on_top": False})
         self.main.data.setdefault("meta", {})["preset_name"] = self.template_name.text().strip() or f"프리셋 {self.main.template_index}"
@@ -677,18 +705,46 @@ class SettingsTab(QWidget):
         ]:
             if not confirm_shift_digit_hotkey(self, hotkey):
                 return False
+        current = self.current_settings_state()
+        visual_keys = {"theme", "always_on_top"}
+        hotkey_keys = {
+            "clipboard_popup_double_ctrl",
+            "clipboard_popup_hotkey",
+            "quick_memo_double_alt",
+            "quick_memo_hotkey",
+            "phrase_popup_hotkey",
+            "steel_cut_hotkey",
+            "screen_draw_hotkey",
+        }
+        template_name_changed = before.get("template_name") != current.get("template_name")
+        visual_changed = any(before.get(key) != current.get(key) for key in visual_keys)
+        hotkeys_changed = any(before.get(key) != current.get(key) for key in hotkey_keys)
+        startup_changed = before.get("startup_with_windows") != current.get("startup_with_windows")
+        saving_dialog = self.show_saving_dialog()
         try:
-            set_startup_enabled(self.startup_with_windows.isChecked())
+            if startup_changed:
+                set_startup_enabled(self.startup_with_windows.isChecked())
+            config.save_settings(settings)
+            if template_name_changed:
+                config.save_template(self.main.template_index, self.main.data)
+                self.refresh_template_combo()
+            if visual_changed:
+                self.main.apply_current_settings()
+            if hotkeys_changed:
+                self.main.register_hotkeys()
+            self.main.refresh_home_tab()
+            self._general_snapshot = self.current_general_state()
+            self._settings_snapshot = self.current_settings_state()
         except Exception as exc:
-            show_modern_warning(self, "시작 프로그램 설정 실패", str(exc))
+            saving_dialog.close()
+            QApplication.processEvents()
+            show_modern_warning(self, "저장 실패", str(exc))
             return False
-        self.main.apply_current_settings()
-        self.main.save_data()
-        self.refresh_template_combo()
-        self._general_snapshot = self.current_general_state()
-        self._settings_snapshot = self.current_settings_state()
-        self.main.set_tab(self.main.stack.currentIndex())
-        self.main.show()
+        finally:
+            if saving_dialog.isVisible():
+                saving_dialog.close()
+                QApplication.processEvents()
+        show_modern_info(self, "저장 완료", "저장 완료되었습니다.")
         return True
 
     def show_creator(self) -> None:
