@@ -1024,7 +1024,6 @@ class ImageTab(QWidget):
         if rect.width() < 3 or rect.height() < 3:
             return
         pixmap = self.capture_selection(rect)
-        QApplication.clipboard().setPixmap(pixmap)
         target = next_capture_jpg_path(self.screenshot_dir())
         if not save_capture_jpg(pixmap, target):
             QMessageBox.warning(self, "스틸 컷 실패", "스크린샷을 저장하지 못했습니다.")
@@ -1074,7 +1073,7 @@ class ImageTab(QWidget):
         self._steel_cut_viewer.raise_()
         self._steel_cut_viewer.activateWindow()
         if copy_to_clipboard:
-            QTimer.singleShot(0, self._steel_cut_viewer.copy_to_clipboard)
+            QTimer.singleShot(150, self._steel_cut_viewer.copy_to_clipboard)
 
     def delete_steel_cut_file(self, item: dict) -> None:
         try:
