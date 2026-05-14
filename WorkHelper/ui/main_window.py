@@ -282,7 +282,7 @@ class QuickActionPopup(QDialog):
         btn_row.addStretch(1)
         cancel_btn = QPushButton("닫기")
         cancel_btn.clicked.connect(self.reject)
-        self.save_btn = QPushButton("저장")
+        self.save_btn = QPushButton("저장 (Ctrl+Enter)")
         self.save_btn.clicked.connect(self._on_save)
         btn_row.addWidget(cancel_btn)
         btn_row.addWidget(self.save_btn)
@@ -316,7 +316,7 @@ class QuickActionPopup(QDialog):
         return super().eventFilter(obj, event)
 
     def _on_tab_changed(self, idx: int) -> None:
-        self.save_btn.setText("시작" if idx == 2 else "저장")
+        self.save_btn.setText("시작" if idx == 2 else "저장 (Ctrl+Enter)")
 
     # ── 탭 1 : 할 일 ───────────────────────────────────────────────────────
 

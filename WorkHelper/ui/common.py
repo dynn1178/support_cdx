@@ -224,14 +224,17 @@ def make_card(
         hotkey_slot = QWidget()
         hotkey_slot.setObjectName("hotkeySlot")
         hotkey_slot.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
-        hotkey_slot.setFixedSize(150, 22)
         hotkey_slot.setStyleSheet("QWidget#hotkeySlot { background: transparent; border: 0; }")
         hotkey_layout = QHBoxLayout(hotkey_slot)
         hotkey_layout.setContentsMargins(0, 0, 0, 0)
         hotkey_layout.setSpacing(0)
         hotkey_layout.addStretch(1)
         if hotkey:
-            hotkey_layout.addWidget(make_hotkey_caps(hotkey, hotkey_color))
+            caps = make_hotkey_caps(hotkey, hotkey_color)
+            hotkey_slot.setFixedSize(max(56, caps.sizeHint().width() + 4), 22)
+            hotkey_layout.addWidget(caps)
+        else:
+            hotkey_slot.setFixedSize(56, 22)
         row.addWidget(hotkey_slot)
     layout.addLayout(row)
     if subtitle or card_size in {"b", "c"}:
@@ -256,7 +259,8 @@ def make_hotkey_caps(hotkey: str, hotkey_color: str = "") -> QWidget:
         cap.setObjectName("keyCap")
         cap.setAlignment(Qt.AlignmentFlag.AlignCenter)
         cap.setFixedHeight(20)
-        cap.setFixedWidth(max(24, cap.fontMetrics().horizontalAdvance(part) + 14))
+        cap.setMinimumWidth(max(28, cap.fontMetrics().horizontalAdvance(part) + 24))
+        cap.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         cap.setContentsMargins(0, 0, 0, 0)
         if hotkey_color:
             cap.setStyleSheet(f"QLabel#keyCap {{ background: {hotkey_color}; color: #1F2937; border-color: rgba(31, 41, 55, 0.25); }}")
