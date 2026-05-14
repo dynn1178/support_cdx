@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-from PyQt6.QtCore import QPoint, QRect, QSize, Qt
+from PyQt6.QtCore import QPoint, QRect, QSize, QTimer, Qt
 from PyQt6.QtGui import QBrush, QColor, QKeySequence, QPainter, QPen, QPixmap, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
@@ -1030,7 +1030,7 @@ class ImageTab(QWidget):
         self.main.save_data()
         self.tabs.setCurrentIndex(0)
         self.refresh()
-        self.view_steel_cut(value)
+        self.view_steel_cut(value, copy_to_clipboard=True)
 
     def view_image(self, item: dict) -> None:
         path = resolve_image_path(item.get("path", ""), config.BASE_DIR)
@@ -1045,7 +1045,7 @@ class ImageTab(QWidget):
         dialog.activateWindow()
         dialog.exec()
 
-    def view_steel_cut(self, item: dict) -> None:
+    def view_steel_cut(self, item: dict, copy_to_clipboard: bool = False) -> None:
         path = resolve_image_path(item.get("path", ""), config.BASE_DIR)
         if not Path(path).exists():
             QMessageBox.warning(self, "스틸 컷 없음", f"파일을 찾을 수 없습니다.\n{path}")
@@ -1059,6 +1059,8 @@ class ImageTab(QWidget):
         self._steel_cut_viewer.show()
         self._steel_cut_viewer.raise_()
         self._steel_cut_viewer.activateWindow()
+        if copy_to_clipboard:
+            QTimer.singleShot(0, self._steel_cut_viewer.copy_to_clipboard)
 
     def delete_steel_cut_file(self, item: dict) -> None:
         try:
