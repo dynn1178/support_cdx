@@ -102,6 +102,20 @@ def capture_screen_rect(rect: QRect) -> QPixmap:
     return pixmap
 
 
+def next_capture_jpg_path(directory: Path) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    for number in range(1, 1000):
+        path = directory / f"{stamp}_{number:03d}.jpg"
+        if not path.exists():
+            return path
+    return directory / f"{stamp}_{new_id('capture')}.jpg"
+
+
+def save_capture_jpg(pixmap: QPixmap, path: Path) -> bool:
+    return pixmap.save(str(path), "JPG", 95)
+
+
 class ScreenCaptureDialog(QDialog):
     def __init__(self) -> None:
         super().__init__()
@@ -341,8 +355,8 @@ class ImageDialog(QDialog):
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
-        target = self.saved_image_dir() / f"{new_id('capture')}.png"
-        if not pixmap.save(str(target), "PNG"):
+        target = next_capture_jpg_path(self.saved_image_dir())
+        if not save_capture_jpg(pixmap, target):
             QMessageBox.warning(self, "캡처 실패", "스크린샷을 저장하지 못했습니다.")
             return
         self.path.setText(self.relative_asset_path(target))
@@ -1011,8 +1025,8 @@ class ImageTab(QWidget):
             return
         pixmap = self.capture_selection(rect)
         QApplication.clipboard().setPixmap(pixmap)
-        target = self.screenshot_dir() / f"{new_id('steel')}.png"
-        if not pixmap.save(str(target), "PNG"):
+        target = next_capture_jpg_path(self.screenshot_dir())
+        if not save_capture_jpg(pixmap, target):
             QMessageBox.warning(self, "스틸 컷 실패", "스크린샷을 저장하지 못했습니다.")
             return
         items = self.main.data.setdefault("steel_cuts", [])
