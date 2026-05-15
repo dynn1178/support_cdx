@@ -64,6 +64,8 @@ def set_corner_button_policy(button: QToolButton | QWidget, min_width: int = 92)
     button.setFixedHeight(CORNER_CONTROL_HEIGHT)
     button.setFixedWidth(min_width)
     font = button.font()
+    if font.pointSize() <= 0:
+        font.setPointSize(9)
     font.setBold(False)
     button.setFont(font)
     button.setStyleSheet("padding: 1px 6px; font-size: 9pt; font-weight: 400;")

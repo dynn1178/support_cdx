@@ -96,6 +96,7 @@ class NumberedTextPopup(QDialog):
             }
             """
         )
+        self.setWindowModality(Qt.WindowModality.ApplicationModal)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(4)
@@ -119,6 +120,8 @@ class NumberedTextPopup(QDialog):
         self.setFixedHeight(58 + min(max(len(self.items), 1), 10) * 36)
         self.start_number_hotkeys()
         QTimer.singleShot(0, self.activate_popup)
+        QTimer.singleShot(80, self.force_activate)
+        QTimer.singleShot(180, self.force_activate)
 
     def _row(self, index: int, item: dict) -> QWidget:
         row = QWidget()
@@ -155,9 +158,22 @@ class NumberedTextPopup(QDialog):
             x = min(max(cursor.x() + 12, area.left()), area.right() - self.width())
             y = min(max(cursor.y() + 12, area.top()), area.bottom() - self.height())
             self.move(x, y)
+        self.force_activate()
+
+    def force_activate(self) -> None:
+        if self._closing or not self.isVisible():
+            return
         self.raise_()
         self.activateWindow()
         self.setFocus(Qt.FocusReason.PopupFocusReason)
+        try:
+            hwnd = int(self.winId())
+            USER32.ShowWindow(hwnd, 5)
+            USER32.BringWindowToTop(hwnd)
+            USER32.SetForegroundWindow(hwnd)
+            USER32.SetActiveWindow(hwnd)
+        except Exception:
+            pass
 
     def start_number_hotkeys(self) -> None:
         app = QApplication.instance()
@@ -225,6 +241,7 @@ class QuickMemoPopup(QDialog):
         self.setWindowTitle("빠른 메모")
         self.setWindowFlag(Qt.WindowType.Tool, True)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self.setWindowModality(Qt.WindowModality.ApplicationModal)
         layout = QVBoxLayout(self)
         self.text = QTextEdit()
         self.text.setPlaceholderText("메모를 입력하세요")
@@ -242,6 +259,8 @@ class QuickMemoPopup(QDialog):
         layout.addLayout(row)
         self.resize(340, 240)
         QTimer.singleShot(0, self.activate_popup)
+        QTimer.singleShot(80, self.force_activate)
+        QTimer.singleShot(180, self.force_activate)
 
     def activate_popup(self) -> None:
         cursor = QCursor.pos()
@@ -251,9 +270,22 @@ class QuickMemoPopup(QDialog):
             x = min(max(cursor.x() + 12, area.left()), area.right() - self.width())
             y = min(max(cursor.y() + 12, area.top()), area.bottom() - self.height())
             self.move(x, y)
+        self.force_activate()
+
+    def force_activate(self) -> None:
+        if not self.isVisible():
+            return
         self.raise_()
         self.activateWindow()
         self.text.setFocus(Qt.FocusReason.PopupFocusReason)
+        try:
+            hwnd = int(self.winId())
+            USER32.ShowWindow(hwnd, 5)
+            USER32.BringWindowToTop(hwnd)
+            USER32.SetForegroundWindow(hwnd)
+            USER32.SetActiveWindow(hwnd)
+        except Exception:
+            pass
 
 
 class QuickActionPopup(QDialog):
@@ -265,6 +297,7 @@ class QuickActionPopup(QDialog):
         self.setWindowTitle("빠른 작업")
         self.setWindowFlag(Qt.WindowType.Tool, True)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self.setWindowModality(Qt.WindowModality.ApplicationModal)
         apply_modern_dialog_style(self)
         self.setObjectName("quickActionDialog")
         self.setFixedWidth(460)
@@ -304,9 +337,14 @@ class QuickActionPopup(QDialog):
             """
         )
         QTimer.singleShot(0, self._activate)
+        QTimer.singleShot(80, self.force_activate)
+        QTimer.singleShot(180, self.force_activate)
 
     def eventFilter(self, obj, event) -> bool:
         if event.type() == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
+            if event.key() == Qt.Key.Key_Escape:
+                self.reject()
+                return True
             if (
                 self.tab_widget.currentIndex() in (0, 1)
                 and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
@@ -528,11 +566,24 @@ class QuickActionPopup(QDialog):
             x = min(max(cursor.x() + 12, area.left()), area.right() - self.width())
             y = min(max(cursor.y() + 12, area.top()), area.bottom() - self.height())
             self.move(x, y)
+        self.force_activate()
+
+    def force_activate(self) -> None:
+        if not self.isVisible():
+            return
         self.raise_()
         self.activateWindow()
         line_edit = self.tab_widget.currentWidget().findChild(QLineEdit)
         if line_edit:
             line_edit.setFocus(Qt.FocusReason.PopupFocusReason)
+        try:
+            hwnd = int(self.winId())
+            USER32.ShowWindow(hwnd, 5)
+            USER32.BringWindowToTop(hwnd)
+            USER32.SetForegroundWindow(hwnd)
+            USER32.SetActiveWindow(hwnd)
+        except Exception:
+            pass
 
     def _on_save(self) -> None:
         idx = self.tab_widget.currentIndex()
@@ -1213,8 +1264,7 @@ class MainWindow(QMainWindow):
 
     def show_quick_action_popup(self) -> None:
         if self._quick_action_popup is not None and self._quick_action_popup.isVisible():
-            self._quick_action_popup.raise_()
-            self._quick_action_popup.activateWindow()
+            self._quick_action_popup.force_activate()
             return
         popup = QuickActionPopup(self)
         self._quick_action_popup = popup

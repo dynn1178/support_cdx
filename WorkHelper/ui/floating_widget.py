@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Callable
 
 from PyQt6.QtCore import QEventLoop, QEasingCurve, QPoint, QRect, QSize, QTimer, QVariantAnimation, Qt
-from PyQt6.QtGui import QColor, QCursor, QFontMetrics, QIcon, QPixmap
+from PyQt6.QtGui import QColor, QCursor, QFontMetrics, QIcon, QPixmap, QRegion
 from PyQt6.QtWidgets import (
     QApplication,
     QFrame,
@@ -18,7 +18,6 @@ from PyQt6.QtWidgets import (
     QToolButton,
     QVBoxLayout,
     QWidget,
-    QGraphicsDropShadowEffect,
 )
 
 from app import config
@@ -196,6 +195,7 @@ class DockItem(QWidget):
         shape: str,
         icon: QIcon | None = None,
         popup_enabled: bool = True,
+        compact: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -207,11 +207,11 @@ class DockItem(QWidget):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMouseTracking(True)
         item_width = max(78, int(icon_size * 1.44), self.label_width + 4)
-        item_height = max(78, int(icon_size * 1.32) + 34)
+        item_height = max(64, icon_size + 28) if compact else max(78, int(icon_size * 1.32) + 34)
         self.setFixedSize(item_width, item_height)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(2, 0, 2, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(1 if compact else 4)
         layout.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         tooltip_text = tooltip if popup_enabled else ""
         self.button = DockIconButton(icon_text, tooltip_text, icon_size, shape, self)
@@ -310,7 +310,7 @@ class FloatingWidget(QFrame):
         self.setStyleSheet("background: transparent; border: 0;")
 
         self.root = QVBoxLayout(self)
-        self.root.setContentsMargins(12, 12, 12, 12)
+        self.root.setContentsMargins(32, 0, 32, 32)
         self.root.setSpacing(0)
         self.panel = QWidget()
         self.panel.setObjectName("floatingDockPanel")
@@ -326,6 +326,13 @@ class FloatingWidget(QFrame):
         self.back_button.setText("‹ 이전")
         self.back_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.back_button.clicked.connect(lambda checked=False: self._open_category(None))
+        self.side_back_button = QToolButton(self.panel)
+        self.side_back_button.setObjectName("floatingDockSideBackButton")
+        self.side_back_button.setText("<")
+        self.side_back_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.side_back_button.setFixedSize(28, 44)
+        self.side_back_button.clicked.connect(lambda checked=False: self._open_category(None))
+        self.side_back_button.hide()
         self.hover_text = QLabel(self.panel)
         self.hover_text.setObjectName("floatingDockHoverText")
         self.hover_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -382,6 +389,7 @@ class FloatingWidget(QFrame):
         self.current_category = None
         self._rebuild()
         self._apply_style()
+        self._sync_edge_margins()
         self._sync_hover_row()
         if enabled:
             self._move_hidden()
@@ -394,6 +402,7 @@ class FloatingWidget(QFrame):
         self._settings = dict(self.main.settings)
         self._rebuild()
         self._apply_style()
+        self._sync_edge_margins()
         self._sync_hover_row()
 
     def preview_settings(self) -> None:
@@ -402,10 +411,12 @@ class FloatingWidget(QFrame):
         self.current_category = None
         self._rebuild()
         self._apply_style()
+        self._sync_edge_margins()
         self._sync_hover_row()
         self.animation.stop()
         self.hide_timer.stop()
         if bool(self._settings.get("floating_widget_enabled", True)):
+            self.clearMask()
             self.setGeometry(self._visible_geometry())
             self._shown = True
             self._animating = False
@@ -417,6 +428,16 @@ class FloatingWidget(QFrame):
 
     def _edge(self) -> str:
         return str(self._settings.get("floating_widget_edge", "top") or "top")
+
+    def _sync_edge_margins(self) -> None:
+        margin = 32
+        edge = self._edge()
+        self.root.setContentsMargins(
+            0 if edge == "left" else margin,
+            0 if edge == "top" else margin,
+            0 if edge == "right" else margin,
+            0 if edge == "bottom" else margin,
+        )
 
     def _panel_size(self) -> int:
         raw = max(130, min(280, int(self._settings.get("floating_widget_panel_size", 160) or 160)))
@@ -436,6 +457,8 @@ class FloatingWidget(QFrame):
 
     def _dock_item_height(self) -> int:
         icon_size = self._icon_size()
+        if self._is_vertical():
+            return max(64, icon_size + 28)
         return max(78, int(icon_size * 1.32) + 34)
 
     def _minimum_panel_size(self) -> int:
@@ -443,6 +466,11 @@ class FloatingWidget(QFrame):
         return 14 + self._hover_row_height() + spacing + self._dock_item_height()
 
     def _sync_hover_row(self) -> None:
+        if self._is_vertical():
+            self.header.setFixedHeight(0)
+            self.header.hide()
+            self._sync_side_back_button()
+            return
         height = self._hover_row_height()
         self.header.setFixedHeight(height)
         self.hover_text.setFixedHeight(height)
@@ -475,6 +503,9 @@ class FloatingWidget(QFrame):
             self._open_category(None)
 
     def _show_header_back_button(self) -> None:
+        self._sync_side_back_button()
+        if self._is_vertical():
+            return
         if self.current_category:
             self.hover_text.clear()
             self.header_layout.setCurrentWidget(self.back_button)
@@ -543,10 +574,32 @@ class FloatingWidget(QFrame):
             item.setProperty("dockState", "normal")
 
     def _show_hover_text(self, item: DockItem) -> None:
+        if self._is_vertical():
+            return
         metrics = QFontMetrics(self.hover_text.font())
         max_width = max(90, self.panel.width() - 28)
         self.hover_text.setText(metrics.elidedText(item.full_label, Qt.TextElideMode.ElideRight, max_width))
         self.header_layout.setCurrentWidget(self.hover_text)
+
+    def _sync_side_back_button(self) -> None:
+        if not hasattr(self, "side_back_button"):
+            return
+        visible = self._is_vertical() and bool(self.current_category)
+        self.side_back_button.setVisible(visible)
+        if visible:
+            self._position_side_back_button()
+
+    def _position_side_back_button(self) -> None:
+        if not hasattr(self, "side_back_button"):
+            return
+        x = 4 if self._edge() == "right" else self.panel.width() - self.side_back_button.width() - 4
+        y = max(0, (self.panel.height() - self.side_back_button.height()) // 2)
+        self.side_back_button.move(x, y)
+        self.side_back_button.raise_()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._position_side_back_button()
 
     def _dock_items(self) -> list[DockItem]:
         return [child for child in self.content.findChildren(DockItem) if child.parent() is self.content]
@@ -567,19 +620,26 @@ class FloatingWidget(QFrame):
         screen = screens[self._screen_index()] if screens else QApplication.primaryScreen()
         return screen.geometry() if screen else QRect(0, 0, 1280, 720)
 
+    def _screen_safe_rect(self) -> QRect:
+        area = QRect(self._screen_rect())
+        if area.width() <= 0 or area.height() <= 0:
+            return QRect(0, 0, 1280, 720)
+        return area
+
     def _visible_geometry(self) -> QRect:
-        area = self._screen_rect()
+        area = self._screen_safe_rect()
         size = self._panel_size()
         if self._is_vertical():
-            cell = max(78, int(self._icon_size() * 1.44))
-            width = max(70, cell + 28)
-            height = min(max(160, self._content_extent() + 28), area.height() - 80)
+            available_height = max(260, area.height() - 80)
+            width = min(size, max(40, area.width()))
+            height = min(self._panel_width(), available_height)
             y = area.top() + max(0, (area.height() - height) // 2)
             x = area.left() if self._edge() == "left" else area.right() - width + 1
             return QRect(x, y, width, height)
-        width = min(max(260, self._content_extent() + 40), area.width() - 80)
-        width = min(self._panel_width(), area.width() - 80)
-        height = size
+        available_width = max(260, area.width() - 80)
+        width = min(max(260, self._content_extent() + 40), available_width)
+        width = min(self._panel_width(), available_width)
+        height = min(size, max(40, area.height()))
         x = area.left() + max(0, (area.width() - width) // 2)
         y = area.top() if self._edge() == "top" else area.bottom() - height + 1
         return QRect(x, y, width, height)
@@ -600,22 +660,28 @@ class FloatingWidget(QFrame):
         return count * cell
 
     def _hidden_geometry(self) -> QRect:
-        geo = self._visible_geometry()
+        return self._visible_geometry()
+
+    def _hidden_mask(self) -> QRegion:
         sliver = 3
         edge = self._edge()
         if edge == "top":
-            geo.moveTop(geo.top() - geo.height() + sliver)
-        elif edge == "bottom":
-            geo.moveTop(geo.top() + geo.height() - sliver)
-        elif edge == "left":
-            geo.moveLeft(geo.left() - geo.width() + sliver)
-        elif edge == "right":
-            geo.moveLeft(geo.left() + geo.width() - sliver)
-        return geo
+            return QRegion(0, 0, self.width(), sliver)
+        if edge == "bottom":
+            return QRegion(0, max(0, self.height() - sliver), self.width(), sliver)
+        if edge == "left":
+            return QRegion(0, 0, sliver, self.height())
+        if edge == "right":
+            return QRegion(max(0, self.width() - sliver), 0, sliver, self.height())
+        return QRegion(0, 0, self.width(), sliver)
+
+    def _apply_hidden_mask(self) -> None:
+        self.setMask(self._hidden_mask())
 
     def _move_hidden(self) -> None:
         self._shown = False
         self.setGeometry(self._hidden_geometry())
+        self._apply_hidden_mask()
 
     def _is_at_trigger_edge(self, pos: QPoint, area: QRect, edge: str) -> bool:
         if edge == "top":
@@ -655,7 +721,12 @@ class FloatingWidget(QFrame):
     def _show_panel(self) -> None:
         if self._shown or self._animating:
             return
-        self._animate(self.geometry(), self._visible_geometry(), True)
+        self.animation.stop()
+        self.clearMask()
+        self.setGeometry(self._visible_geometry())
+        self._shown = True
+        self._animating = False
+        self.raise_()
 
     def _hide_panel(self) -> None:
         if not self._shown or self._animating:
@@ -665,7 +736,11 @@ class FloatingWidget(QFrame):
         self.clear_hovered_item()
         self.current_category = None
         self._rebuild()
-        self._animate(self.geometry(), self._hidden_geometry(), False)
+        self.animation.stop()
+        self.setGeometry(self._hidden_geometry())
+        self._shown = False
+        self._animating = False
+        self._apply_hidden_mask()
 
     def _animate(self, start: QRect, end: QRect, shown: bool) -> None:
         self.show()
@@ -685,6 +760,10 @@ class FloatingWidget(QFrame):
     def _finish_animation(self) -> None:
         self._shown = bool(getattr(self, "_target_shown", False))
         self._animating = False
+        if self._shown:
+            self.clearMask()
+        else:
+            self._apply_hidden_mask()
 
     def _apply_style(self) -> None:
         opacity = max(20, min(100, int(self._settings.get("floating_widget_opacity", 77) or 77)))
@@ -697,11 +776,7 @@ class FloatingWidget(QFrame):
         radius = max(24, min(42, self._panel_size() // 3))
         button_radius = self._icon_size() if self._shape() == "round" else 12
         icon_font_size = max(20, int(self._icon_size() * 0.52))
-        shadow = QGraphicsDropShadowEffect(self.panel)
-        shadow.setBlurRadius(30)
-        shadow.setOffset(0, 8)
-        shadow.setColor(css_color_to_qcolor(theme.get("shadow", "rgba(0, 0, 0, 70)")))
-        self.panel.setGraphicsEffect(shadow)
+        self.panel.setGraphicsEffect(None)
         self.setWindowOpacity(1.0)
         self.setStyleSheet(
             f"""
@@ -765,8 +840,18 @@ class FloatingWidget(QFrame):
                 font-weight: 900;
                 padding: 0;
             }}
-            QToolButton#floatingDockBackButton:hover {{
+            QToolButton#floatingDockBackButton:hover,
+            QToolButton#floatingDockSideBackButton:hover {{
                 background: transparent;
+            }}
+            QToolButton#floatingDockSideBackButton {{
+                color: {theme["text"]};
+                background: transparent;
+                border: 0;
+                border-radius: 0;
+                font-size: 11pt;
+                font-weight: 900;
+                padding: 0;
             }}
             QLabel#floatingDockLabel {{
                 color: {theme["muted"]};
@@ -865,7 +950,7 @@ class FloatingWidget(QFrame):
     ) -> None:
         rendered_icon = icon if self._raw_icon_size() >= 33 else None
         popup_enabled = bool(self._settings.get("floating_widget_show_hover_text", True))
-        item = DockItem(icon_text, label, tooltip, callback, self._icon_size(), self._shape(), rendered_icon, popup_enabled, self.content)
+        item = DockItem(icon_text, label, tooltip, callback, self._icon_size(), self._shape(), rendered_icon, popup_enabled, self._is_vertical(), self.content)
         self.items_layout.addWidget(item, 0, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
 
     def _open_category(self, key: str | None) -> None:

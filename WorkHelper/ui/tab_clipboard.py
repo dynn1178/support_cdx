@@ -79,6 +79,7 @@ class ClipboardMiniPopup(QDialog):
         self.setWindowTitle("클립보드")
         self.setWindowFlag(Qt.WindowType.Tool, True)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self.setWindowModality(Qt.WindowModality.ApplicationModal)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setFixedWidth(430)
         self.setStyleSheet(
@@ -128,6 +129,8 @@ class ClipboardMiniPopup(QDialog):
         self.setFixedHeight(58 + visible_rows * 36)
         self.start_number_hotkeys()
         QTimer.singleShot(0, self.activate_popup)
+        QTimer.singleShot(80, self.force_activate)
+        QTimer.singleShot(180, self.force_activate)
 
     def activate_popup(self) -> None:
         try:
@@ -141,9 +144,22 @@ class ClipboardMiniPopup(QDialog):
             x = min(max(cursor.x() + 12, area.left()), area.right() - self.width())
             y = min(max(cursor.y() + 12, area.top()), area.bottom() - self.height())
             self.move(x, y)
+        self.force_activate()
+
+    def force_activate(self) -> None:
+        if self._closing or not self.isVisible():
+            return
         self.raise_()
         self.activateWindow()
         self.setFocus(Qt.FocusReason.PopupFocusReason)
+        try:
+            hwnd = int(self.winId())
+            USER32.ShowWindow(hwnd, 5)
+            USER32.BringWindowToTop(hwnd)
+            USER32.SetForegroundWindow(hwnd)
+            USER32.SetActiveWindow(hwnd)
+        except Exception:
+            pass
 
     def start_number_hotkeys(self) -> None:
         app = QApplication.instance()
@@ -221,6 +237,9 @@ class ClipboardMiniPopup(QDialog):
         return row
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key.Key_Escape:
+            self.reject()
+            return
         text = event.text()
         if text in {"1", "2", "3", "4", "5"}:
             self.copy_by_number(int(text))
@@ -512,8 +531,7 @@ class ClipboardTab(QWidget):
 
     def show_mini_popup(self) -> None:
         if self._mini_popup is not None and self._mini_popup.isVisible():
-            self._mini_popup.raise_()
-            self._mini_popup.activateWindow()
+            self._mini_popup.force_activate()
             return
         limit = int(self.main.data.get("settings", {}).get("clipboard_history_limit", 50))
         popup = ClipboardMiniPopup(self, self.history.get("history", [])[:limit])
