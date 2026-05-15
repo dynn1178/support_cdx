@@ -29,6 +29,7 @@ from ui.tab_misc import MiscTab, MouseHighlightOverlay
 from ui.tab_phrase import PhraseTab
 from ui.tab_settings import SettingsTab
 from ui.tab_text_tools import TextToolsTab
+from ui.floating_widget import FloatingWidget
 from ui.common import apply_modern_dialog_style, ask_modern_question, bump_usage, fit_combo_to_contents, flash_taskbar, normalize_todo_groups, set_dialog_theme, show_modern_info, show_modern_warning
 
 
@@ -683,6 +684,7 @@ class MainWindow(QMainWindow):
         self.hotstring_buffer = ""
         self.hotstring_busy = False
         self.mouse_highlight_overlay = None
+        self.floating_widget = None
         self._quick_action_popup: QuickActionPopup | None = None
         self.hotkey_event_filter = HotkeyEventFilter(self.hotkeys)
         self.app.installNativeEventFilter(self.hotkey_event_filter)
@@ -702,6 +704,7 @@ class MainWindow(QMainWindow):
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
         self._build_ui()
+        self.floating_widget = FloatingWidget(self)
         self.hotkeys.set_hwnd(int(self.winId()))
         self.apply_current_settings()
         self.refresh_all_tabs()
@@ -875,6 +878,10 @@ class MainWindow(QMainWindow):
                         return
                 elif hasattr(settings_tab, "discard_changes"):
                     QTimer.singleShot(0, settings_tab.discard_changes)
+        if hasattr(self, "stack") and self.stack.currentIndex() == 11 and index != 11:
+            settings_tab = self.tabs[11]
+            if hasattr(settings_tab, "end_widget_preview"):
+                settings_tab.end_widget_preview()
         self.stack.setCurrentIndex(index)
         for i, button in enumerate(self.buttons):
             button.setChecked(i == index)
@@ -925,6 +932,8 @@ class MainWindow(QMainWindow):
         self.apply_always_on_top(bool(window.get("always_on_top")))
         set_dialog_theme(settings.get("theme", "light"))
         apply_theme(self.app, settings.get("theme", "light"))
+        if getattr(self, "floating_widget", None) is not None:
+            self.floating_widget.apply_settings()
 
     def apply_always_on_top(self, enabled: bool) -> None:
         if sys.platform.startswith("win"):
@@ -953,6 +962,8 @@ class MainWindow(QMainWindow):
         for tab in self.tabs:
             if hasattr(tab, "refresh"):
                 tab.refresh()
+        if getattr(self, "floating_widget", None) is not None:
+            self.floating_widget.refresh()
 
     def refresh_home_tab(self) -> None:
         if not hasattr(self, "tabs") or not self.tabs:
@@ -1460,6 +1471,21 @@ class MainWindow(QMainWindow):
         show_modern_info(self, f"🔔 {title}", message, accent=accent)
 
     def closeEvent(self, event) -> None:
+        settings_tab = self.tabs[11] if hasattr(self, "tabs") and len(self.tabs) > 11 else None
+        if settings_tab is not None and hasattr(settings_tab, "is_dirty") and settings_tab.is_dirty():
+            changes = settings_tab.changed_settings_summary() if hasattr(settings_tab, "changed_settings_summary") else []
+            detail = "\n".join(changes[:8])
+            if len(changes) > 8:
+                detail += f"\n- 외 {len(changes) - 8}개"
+            message = "저장되지 않은 설정이 있습니다. 저장하시겠습니까?"
+            if detail:
+                message = f"변경된 내용\n{detail}\n\n{message}"
+            if ask_modern_question(self, "변경 내용 저장", message, None, "저장", "취소"):
+                if settings_tab.save_settings() is False:
+                    event.ignore()
+                    return
+            elif hasattr(settings_tab, "discard_changes"):
+                settings_tab.discard_changes()
         self.hotkeys.unregister_all()
         if self.hotstring_listener is not None:
             try:
@@ -1467,6 +1493,9 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         self.set_mouse_highlight(False)
+        if self.floating_widget is not None:
+            self.floating_widget.close()
+            self.floating_widget = None
         self.app.removeNativeEventFilter(self.hotkey_event_filter)
         self.ctrl_listener_stop.set()
         if self.ctrl_listener_thread:

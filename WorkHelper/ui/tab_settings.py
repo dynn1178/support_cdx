@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QScrollArea,
+    QSlider,
     QSpinBox,
     QTabWidget,
     QToolButton,
@@ -33,6 +34,7 @@ from app.theme import THEMES
 from app.update_checker import check_update_dialog
 from app.utils import display_hotkey, is_startup_enabled, resolve_image_path, set_startup_enabled
 from ui.common import HotkeyFields, ask_modern_question, confirm_shift_digit_hotkey, show_modern_info, show_modern_warning
+from ui.floating_widget import CATEGORY_ORDER
 
 
 THEME_LABELS = {
@@ -61,13 +63,16 @@ class SettingsTab(QWidget):
         self.general_tab = QWidget()
         self.hotkey_tab = QWidget()
         self.theme_tab = QWidget()
+        self.widget_tab = QWidget()
         self.tabs.addTab(self.general_tab, "일반")
         self.tabs.addTab(self.hotkey_tab, "단축키")
         self.tabs.addTab(self.theme_tab, "테마")
+        self.tabs.addTab(self.widget_tab, "위젯")
         layout.addWidget(self.tabs, 1)
         self.build_general()
         self.build_hotkeys()
         self.build_theme()
+        self.build_widget()
 
         preset_buttons = QHBoxLayout()
         preset_buttons.setContentsMargins(10, 4, 10, 0)
@@ -384,6 +389,257 @@ class SettingsTab(QWidget):
         layout.addLayout(grid)
         layout.addStretch(1)
 
+    def build_widget(self) -> None:
+        root = QVBoxLayout(self.widget_tab)
+        root.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
+        scroll.setWidget(content)
+        root.addWidget(scroll, 1)
+
+        box = QWidget()
+        box.setObjectName("card")
+        form = QFormLayout(box)
+        form.setContentsMargins(14, 14, 14, 14)
+        form.setVerticalSpacing(12)
+        title = QLabel("플로팅 위젯")
+        title.setObjectName("cardTitle")
+        form.addRow(title)
+
+        self.floating_widget_enabled = QCheckBox("마우스를 화면 가장자리로 가져가면 위젯 보이기")
+        form.addRow("사용", self.floating_widget_enabled)
+
+        self.floating_widget_edge = QComboBox()
+        for label, value in [("하", "bottom"), ("상", "top"), ("좌", "left"), ("우", "right")]:
+            self.floating_widget_edge.addItem(label, value)
+        form.addRow("사이드 영역", self.floating_widget_edge)
+
+        self.floating_widget_monitor = QComboBox()
+        form.addRow("표시 모니터", self.floating_widget_monitor)
+
+        self.floating_widget_panel_size = self.widget_slider(130, 280, " px")
+        form.addRow("패널 사이즈", self.floating_widget_panel_size)
+        self.floating_widget_panel_width = self.widget_slider(260, 1400, " px")
+        form.addRow("패널 가로 너비", self.floating_widget_panel_width)
+        self.floating_widget_icon_size = self.widget_slider(40, 128, " px")
+        form.addRow("아이콘 사이즈", self.floating_widget_icon_size)
+        self.floating_widget_speed = self.widget_slider(60, 900, " ms")
+        form.addRow("등장 속도", self.floating_widget_speed)
+        self.floating_widget_opacity = self.widget_slider(20, 100, " %")
+        form.addRow("투명도", self.floating_widget_opacity)
+
+        self.floating_widget_theme = QComboBox()
+        self.floating_widget_theme.addItem("밝은 테마", "light")
+        self.floating_widget_theme.addItem("어두운 테마", "dark")
+        self.floating_widget_theme.addItem("미러 글래스", "glass")
+        self.floating_widget_theme.addItem("민트", "mint")
+        self.floating_widget_theme.addItem("로즈", "rose")
+        form.addRow("위젯 테마", self.floating_widget_theme)
+
+        self.floating_widget_show_hover_text = QCheckBox("마우스 오버 시 전체 내용 팝업 메시지 표시")
+        form.addRow("팝업 메시지", self.floating_widget_show_hover_text)
+
+        self.floating_widget_icon_size.slider.valueChanged.connect(lambda _value: self.sync_widget_size_sliders("icon"))
+        self.floating_widget_panel_size.slider.valueChanged.connect(lambda _value: self.sync_widget_size_sliders("panel"))
+        self.floating_widget_show_hover_text.toggled.connect(lambda _checked: self.sync_widget_size_sliders("hover"))
+        self.connect_widget_preview_controls()
+
+        menu_box = QWidget()
+        menu_box.setObjectName("floatingWidgetMenuBox")
+        menu_theme = THEMES.get(self.main.settings.get("theme", "light"), THEMES["light"])
+        menu_box.setStyleSheet(
+            f"""
+            QWidget#floatingWidgetMenuBox {{
+                background: {menu_theme["panel"]};
+                border: 0;
+            }}
+            QWidget#floatingWidgetMenuBox QCheckBox {{
+                background: {menu_theme["panel"]};
+                color: {menu_theme["text"]};
+            }}
+            """
+        )
+        menu_layout = QGridLayout(menu_box)
+        menu_layout.setContentsMargins(0, 0, 0, 0)
+        menu_layout.setHorizontalSpacing(12)
+        menu_layout.setVerticalSpacing(4)
+        self.floating_widget_category_checks = {}
+        for index, (key, label, _icon) in enumerate(CATEGORY_ORDER):
+            check = QCheckBox(label)
+            self.floating_widget_category_checks[key] = check
+            menu_layout.addWidget(check, index // 3, index % 3)
+            check.toggled.connect(lambda _checked: self.preview_widget_settings())
+        form.addRow("표시 메뉴", menu_box)
+
+        layout.addWidget(box)
+        layout.addStretch(1)
+
+    def widget_slider(self, minimum: int, maximum: int, suffix: str) -> QWidget:
+        holder = QWidget()
+        row = QHBoxLayout(holder)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
+        slider = QSlider(Qt.Orientation.Horizontal)
+        slider.setRange(minimum, maximum)
+        value_label = QLabel()
+        value_label.setFixedWidth(64)
+        value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        slider.valueChanged.connect(lambda value, label=value_label: label.setText(f"{value}{suffix}"))
+        row.addWidget(slider, 1)
+        row.addWidget(value_label)
+        holder.slider = slider
+        holder.value_label = value_label
+        holder.setStyleSheet(
+            """
+            QWidget { background: transparent; border: 0; }
+            QSlider { background: transparent; }
+            QSlider::groove:horizontal {
+                height: 6px;
+                background: rgba(148, 163, 184, 70);
+                border: 0;
+                border-radius: 3px;
+            }
+            QSlider::sub-page:horizontal {
+                background: rgba(59, 108, 245, 150);
+                border: 0;
+                border-radius: 3px;
+            }
+            QSlider::handle:horizontal {
+                width: 15px;
+                height: 15px;
+                margin: -5px 0;
+                background: #FFFFFF;
+                border: 1px solid rgba(59, 108, 245, 155);
+                border-radius: 8px;
+            }
+            """
+        )
+        return holder
+
+    def set_widget_slider_value(self, holder: QWidget, value: int) -> None:
+        slider = getattr(holder, "slider", None)
+        if slider is not None:
+            slider.setValue(value)
+
+    def widget_slider_value(self, holder: QWidget, fallback: int) -> int:
+        slider = getattr(holder, "slider", None)
+        return int(slider.value()) if slider is not None else fallback
+
+    def minimum_panel_for_icon(self, icon_size: int | None = None) -> int:
+        icon_size = int(icon_size if icon_size is not None else self.widget_slider_value(self.floating_widget_icon_size, 50))
+        hover_height = 12
+        spacing = 3
+        item_height = max(78, int(icon_size * 1.32) + 34)
+        return max(130, 20 + hover_height + spacing + item_height)
+
+    def sync_widget_size_sliders(self, source: str = "") -> None:
+        if not hasattr(self, "floating_widget_panel_size") or getattr(self, "_syncing_widget_sizes", False):
+            return
+        self._syncing_widget_sizes = True
+        try:
+            panel_slider = self.floating_widget_panel_size.slider
+            icon_slider = self.floating_widget_icon_size.slider
+            min_panel = self.minimum_panel_for_icon(icon_slider.value())
+            panel_slider.setMinimum(min_panel)
+            if panel_slider.value() < min_panel:
+                panel_slider.setValue(min_panel)
+        finally:
+            self._syncing_widget_sizes = False
+        self.preview_widget_settings()
+
+    def connect_widget_preview_controls(self) -> None:
+        controls = [
+            self.floating_widget_enabled,
+            self.floating_widget_edge,
+            self.floating_widget_monitor,
+            self.floating_widget_theme,
+            self.floating_widget_show_hover_text,
+        ]
+        for control in controls:
+            if isinstance(control, QCheckBox):
+                control.toggled.connect(lambda _checked: self.preview_widget_settings())
+            elif isinstance(control, QComboBox):
+                control.currentIndexChanged.connect(lambda _index: self.preview_widget_settings())
+        for holder in [
+            self.floating_widget_panel_size,
+            self.floating_widget_panel_width,
+            self.floating_widget_icon_size,
+            self.floating_widget_speed,
+            self.floating_widget_opacity,
+        ]:
+            holder.slider.valueChanged.connect(lambda _value: self.preview_widget_settings())
+
+    def widget_settings_state(self) -> dict:
+        return {
+            "floating_widget_enabled": self.floating_widget_enabled.isChecked(),
+            "floating_widget_edge": self.floating_widget_edge.currentData(),
+            "floating_widget_monitor": int(self.floating_widget_monitor.currentData() or 1),
+            "floating_widget_panel_size": self.widget_slider_value(self.floating_widget_panel_size, 160),
+            "floating_widget_panel_width": self.widget_slider_value(self.floating_widget_panel_width, 860),
+            "floating_widget_icon_size": self.widget_slider_value(self.floating_widget_icon_size, 50),
+            "floating_widget_speed": self.widget_slider_value(self.floating_widget_speed, 80),
+            "floating_widget_opacity": self.widget_slider_value(self.floating_widget_opacity, 77),
+            "floating_widget_theme": self.floating_widget_theme.currentData(),
+            "floating_widget_show_hover_text": self.floating_widget_show_hover_text.isChecked(),
+            "floating_widget_categories": self.widget_categories_value(),
+        }
+
+    def preview_widget_settings(self) -> None:
+        if self._refreshing or getattr(self, "_syncing_widget_sizes", False):
+            return
+        if not hasattr(self, "floating_widget_enabled"):
+            return
+        self.main.settings.update(self.widget_settings_state())
+        widget = getattr(self.main, "floating_widget", None)
+        if widget is not None:
+            widget.preview_settings()
+
+    def refresh_widget_monitor_combo(self, selected: int | None = None) -> None:
+        if not hasattr(self, "floating_widget_monitor"):
+            return
+        selected = int(selected or self.main.settings.get("floating_widget_monitor", 1) or 1)
+        screens = QApplication.screens()
+        self.floating_widget_monitor.blockSignals(True)
+        self.floating_widget_monitor.clear()
+        if not screens:
+            self.floating_widget_monitor.addItem("1번 모니터", 1)
+        else:
+            for index, screen in enumerate(screens, start=1):
+                geo = screen.geometry()
+                primary = " · 기본" if screen is QApplication.primaryScreen() else ""
+                self.floating_widget_monitor.addItem(f"{index}번 모니터 ({geo.width()}x{geo.height()}){primary}", index)
+        index = self.floating_widget_monitor.findData(max(1, min(self.floating_widget_monitor.count(), selected)))
+        self.floating_widget_monitor.setCurrentIndex(index if index >= 0 else 0)
+        self.floating_widget_monitor.blockSignals(False)
+
+    def set_widget_categories(self, categories: list | None) -> None:
+        enabled = categories if isinstance(categories, list) else [key for key, _label, _icon in CATEGORY_ORDER]
+        enabled_set = {str(key) for key in enabled}
+        for key, check in getattr(self, "floating_widget_category_checks", {}).items():
+            check.setChecked(key in enabled_set)
+
+    def widget_categories_value(self) -> list[str]:
+        result = [
+            key
+            for key, check in getattr(self, "floating_widget_category_checks", {}).items()
+            if check.isChecked()
+        ]
+        return result or [key for key, _label, _icon in CATEGORY_ORDER]
+
+    def end_widget_preview(self) -> None:
+        widget = getattr(self.main, "floating_widget", None)
+        if widget is not None and getattr(widget, "_preview_pinned", False):
+            widget.apply_settings()
+
+    def hideEvent(self, event) -> None:
+        self.end_widget_preview()
+        super().hideEvent(event)
+
     def hotkey_group(self, title: str, default_radio: QRadioButton, custom_radio: QRadioButton, fields: HotkeyFields) -> QWidget:
         box = QWidget()
         box.setObjectName("card")
@@ -471,6 +727,22 @@ class SettingsTab(QWidget):
         self.update_snooze_until.setText(snooze_text)
         self.update_snooze_label.setVisible(bool(snooze_text))
         self.update_snooze_until.setVisible(bool(snooze_text))
+        self.floating_widget_enabled.setChecked(bool(settings.get("floating_widget_enabled", True)))
+        edge = str(settings.get("floating_widget_edge", "top") or "top")
+        edge_index = self.floating_widget_edge.findData(edge)
+        self.floating_widget_edge.setCurrentIndex(edge_index if edge_index >= 0 else 0)
+        self.refresh_widget_monitor_combo(int(settings.get("floating_widget_monitor", 1) or 1))
+        self.set_widget_slider_value(self.floating_widget_panel_size, int(settings.get("floating_widget_panel_size", 160) or 160))
+        self.set_widget_slider_value(self.floating_widget_panel_width, int(settings.get("floating_widget_panel_width", 860) or 860))
+        self.set_widget_slider_value(self.floating_widget_icon_size, int(settings.get("floating_widget_icon_size", 50) or 50))
+        self.set_widget_slider_value(self.floating_widget_speed, int(settings.get("floating_widget_speed", 80) or 80))
+        self.set_widget_slider_value(self.floating_widget_opacity, int(settings.get("floating_widget_opacity", 77) or 77))
+        widget_theme = str(settings.get("floating_widget_theme", "dark") or "dark")
+        widget_theme_index = self.floating_widget_theme.findData(widget_theme)
+        self.floating_widget_theme.setCurrentIndex(widget_theme_index if widget_theme_index >= 0 else 0)
+        self.floating_widget_show_hover_text.setChecked(bool(settings.get("floating_widget_show_hover_text", True)))
+        self.sync_widget_size_sliders("refresh")
+        self.set_widget_categories(settings.get("floating_widget_categories"))
         self.clipboard_popup_hotkey.set_hotkey(settings.get("clipboard_popup_hotkey"))
         self.quick_memo_hotkey.set_hotkey(settings.get("quick_memo_hotkey"))
         self.phrase_popup_hotkey.set_hotkey(settings.get("phrase_popup_hotkey"))
@@ -500,6 +772,17 @@ class SettingsTab(QWidget):
             "steel_cut_capture_mode": self.selected_steel_cut_capture_mode() if hasattr(self, "steel_cut_mode_radios") else "region",
             "steel_cut_fixed_width": self.steel_cut_fixed_width.value() if hasattr(self, "steel_cut_fixed_width") else 800,
             "steel_cut_fixed_height": self.steel_cut_fixed_height.value() if hasattr(self, "steel_cut_fixed_height") else 450,
+            "floating_widget_enabled": self.floating_widget_enabled.isChecked() if hasattr(self, "floating_widget_enabled") else True,
+            "floating_widget_edge": self.floating_widget_edge.currentData() if hasattr(self, "floating_widget_edge") else "top",
+            "floating_widget_monitor": self.floating_widget_monitor.currentData() if hasattr(self, "floating_widget_monitor") else 1,
+            "floating_widget_panel_size": self.widget_slider_value(self.floating_widget_panel_size, 160) if hasattr(self, "floating_widget_panel_size") else 160,
+            "floating_widget_panel_width": self.widget_slider_value(self.floating_widget_panel_width, 860) if hasattr(self, "floating_widget_panel_width") else 860,
+            "floating_widget_icon_size": self.widget_slider_value(self.floating_widget_icon_size, 50) if hasattr(self, "floating_widget_icon_size") else 50,
+            "floating_widget_speed": self.widget_slider_value(self.floating_widget_speed, 80) if hasattr(self, "floating_widget_speed") else 80,
+            "floating_widget_opacity": self.widget_slider_value(self.floating_widget_opacity, 77) if hasattr(self, "floating_widget_opacity") else 77,
+            "floating_widget_theme": self.floating_widget_theme.currentData() if hasattr(self, "floating_widget_theme") else "dark",
+            "floating_widget_show_hover_text": self.floating_widget_show_hover_text.isChecked() if hasattr(self, "floating_widget_show_hover_text") else True,
+            "floating_widget_categories": self.widget_categories_value() if hasattr(self, "floating_widget_category_checks") else [key for key, _label, _icon in CATEGORY_ORDER],
         }
 
     def format_update_snooze_until(self, value: str) -> str:
@@ -540,9 +823,13 @@ class SettingsTab(QWidget):
         if key == "steel_cut_capture_mode":
             labels = {"region": "드래그", "full": "전체 화면", "window": "선택 창", "fixed": "고정 크기"}
             return labels.get(value, str(value))
+        if key == "floating_widget_edge":
+            return {"top": "상", "bottom": "하", "left": "좌", "right": "우"}.get(value, str(value))
+        if key == "floating_widget_theme":
+            return {"light": "밝은 테마", "dark": "어두운 테마", "glass": "미러 글래스", "mint": "민트", "rose": "로즈"}.get(value, str(value))
         if key.endswith("_hotkey"):
             return display_hotkey(value) or "없음"
-        if key in {"clipboard_popup_double_ctrl", "quick_memo_double_alt", "always_on_top", "auto_update_check", "startup_with_windows"}:
+        if key in {"clipboard_popup_double_ctrl", "quick_memo_double_alt", "always_on_top", "auto_update_check", "startup_with_windows", "floating_widget_enabled", "floating_widget_show_hover_text"}:
             return "사용" if value else "사용 안 함"
         return str(value)
 
@@ -564,6 +851,17 @@ class SettingsTab(QWidget):
             "phrase_popup_hotkey": "상용구 미니팝업 단축키",
             "steel_cut_hotkey": "캡처 단축키",
             "screen_draw_hotkey": "화면그리기 단축키",
+            "floating_widget_enabled": "플로팅 위젯",
+            "floating_widget_edge": "위젯 사이드 영역",
+            "floating_widget_monitor": "위젯 표시 모니터",
+            "floating_widget_panel_size": "위젯 패널 사이즈",
+            "floating_widget_panel_width": "위젯 패널 가로 너비",
+            "floating_widget_icon_size": "위젯 아이콘 사이즈",
+            "floating_widget_speed": "위젯 등장 속도",
+            "floating_widget_opacity": "위젯 투명도",
+            "floating_widget_theme": "위젯 테마",
+            "floating_widget_show_hover_text": "위젯 팝업 메시지",
+            "floating_widget_categories": "위젯 표시 메뉴",
         }
         before = getattr(self, "_settings_snapshot", {})
         current = self.current_settings_state()
@@ -597,6 +895,20 @@ class SettingsTab(QWidget):
         settings["steel_cut_capture_mode"] = snapshot.get("steel_cut_capture_mode", "region")
         settings["steel_cut_fixed_width"] = int(snapshot.get("steel_cut_fixed_width", 800) or 800)
         settings["steel_cut_fixed_height"] = int(snapshot.get("steel_cut_fixed_height", 450) or 450)
+        settings["floating_widget_enabled"] = bool(snapshot.get("floating_widget_enabled", True))
+        settings["floating_widget_edge"] = snapshot.get("floating_widget_edge", "top")
+        settings["floating_widget_monitor"] = int(snapshot.get("floating_widget_monitor", 1) or 1)
+        settings["floating_widget_panel_size"] = int(snapshot.get("floating_widget_panel_size", 160) or 160)
+        settings["floating_widget_panel_width"] = int(snapshot.get("floating_widget_panel_width", 860) or 860)
+        settings["floating_widget_icon_size"] = int(snapshot.get("floating_widget_icon_size", 50) or 50)
+        settings["floating_widget_speed"] = int(snapshot.get("floating_widget_speed", 80) or 80)
+        settings["floating_widget_opacity"] = int(snapshot.get("floating_widget_opacity", 77) or 77)
+        settings["floating_widget_theme"] = snapshot.get("floating_widget_theme", "dark")
+        settings["floating_widget_icon_shape"] = "square"
+        settings["floating_widget_show_hover_text"] = bool(snapshot.get("floating_widget_show_hover_text", True))
+        settings["floating_widget_categories"] = snapshot.get("floating_widget_categories") or [key for key, _label, _icon in CATEGORY_ORDER]
+        settings.pop("floating_widget_color", None)
+        settings.pop("floating_widget_item_spacing", None)
         settings["theme"] = snapshot.get("theme", "light")
         settings["clipboard_popup_double_ctrl"] = bool(snapshot.get("clipboard_popup_double_ctrl", True))
         settings["clipboard_popup_hotkey"] = snapshot.get("clipboard_popup_hotkey")
@@ -620,6 +932,20 @@ class SettingsTab(QWidget):
         self.set_steel_cut_capture_mode(snapshot.get("steel_cut_capture_mode", "region"))
         self.steel_cut_fixed_width.setValue(int(snapshot.get("steel_cut_fixed_width", 800) or 800))
         self.steel_cut_fixed_height.setValue(int(snapshot.get("steel_cut_fixed_height", 450) or 450))
+        self.floating_widget_enabled.setChecked(bool(snapshot.get("floating_widget_enabled", True)))
+        edge_index = self.floating_widget_edge.findData(snapshot.get("floating_widget_edge", "top"))
+        self.floating_widget_edge.setCurrentIndex(edge_index if edge_index >= 0 else 0)
+        self.refresh_widget_monitor_combo(int(snapshot.get("floating_widget_monitor", 1) or 1))
+        self.set_widget_slider_value(self.floating_widget_panel_size, int(snapshot.get("floating_widget_panel_size", 160) or 160))
+        self.set_widget_slider_value(self.floating_widget_panel_width, int(snapshot.get("floating_widget_panel_width", 860) or 860))
+        self.set_widget_slider_value(self.floating_widget_icon_size, int(snapshot.get("floating_widget_icon_size", 50) or 50))
+        self.set_widget_slider_value(self.floating_widget_speed, int(snapshot.get("floating_widget_speed", 80) or 80))
+        self.set_widget_slider_value(self.floating_widget_opacity, int(snapshot.get("floating_widget_opacity", 77) or 77))
+        theme_index = self.floating_widget_theme.findData(snapshot.get("floating_widget_theme", "dark"))
+        self.floating_widget_theme.setCurrentIndex(theme_index if theme_index >= 0 else 0)
+        self.floating_widget_show_hover_text.setChecked(bool(snapshot.get("floating_widget_show_hover_text", True)))
+        self.sync_widget_size_sliders("discard")
+        self.set_widget_categories(snapshot.get("floating_widget_categories"))
         self.popup_mode_double_ctrl.setChecked(bool(snapshot.get("clipboard_popup_double_ctrl", True)))
         self.popup_mode_hotkey.setChecked(not self.popup_mode_double_ctrl.isChecked())
         self.memo_mode_double_alt.setChecked(bool(snapshot.get("quick_memo_double_alt", True)))
@@ -628,6 +954,8 @@ class SettingsTab(QWidget):
         self._general_snapshot = self.current_general_state()
         self._settings_snapshot = self.current_settings_state()
         self._refreshing = False
+        if hasattr(self.main, "apply_current_settings"):
+            self.main.apply_current_settings()
 
     def set_hotkey_field(self, field: HotkeyFields, hotkey: dict | None) -> None:
         field.ctrl.blockSignals(True)
@@ -686,6 +1014,20 @@ class SettingsTab(QWidget):
         settings["steel_cut_capture_mode"] = self.selected_steel_cut_capture_mode()
         settings["steel_cut_fixed_width"] = self.steel_cut_fixed_width.value()
         settings["steel_cut_fixed_height"] = self.steel_cut_fixed_height.value()
+        settings["floating_widget_enabled"] = self.floating_widget_enabled.isChecked()
+        settings["floating_widget_edge"] = self.floating_widget_edge.currentData()
+        settings["floating_widget_monitor"] = int(self.floating_widget_monitor.currentData() or 1)
+        settings["floating_widget_panel_size"] = self.widget_slider_value(self.floating_widget_panel_size, 160)
+        settings["floating_widget_panel_width"] = self.widget_slider_value(self.floating_widget_panel_width, 860)
+        settings["floating_widget_icon_size"] = self.widget_slider_value(self.floating_widget_icon_size, 50)
+        settings["floating_widget_speed"] = self.widget_slider_value(self.floating_widget_speed, 80)
+        settings["floating_widget_opacity"] = self.widget_slider_value(self.floating_widget_opacity, 77)
+        settings["floating_widget_theme"] = self.floating_widget_theme.currentData()
+        settings["floating_widget_icon_shape"] = "square"
+        settings["floating_widget_show_hover_text"] = self.floating_widget_show_hover_text.isChecked()
+        settings["floating_widget_categories"] = self.widget_categories_value()
+        settings.pop("floating_widget_color", None)
+        settings.pop("floating_widget_item_spacing", None)
         settings["screen_draw_hotkey"] = self.screen_draw_hotkey.value()
         settings["auto_update_check"] = self.auto_update_check.isChecked()
         settings["auto_update_install"] = True
@@ -706,7 +1048,21 @@ class SettingsTab(QWidget):
             if not confirm_shift_digit_hotkey(self, hotkey):
                 return False
         current = self.current_settings_state()
-        visual_keys = {"theme", "always_on_top"}
+        visual_keys = {
+            "theme",
+            "always_on_top",
+            "floating_widget_enabled",
+            "floating_widget_edge",
+            "floating_widget_monitor",
+            "floating_widget_panel_size",
+            "floating_widget_panel_width",
+            "floating_widget_icon_size",
+            "floating_widget_speed",
+            "floating_widget_opacity",
+            "floating_widget_theme",
+            "floating_widget_show_hover_text",
+            "floating_widget_categories",
+        }
         hotkey_keys = {
             "clipboard_popup_double_ctrl",
             "clipboard_popup_hotkey",
@@ -859,6 +1215,24 @@ class SettingsTab(QWidget):
         self.main.settings["phrase_popup_hotkey"] = {"modifiers": ["ctrl"], "key": ";"}
         self.main.settings["steel_cut_hotkey"] = {"modifiers": ["ctrl", "shift"], "key": "S"}
         self.main.settings["steel_cut_capture_mode"] = "region"
+        for key in (
+            "floating_widget_enabled",
+            "floating_widget_edge",
+            "floating_widget_monitor",
+            "floating_widget_panel_size",
+            "floating_widget_panel_width",
+            "floating_widget_icon_size",
+            "floating_widget_speed",
+            "floating_widget_opacity",
+            "floating_widget_theme",
+            "floating_widget_icon_shape",
+            "floating_widget_show_hover_text",
+            "floating_widget_categories",
+        ):
+            value = config.DEFAULT_SETTINGS.get(key)
+            self.main.settings[key] = list(value) if isinstance(value, list) else value
+        self.main.settings.pop("floating_widget_color", None)
+        self.main.settings.pop("floating_widget_item_spacing", None)
         config.save_settings(self.main.settings)
         # 클립보드 이력 초기화 (메모리 + 디스크)
         for tab in self.main.tabs:

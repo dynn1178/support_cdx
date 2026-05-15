@@ -1073,7 +1073,7 @@ class ImageTab(QWidget):
         self._steel_cut_viewer.raise_()
         self._steel_cut_viewer.activateWindow()
         if copy_to_clipboard:
-            QTimer.singleShot(150, self._steel_cut_viewer.copy_to_clipboard)
+            self._steel_cut_viewer.copy_to_clipboard()
 
     def delete_steel_cut_file(self, item: dict) -> None:
         try:

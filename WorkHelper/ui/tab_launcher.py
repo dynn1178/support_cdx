@@ -1,25 +1,29 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import threading
 import webbrowser
 from pathlib import Path
-from urllib.parse import quote_plus, urlparse
+from urllib.parse import quote_plus, urljoin, urlparse
 
 from PyQt6.QtCore import QTimer, Qt, pyqtSignal
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QImageReader, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QCheckBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QRadioButton,
     QSizePolicy,
     QTabWidget,
     QVBoxLayout,
@@ -28,7 +32,7 @@ from PyQt6.QtWidgets import (
 
 from app import config
 from app.utils import display_hotkey, new_id, now_iso, resolve_image_path, short_preview
-from ui.common import ElidedLabel, ElidedMultilineLabel, GridPanel, HotkeyFields, SortControls, apply_manual_reorder, apply_modern_dialog_style, ask_modern_question, bump_usage, confirm_delete, confirm_shift_digit_hotkey, make_card, make_hotkey_caps, make_icon_button, show_modern_warning
+from ui.common import ElidedLabel, ElidedMultilineLabel, GridPanel, HotkeyFields, SortControls, apply_manual_reorder, apply_modern_dialog_style, ask_modern_question, bump_usage, confirm_delete, confirm_shift_digit_hotkey, dialog_palette, make_card, make_hotkey_caps, make_icon_button, show_modern_warning
 
 
 TYPE_ALIASES = {"사이트": "site", "파일": "file", "폴더": "folder", "site": "site", "file": "file", "folder": "folder"}
@@ -76,6 +80,49 @@ def launcher_type(value: str | None) -> str:
     return TYPE_ALIASES.get(str(value or "site").strip().lower(), TYPE_ALIASES.get(str(value or "site").strip(), "site"))
 
 
+LAUNCHER_ICON_EMOJIS = [
+    "🌐", "🔗", "⭐", "🔎", "💬", "📌", "📍", "🚀", "⚡", "🔥",
+    "✅", "📣", "📨", "🛒", "💳", "💼", "📊", "📈", "📉", "🧾",
+    "🗂️", "📁", "📂", "📄", "📝", "📋", "📎", "🖼️", "🎨", "🧰",
+    "🛠️", "⚙️", "🔒", "🔑", "🏠", "🏢", "🏦", "🏨", "✈️", "🧳",
+    "🚗", "📅", "⏰", "☕", "🍽️", "🎁", "🎬", "🎵", "🎮", "💡",
+    "❤️", "😊", "🤝", "👥", "📞", "📧", "💻", "🖥️", "🗃️", "🧭",
+]
+DEFAULT_LAUNCHER_ICONS = {"site": "🌐", "file": "📄", "folder": "📁"}
+
+
+def launcher_icon_mode(item: dict) -> str:
+    return "emoji" if item.get("icon_mode") == "emoji" else "auto"
+
+
+def launcher_icon_emoji(item: dict) -> str:
+    item_type = launcher_type(item.get("type"))
+    emoji = str(item.get("icon_emoji") or "").strip()
+    return emoji or DEFAULT_LAUNCHER_ICONS.get(item_type, "🔗")
+
+
+def launcher_auto_emoji(item: dict) -> str:
+    return DEFAULT_LAUNCHER_ICONS.get(launcher_type(item.get("type")), "🔗")
+
+
+def launcher_favicon_pixmap(item: dict) -> QPixmap:
+    if launcher_type(item.get("type")) != "site" or launcher_icon_mode(item) != "auto":
+        return QPixmap()
+    return QPixmap(resolve_image_path(item.get("favicon_path", ""), config.BASE_DIR))
+
+
+def valid_favicon_path(path_value: str) -> bool:
+    path = resolve_image_path(path_value, config.BASE_DIR)
+    if not path_value or not Path(path).exists():
+        return False
+    reader = QImageReader(path)
+    return reader.canRead()
+
+
+def launcher_display_emoji(item: dict) -> str:
+    return launcher_icon_emoji(item) if launcher_icon_mode(item) == "emoji" else launcher_auto_emoji(item)
+
+
 class LauncherDialog(QDialog):
     def __init__(self, item: dict | None = None, launcher_type_value: str = "site") -> None:
         super().__init__()
@@ -106,6 +153,16 @@ class LauncherDialog(QDialog):
         self.show_credentials_on_card.setChecked(bool(self.item.get("show_credentials_on_card", False)))
         self.browser_path = QLineEdit(self.item.get("browser_path", ""))
         self.hotkey = HotkeyFields(self.item.get("hotkey"))
+        self.selected_icon_emoji = launcher_icon_emoji(self.item)
+        self.icon_mode_group = QButtonGroup(self)
+        self.icon_mode_auto = QRadioButton("파비콘 사용" if self.fixed_type == "site" else "기본 아이콘 사용")
+        self.icon_mode_emoji = QRadioButton("이모지 직접 지정")
+        self.icon_mode_group.addButton(self.icon_mode_auto)
+        self.icon_mode_group.addButton(self.icon_mode_emoji)
+        if launcher_icon_mode(self.item) == "emoji":
+            self.icon_mode_emoji.setChecked(True)
+        else:
+            self.icon_mode_auto.setChecked(True)
         self.browser_path.setPlaceholderText("기본 브라우저로 연결")
 
         self.browse_file_btn = QPushButton("파일")
@@ -143,6 +200,67 @@ class LauncherDialog(QDialog):
         form.addRow("단축키", self.hotkey)
         layout.addLayout(form)
 
+        icon_box = QWidget()
+        icon_box.setObjectName("launcherIconPicker")
+        colors = dialog_palette(self)
+        icon_box.setStyleSheet(f"QWidget#launcherIconPicker {{ background: {colors.get('panel', 'transparent')}; border: 0; }}")
+        icon_layout = QVBoxLayout(icon_box)
+        icon_layout.setContentsMargins(0, 0, 0, 0)
+        icon_layout.setSpacing(8)
+        mode_row = QHBoxLayout()
+        mode_row.setContentsMargins(0, 0, 0, 0)
+        mode_row.addWidget(self.icon_mode_auto)
+        mode_row.addWidget(self.icon_mode_emoji)
+        mode_row.addStretch(1)
+        self.pick_emoji_btn = QPushButton("이모지 선택")
+        self.pick_emoji_btn.clicked.connect(self.open_emoji_picker)
+        mode_row.addWidget(self.pick_emoji_btn)
+        self.icon_preview = QLabel()
+        self.icon_preview.setFixedSize(28, 28)
+        self.icon_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.icon_preview.setStyleSheet("font-size: 14pt; background: transparent; border: 0;")
+        mode_row.addWidget(self.icon_preview)
+        icon_layout.addLayout(mode_row)
+
+        self.emoji_grid_widget = QWidget()
+        self.emoji_grid_widget.setObjectName("launcherEmojiGrid")
+        emoji_grid = QGridLayout()
+        emoji_grid.setContentsMargins(0, 0, 0, 0)
+        emoji_grid.setHorizontalSpacing(4)
+        emoji_grid.setVerticalSpacing(4)
+        self.emoji_grid_widget.setLayout(emoji_grid)
+        self.emoji_grid_widget.setParent(self)
+        self.emoji_grid_widget.setWindowFlags(Qt.WindowType.Widget)
+        self.emoji_grid_widget.hide()
+        self.emoji_grid_widget.setStyleSheet(
+            f"""
+            QWidget#launcherEmojiGrid {{
+                background: {colors.get("panel", "#FFFFFF")};
+                border: 1px solid {colors.get("border", "#B9C0CC")};
+                border-radius: 8px;
+            }}
+            """
+        )
+        self.emoji_buttons: list[QPushButton] = []
+        for index, emoji in enumerate(LAUNCHER_ICON_EMOJIS):
+            button = QPushButton(emoji)
+            button.setCheckable(True)
+            button.setFixedSize(28, 26)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setStyleSheet(
+                "QPushButton { background: transparent; color: inherit; border: 1px solid rgba(148, 163, 184, 55);"
+                " border-radius: 5px; font-size: 11pt; padding: 0; margin: 0; }"
+                "QPushButton:hover { background: rgba(148, 163, 184, 28); }"
+                "QPushButton:checked { background: rgba(59, 108, 245, 38); border-color: #3B6CF5; }"
+            )
+            button.clicked.connect(lambda checked=False, value=emoji: self.select_icon_emoji(value))
+            self.emoji_buttons.append(button)
+            emoji_grid.addWidget(button, index // 10, index % 10)
+        layout.addWidget(icon_box)
+        self.icon_mode_auto.toggled.connect(self.refresh_icon_picker)
+        self.icon_mode_emoji.toggled.connect(self.refresh_icon_picker)
+        self.refresh_icon_picker()
+
         footer = QHBoxLayout()
         if self.fixed_type == "site":
             footer.addWidget(self.show_credentials_on_card)
@@ -154,6 +272,41 @@ class LauncherDialog(QDialog):
         buttons.rejected.connect(self.reject)
         footer.addWidget(buttons)
         layout.addLayout(footer)
+
+    def select_icon_emoji(self, emoji: str) -> None:
+        self.selected_icon_emoji = emoji
+        self.icon_mode_emoji.setChecked(True)
+        if hasattr(self, "emoji_grid_widget"):
+            self.emoji_grid_widget.hide()
+        self.refresh_icon_picker()
+
+    def open_emoji_picker(self) -> None:
+        if not self.icon_mode_emoji.isChecked():
+            self.icon_mode_emoji.setChecked(True)
+        self.refresh_icon_picker()
+        self.emoji_grid_widget.adjustSize()
+        pos = self.pick_emoji_btn.mapTo(self, self.pick_emoji_btn.rect().bottomLeft())
+        max_x = max(0, self.width() - self.emoji_grid_widget.width() - 10)
+        x = min(max(10, pos.x()), max_x)
+        y = min(pos.y() + 6, max(10, self.height() - self.emoji_grid_widget.height() - 10))
+        self.emoji_grid_widget.move(x, y)
+        self.emoji_grid_widget.raise_()
+        self.emoji_grid_widget.show()
+
+    def refresh_icon_picker(self) -> None:
+        emoji_enabled = self.icon_mode_emoji.isChecked()
+        preview = self.selected_icon_emoji if emoji_enabled else DEFAULT_LAUNCHER_ICONS.get(self.fixed_type, "🔗")
+        self.icon_preview.setText(preview)
+        if hasattr(self, "pick_emoji_btn"):
+            self.pick_emoji_btn.setVisible(emoji_enabled)
+        if hasattr(self, "emoji_grid_widget"):
+            if not emoji_enabled:
+                self.emoji_grid_widget.hide()
+        for button in getattr(self, "emoji_buttons", []):
+            button.setEnabled(emoji_enabled)
+            button.setChecked(button.text() == self.selected_icon_emoji)
+        if not emoji_enabled:
+            self.adjustSize()
 
     def current_type(self) -> str:
         return self.fixed_type
@@ -186,6 +339,8 @@ class LauncherDialog(QDialog):
                 "password": self.password.text() if self.current_type() == "site" else "",
                 "browser_path": self.browser_path.text().strip() if self.current_type() == "site" else "",
                 "show_credentials_on_card": self.current_type() == "site" and self.show_credentials_on_card.isChecked(),
+                "icon_mode": "emoji" if self.icon_mode_emoji.isChecked() else "auto",
+                "icon_emoji": self.selected_icon_emoji,
                 "hotkey": self.hotkey.value(),
             }
         )
@@ -400,6 +555,7 @@ class LauncherTab(QWidget):
                 site_cards.append(card)
             else:
                 card = make_card(item.get("name", "(이름 없음)"), short_preview(item.get("path", "")), display_hotkey(item.get("hotkey")), card_size="b")
+                self.decorate_launcher_card_icon(card, item)
                 self.add_launcher_actions(card, item)
                 file_items.append(item)
                 file_cards.append(card)
@@ -411,6 +567,25 @@ class LauncherTab(QWidget):
     def reorder_items(self, source: list[dict], visible: list[dict], old: int, new: int) -> None:
         apply_manual_reorder(source, visible, old, new)
         self.main.save_data()
+
+    def make_launcher_icon_label(self, item: dict, size: int = 17) -> QLabel:
+        label = QLabel()
+        label.setFixedSize(size, size)
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setStyleSheet(f"color:#334155; background: transparent; border: 0; font-size: {max(9, size - 7)}pt; padding: 0;")
+        pixmap = launcher_favicon_pixmap(item)
+        if not pixmap.isNull():
+            label.setPixmap(pixmap.scaled(size - 3, size - 3, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        else:
+            label.setText(launcher_display_emoji(item))
+        return label
+
+    def decorate_launcher_card_icon(self, card: QWidget, item: dict) -> None:
+        layout = card.layout()
+        row_item = layout.itemAt(0) if layout is not None else None
+        row = row_item.layout() if row_item is not None else None
+        if row is not None:
+            row.insertWidget(0, self.make_launcher_icon_label(item))
 
     def make_site_card(self, item: dict) -> QWidget:
         card = QWidget()
@@ -434,7 +609,7 @@ class LauncherTab(QWidget):
             favicon.setStyleSheet("color:#9CA3AF; background: transparent; border: 0;")
         else:
             favicon.setPixmap(pixmap.scaled(18, 18, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        title_row.addWidget(favicon)
+        title_row.addWidget(self.make_launcher_icon_label(item))
         title = ElidedLabel(item.get("name", "(이름 없음)"))
         title.setObjectName("cardTitle")
         title.setFixedHeight(22)
@@ -610,31 +785,60 @@ class LauncherTab(QWidget):
         if launcher_type(value.get("type")) != "site":
             value.pop("favicon_path", None)
             return
+        if launcher_icon_mode(value) != "auto":
+            value.pop("favicon_path", None)
+            return
         url = value.get("url", "").strip()
         if not url:
             return
-        if original and original.get("url") == url and original.get("favicon_path"):
+        if original and original.get("url") == url and valid_favicon_path(original.get("favicon_path", "")):
             value["favicon_path"] = original.get("favicon_path")
             return
+        value.pop("favicon_path", None)
         parsed = urlparse(url if "://" in url else f"https://{url}")
         domain = parsed.netloc or parsed.path.split("/")[0]
         if not domain:
             return
+        base_url = f"{parsed.scheme or 'https'}://{domain}"
 
         def fetch() -> None:
             try:
                 import requests
+                import urllib3
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
                 icon_dir = config.DATA_DIR / "favicons"
                 icon_dir.mkdir(parents=True, exist_ok=True)
                 target = icon_dir / f"{new_id('favicon')}.png"
-                api_url = f"https://www.google.com/s2/favicons?domain={domain}&sz=64"
-                response = requests.get(api_url, timeout=5)
-                response.raise_for_status()
-                target.write_bytes(response.content)
+                headers = {"User-Agent": "Mozilla/5.0 WorkHelper favicon fetcher"}
+                candidates = [
+                    f"https://www.google.com/s2/favicons?domain_url={base_url}&sz=64",
+                    f"https://www.google.com/s2/favicons?domain={domain}&sz=64",
+                    f"{base_url}/favicon.ico",
+                ]
+                try:
+                    page = requests.get(base_url, headers=headers, timeout=6, verify=False)
+                    if page.ok:
+                        for href in re.findall(r"""<link[^>]+rel=["'][^"']*(?:icon|shortcut icon|apple-touch-icon)[^"']*["'][^>]+href=["']([^"']+)["']""", page.text, re.IGNORECASE):
+                            candidates.append(urljoin(base_url, href))
+                except Exception:
+                    pass
+                for api_url in candidates:
+                    try:
+                        response = requests.get(api_url, headers=headers, timeout=6, verify=False)
+                        response.raise_for_status()
+                        target.write_bytes(response.content)
+                        if valid_favicon_path(str(target)):
+                            break
+                    except Exception:
+                        continue
+                if not valid_favicon_path(str(target)):
+                    target.unlink(missing_ok=True)
+                    return
                 value["favicon_path"] = str(target.resolve().relative_to(config.BASE_DIR.resolve())).replace("\\", "/")
             except Exception:
                 pass
-            self._favicon_done.emit()
+            finally:
+                self._favicon_done.emit()
 
         threading.Thread(target=fetch, daemon=True).start()
 

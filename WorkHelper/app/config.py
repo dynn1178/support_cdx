@@ -59,6 +59,18 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "mouse_highlight_shape": "원",
     "mouse_highlight_size": 70,
     "mouse_highlight_opacity": 50,
+    "floating_widget_enabled": True,
+    "floating_widget_edge": "top",
+    "floating_widget_monitor": 1,
+    "floating_widget_panel_size": 160,
+    "floating_widget_panel_width": 860,
+    "floating_widget_icon_size": 50,
+    "floating_widget_speed": 80,
+    "floating_widget_opacity": 77,
+    "floating_widget_theme": "dark",
+    "floating_widget_icon_shape": "square",
+    "floating_widget_show_hover_text": True,
+    "floating_widget_categories": ["text", "snippet", "date", "site", "file", "folder", "cheat", "memo", "emoji"],
 }
 
 
