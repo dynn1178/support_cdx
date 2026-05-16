@@ -28,7 +28,7 @@ from ui.tab_launcher import launcher_display_emoji, launcher_favicon_pixmap, lau
 
 CATEGORY_ORDER = [
     ("text", "텍스트", "📝"),
-    ("snippet", "스니펫", "⌘"),
+    ("snippet", "스니핏", "💻"),
     ("date", "날짜보고양식", "📅"),
     ("site", "사이트", "🌐"),
     ("file", "파일", "📄"),
@@ -288,6 +288,91 @@ class DockItem(QWidget):
         self._marquee_offset = offset + 1
 
 
+class FloatingWidgetHint(QFrame):
+    def __init__(self, owner: "FloatingWidget") -> None:
+        super().__init__(None)
+        self.owner = owner
+        self.setWindowFlag(Qt.WindowType.Tool, True)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self.setObjectName("floatingWidgetHint")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 4, 4, 4)
+        layout.setSpacing(4)
+        icon = QLabel("💬")
+        icon.setObjectName("floatingWidgetHintIcon")
+        message = QLabel("플로팅 바가 여기서 뜹니다")
+        message.setObjectName("floatingWidgetHintText")
+        message.setWordWrap(False)
+        close = QToolButton()
+        close.setText("×")
+        close.setCursor(Qt.CursorShape.PointingHandCursor)
+        close.setFixedSize(24, 24)
+        close.clicked.connect(self.dismiss)
+        layout.addWidget(icon)
+        layout.addWidget(message)
+        layout.addWidget(close)
+        self.setStyleSheet(
+            """
+            QFrame#floatingWidgetHint {
+                background: rgba(17, 24, 39, 218);
+                border: 1px solid rgba(255, 255, 255, 120);
+                border-radius: 12px;
+            }
+            QLabel#floatingWidgetHintIcon {
+                color: white;
+                background: transparent;
+                border: 0;
+                font-size: 13pt;
+            }
+            QLabel#floatingWidgetHintText {
+                color: white;
+                background: transparent;
+                border: 0;
+                font-size: 9pt;
+                font-weight: 800;
+            }
+            QToolButton {
+                color: white;
+                background: transparent;
+                border: 0;
+                font-size: 13pt;
+                font-weight: 900;
+                padding: 0;
+            }
+            QToolButton:hover {
+                background: rgba(255, 255, 255, 45);
+                border-radius: 12px;
+            }
+            """
+        )
+
+    def dismiss(self) -> None:
+        self.hide()
+        self.owner.main.settings["floating_widget_hint_dismissed"] = True
+        config.save_settings(self.owner.main.settings)
+
+    def sync_position(self) -> None:
+        geo = self.owner._visible_geometry()
+        edge = self.owner._edge()
+        self.adjustSize()
+        w, h = self.width(), self.height()
+        if edge == "top":
+            x = geo.center().x() - w // 2
+            y = geo.top() + 4
+        elif edge == "bottom":
+            x = geo.center().x() - w // 2
+            y = geo.bottom() - h - 4
+        elif edge == "left":
+            x = geo.left() + 4
+            y = geo.center().y() - h // 2
+        else:
+            x = geo.right() - w - 4
+            y = geo.center().y() - h // 2
+        self.move(x, y)
+
+
 class FloatingWidget(QFrame):
     def __init__(self, main) -> None:
         super().__init__(None)
@@ -301,6 +386,7 @@ class FloatingWidget(QFrame):
         self._preview_pinned = False
         self._scroll_position = 0.0
         self._scroll_velocity = 0.0
+        self._hint = FloatingWidgetHint(self)
         self.setWindowTitle("6PM Floating Widget")
         self.setWindowFlag(Qt.WindowType.Tool, True)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
@@ -394,7 +480,9 @@ class FloatingWidget(QFrame):
         if enabled:
             self._move_hidden()
             self.show()
+            self._show_location_hint_once()
         else:
+            self._hint.hide()
             self.hide()
 
     def refresh(self) -> None:
@@ -404,6 +492,7 @@ class FloatingWidget(QFrame):
         self._apply_style()
         self._sync_edge_margins()
         self._sync_hover_row()
+        self._show_location_hint_once()
 
     def preview_settings(self) -> None:
         self._preview_pinned = True
@@ -422,8 +511,10 @@ class FloatingWidget(QFrame):
             self._animating = False
             self.show()
             self.raise_()
+            self._show_location_hint_once()
         else:
             self._shown = False
+            self._hint.hide()
             self.hide()
 
     def _edge(self) -> str:
@@ -660,20 +751,20 @@ class FloatingWidget(QFrame):
         return count * cell
 
     def _hidden_geometry(self) -> QRect:
-        return self._visible_geometry()
-
-    def _hidden_mask(self) -> QRegion:
-        sliver = 3
+        geo = QRect(self._visible_geometry())
         edge = self._edge()
         if edge == "top":
-            return QRegion(0, 0, self.width(), sliver)
-        if edge == "bottom":
-            return QRegion(0, max(0, self.height() - sliver), self.width(), sliver)
-        if edge == "left":
-            return QRegion(0, 0, sliver, self.height())
-        if edge == "right":
-            return QRegion(max(0, self.width() - sliver), 0, sliver, self.height())
-        return QRegion(0, 0, self.width(), sliver)
+            geo.moveTop(self._screen_safe_rect().top() - geo.height() - 8)
+        elif edge == "bottom":
+            geo.moveTop(self._screen_safe_rect().bottom() + 8)
+        elif edge == "left":
+            geo.moveLeft(self._screen_safe_rect().left() - geo.width() - 8)
+        elif edge == "right":
+            geo.moveLeft(self._screen_safe_rect().right() + 8)
+        return geo
+
+    def _hidden_mask(self) -> QRegion:
+        return QRegion()
 
     def _apply_hidden_mask(self) -> None:
         self.setMask(self._hidden_mask())
@@ -684,15 +775,27 @@ class FloatingWidget(QFrame):
         self._apply_hidden_mask()
 
     def _is_at_trigger_edge(self, pos: QPoint, area: QRect, edge: str) -> bool:
+        panel_geo = self._visible_geometry()
+        trigger = 3
         if edge == "top":
-            return area.left() <= pos.x() <= area.right() and 0 <= pos.y() - area.top() <= 1
+            return panel_geo.left() <= pos.x() <= panel_geo.right() and 0 <= pos.y() - area.top() <= trigger
         if edge == "bottom":
-            return area.left() <= pos.x() <= area.right() and 0 <= area.bottom() - pos.y() <= 1
+            return panel_geo.left() <= pos.x() <= panel_geo.right() and 0 <= area.bottom() - pos.y() <= trigger
         if edge == "left":
-            return area.top() <= pos.y() <= area.bottom() and 0 <= pos.x() - area.left() <= 1
+            return panel_geo.top() <= pos.y() <= panel_geo.bottom() and 0 <= pos.x() - area.left() <= trigger
         if edge == "right":
-            return area.top() <= pos.y() <= area.bottom() and 0 <= area.right() - pos.x() <= 1
+            return panel_geo.top() <= pos.y() <= panel_geo.bottom() and 0 <= area.right() - pos.x() <= trigger
         return False
+
+    def _show_location_hint_once(self) -> None:
+        if not bool(self._settings.get("floating_widget_enabled", True)):
+            return
+        if bool(self.main.settings.get("floating_widget_hint_dismissed", False)):
+            self._hint.hide()
+            return
+        self._hint.sync_position()
+        self._hint.show()
+        self._hint.raise_()
 
     def _is_inside_active_panel(self, pos: QPoint) -> bool:
         if not (self._shown or self._animating):
@@ -726,6 +829,7 @@ class FloatingWidget(QFrame):
         self.setGeometry(self._visible_geometry())
         self._shown = True
         self._animating = False
+        self._show_location_hint_once()
         self.raise_()
 
     def _hide_panel(self) -> None:
@@ -978,7 +1082,7 @@ class FloatingWidget(QFrame):
         if key == "cheat":
             return [self._cheat_item(item) for _idx, item in self._ordered("images")]
         if key == "memo":
-            return [self._memo_item(item) for _idx, item in self._ordered("memos")]
+            return self._memo_control_items() + [self._memo_item(item) for _idx, item in self._ordered("memos")]
         if key == "emoji":
             return [(emoji, emoji, lambda checked=False, value=emoji: self._copy_emoji(value), emoji, None) for emoji in self._emoji_items()]
         return []
@@ -1018,7 +1122,16 @@ class FloatingWidget(QFrame):
 
     def _memo_item(self, item: dict) -> tuple[str, str, Callable, str, QIcon | None]:
         label = self._label(item.get("title") or item.get("content"), "메모")
-        return label, str(item.get("content", "")), lambda checked=False, value=item: self._copy_memo(value), "🗒", None
+        return label, str(item.get("content", "")), lambda checked=False, value=item: self._toggle_memo_sticker(value), "🗒", None
+
+    def _memo_control_items(self) -> list[tuple[str, str, Callable, str, QIcon | None]]:
+        return [
+            ("모두 펼치기", "열려있는 스티커 메모를 모두 펼칩니다", lambda checked=False: self._run_memo_sticker_action("expand_all_stickers"), "▣", None),
+            ("모두 접기", "열려있는 스티커 메모를 모두 접습니다", lambda checked=False: self._run_memo_sticker_action("collapse_all_stickers"), "▤", None),
+            ("정렬", "열려있는 스티커 메모를 우측 상단부터 정렬합니다", lambda checked=False: self._run_memo_sticker_action("arrange_compact_stickers"), "↘", None),
+            ("★ 열기/닫기", "즐겨찾기 메모 스티커를 열거나 닫습니다", lambda checked=False: self._run_memo_sticker_action("toggle_pinned_stickers"), "★", None),
+            ("열기/닫기", "현재 열린 스티커 메모를 닫고, 다시 누르면 방금 닫은 스티커만 복구합니다", lambda checked=False: self._run_memo_sticker_action("toggle_recent_stickers"), "↕", None),
+        ]
 
     def _emoji_items(self) -> list[str]:
         favorites = list(self.main.settings.get("favorite_emojis", []))
@@ -1067,6 +1180,17 @@ class FloatingWidget(QFrame):
         bump_usage(item)
         self.main.app.clipboard().setText(str(item.get("content", "")))
         self.main.save_usage_data()
+
+    def _toggle_memo_sticker(self, item: dict) -> None:
+        memo_tab = self.main.tabs[6] if len(getattr(self.main, "tabs", [])) > 6 else None
+        if memo_tab is not None and hasattr(memo_tab, "show_sticker"):
+            memo_tab.show_sticker(item)
+
+    def _run_memo_sticker_action(self, action: str) -> None:
+        memo_tab = self.main.tabs[6] if len(getattr(self.main, "tabs", [])) > 6 else None
+        handler = getattr(memo_tab, action, None)
+        if callable(handler):
+            handler()
 
     def _copy_emoji(self, emoji: str) -> None:
         self.main.app.clipboard().setText(emoji)

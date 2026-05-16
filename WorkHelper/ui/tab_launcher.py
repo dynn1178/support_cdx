@@ -8,7 +8,7 @@ import webbrowser
 from pathlib import Path
 from urllib.parse import quote_plus, urljoin, urlparse
 
-from PyQt6.QtCore import QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import QSize, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QImageReader, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
@@ -32,10 +32,11 @@ from PyQt6.QtWidgets import (
 
 from app import config
 from app.utils import display_hotkey, new_id, now_iso, resolve_image_path, short_preview
-from ui.common import ElidedLabel, ElidedMultilineLabel, GridPanel, HotkeyFields, SortControls, apply_manual_reorder, apply_modern_dialog_style, ask_modern_question, bump_usage, confirm_delete, confirm_shift_digit_hotkey, dialog_palette, make_card, make_hotkey_caps, make_icon_button, show_modern_warning
+from ui.common import CARD_ACTION_ICON_SIZE, CARD_ACTION_OVERLAY_MARGIN, CARD_ACTION_ROW_MARGIN_X, CARD_ACTION_ROW_MARGIN_Y, CARD_ACTION_ROW_SPACING, CARD_CONTENT_TOP_MARGIN, ElidedLabel, ElidedMultilineLabel, GridPanel, HotkeyFields, SortControls, add_favorite_badge_to_card, apply_manual_reorder, apply_modern_dialog_style, ask_modern_question, bottom_action_bar, bump_usage, confirm_delete, confirm_shift_digit_hotkey, dialog_palette, make_card, make_hotkey_caps, make_icon_button, remove_favorite_badge_from_card, set_card_action_widget, show_modern_warning
 
 
 TYPE_ALIASES = {"사이트": "site", "파일": "file", "폴더": "folder", "site": "site", "file": "file", "folder": "folder"}
+LAUNCHER_CARD_HEIGHT = 92
 
 
 class CustomSearchDialog(QDialog):
@@ -366,7 +367,7 @@ class LauncherTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.tabs = QTabWidget()
-        self.site_list = GridPanel(columns=2)
+        self.site_list = GridPanel(columns=3)
         self.file_list = GridPanel(columns=2)
         self.quick_search_page = QWidget()
         self._quick_search_page_layout = QVBoxLayout(self.quick_search_page)
@@ -402,6 +403,7 @@ class LauncherTab(QWidget):
         self.tabs.currentChanged.connect(self.update_add_buttons)
         self.build_quick_search_tab()
         self.update_add_buttons()
+        QTimer.singleShot(0, self._startup_favicon_scan)
 
     def update_add_buttons(self) -> None:
         idx = self.tabs.currentIndex()
@@ -418,23 +420,41 @@ class LauncherTab(QWidget):
             self._quick_search_content = None
 
         content = QWidget()
-        clayout = QVBoxLayout(content)
+        root_layout = QVBoxLayout(content)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        cards_content = QWidget()
+        clayout = QVBoxLayout(cards_content)
         clayout.setContentsMargins(10, 10, 10, 10)
         clayout.setSpacing(8)
 
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(10)
+        search_cards = []
         for name, url in self.SEARCH_ENGINES:
-            clayout.addWidget(self._make_search_row(name, url))
+            search_cards.append(self._make_search_row(name, url))
 
         for item in self.main.data.get("custom_searches", []):
-            clayout.addWidget(self._make_custom_search_row(item))
+            search_cards.append(self._make_custom_search_row(item))
 
+        for index, card in enumerate(search_cards):
+            row, col = divmod(index, 2)
+            grid.addWidget(card, row, col)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        clayout.addLayout(grid)
+        clayout.addStretch(1)
+        root_layout.addWidget(cards_content, 1)
+
+        # [정책] 탭 내 모든 버튼은 우측 하단 기준으로 각각 3px 공간을 두고 위치한다.
+        # bottom_action_bar()를 사용하면 BOTTOM_ACTION_MARGINS = (0, 0, 3, 3) 가 자동 적용된다.
+        # 하단 버튼 영역은 내부 컨텐츠 margin과 분리해서 bottom_action_bar 전역 정책만 따른다.
+        # 추후 버튼 추가 시에도 이 기준을 따른다.
         add_btn = QPushButton("+ 검색 추가")
         add_btn.clicked.connect(self.add_custom_search)
-        btn_row = QHBoxLayout()
-        btn_row.addStretch(1)
-        btn_row.addWidget(add_btn)
-        clayout.addLayout(btn_row)
-        clayout.addStretch(1)
+        root_layout.addLayout(bottom_action_bar(add_btn))
 
         self._quick_search_content = content
         self._quick_search_page_layout.addWidget(content)
@@ -443,7 +463,7 @@ class LauncherTab(QWidget):
         row = QWidget()
         row.setObjectName("card")
         row_layout = QHBoxLayout(row)
-        row_layout.setContentsMargins(10, 8, 10, 8)
+        row_layout.setContentsMargins(10, CARD_CONTENT_TOP_MARGIN, 10, 8)
         row_layout.setSpacing(8)
         label = QLabel(name)
         label.setMinimumWidth(64)
@@ -459,7 +479,7 @@ class LauncherTab(QWidget):
         row = QWidget()
         row.setObjectName("card")
         row_layout = QHBoxLayout(row)
-        row_layout.setContentsMargins(10, 8, 10, 8)
+        row_layout.setContentsMargins(10, CARD_CONTENT_TOP_MARGIN, 10, 8)
         row_layout.setSpacing(8)
         label = QLabel(item.get("name", ""))
         label.setMinimumWidth(64)
@@ -554,7 +574,7 @@ class LauncherTab(QWidget):
                 site_items.append(item)
                 site_cards.append(card)
             else:
-                card = make_card(item.get("name", "(이름 없음)"), short_preview(item.get("path", "")), display_hotkey(item.get("hotkey")), card_size="b")
+                card = make_card(item.get("name", "(이름 없음)"), short_preview(item.get("path", "")), display_hotkey(item.get("hotkey")), compact=True, card_height=LAUNCHER_CARD_HEIGHT)
                 self.decorate_launcher_card_icon(card, item)
                 self.add_launcher_actions(card, item)
                 file_items.append(item)
@@ -575,7 +595,7 @@ class LauncherTab(QWidget):
         label.setStyleSheet(f"color:#334155; background: transparent; border: 0; font-size: {max(9, size - 7)}pt; padding: 0;")
         pixmap = launcher_favicon_pixmap(item)
         if not pixmap.isNull():
-            label.setPixmap(pixmap.scaled(size - 3, size - 3, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            label.setPixmap(pixmap.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         else:
             label.setText(launcher_display_emoji(item))
         return label
@@ -590,15 +610,15 @@ class LauncherTab(QWidget):
     def make_site_card(self, item: dict) -> QWidget:
         card = QWidget()
         card.setObjectName("card")
-        card.setFixedHeight(75)
+        card.setFixedHeight(LAUNCHER_CARD_HEIGHT)
         card.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
 
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(12, 6, 12, 6)
-        layout.setSpacing(3)
+        layout.setContentsMargins(10, CARD_CONTENT_TOP_MARGIN, 10, 6)
+        layout.setSpacing(2)
 
         title_row = QHBoxLayout()
-        title_row.setSpacing(10)
+        title_row.setSpacing(8)
         favicon = QLabel()
         favicon.setFixedSize(20, 20)
         favicon.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -609,82 +629,120 @@ class LauncherTab(QWidget):
             favicon.setStyleSheet("color:#9CA3AF; background: transparent; border: 0;")
         else:
             favicon.setPixmap(pixmap.scaled(18, 18, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        title_row.addWidget(self.make_launcher_icon_label(item))
+        title_row.addWidget(self.make_launcher_icon_label(item, size=20))
         title = ElidedLabel(item.get("name", "(이름 없음)"))
         title.setObjectName("cardTitle")
-        title.setFixedHeight(22)
+        title.setFixedHeight(20)
         title_row.addWidget(title, 1)
+
+        if item.get("favorite"):
+            favorite_badge = QLabel("💛")
+            favorite_badge.setFixedSize(16, 18)
+            favorite_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            favorite_badge.setStyleSheet("background:transparent;border:0;font-size:10pt;padding:0;")
+            title_row.addWidget(favorite_badge)
 
         status = QLabel("")
         status.setStyleSheet("color: #168A4A; font-weight: 700;")
-        status.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        status.setFixedHeight(22)
-        status.setMaximumWidth(170)
+        status.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        status.setFixedSize(1, 1)
         self.status_labels[item.get("id", "")] = status
-        title_row.addWidget(status)
-
-        hotkey = display_hotkey(item.get("hotkey"))
-        if hotkey:
-            hotkey_slot = QWidget()
-            hotkey_slot.setObjectName("hotkeySlot")
-            hotkey_slot.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
-            hotkey_slot.setFixedSize(150, 22)
-            hotkey_slot.setStyleSheet("QWidget#hotkeySlot { background: transparent; border: 0; }")
-            hotkey_layout = QHBoxLayout(hotkey_slot)
-            hotkey_layout.setContentsMargins(0, 0, 0, 0)
-            hotkey_layout.setSpacing(0)
-            hotkey_layout.addStretch(1)
-            hotkey_layout.addWidget(make_hotkey_caps(hotkey))
-            title_row.addWidget(hotkey_slot)
+        status.hide()
         layout.addLayout(title_row)
 
         body_row = QHBoxLayout()
         body_row.setContentsMargins(0, 0, 0, 0)
-        body_row.setSpacing(8)
+        body_row.setSpacing(6)
         subtitle = ElidedMultilineLabel(self.site_card_subtitle(item), max_lines=2)
         subtitle.setObjectName("cardSubtitle")
-        subtitle.setFixedHeight(38)
-        body_row.addWidget(subtitle, 3)
+        subtitle.setFixedHeight(34)
+        body_row.addWidget(subtitle, 1)
 
-        actions = QWidget()
-        actions.setObjectName("launcherCardActions")
-        actions.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
-        actions.setStyleSheet("QWidget#launcherCardActions { background: transparent; border: 0; }")
+        hotkey = display_hotkey(item.get("hotkey"))
+        hotkey_overlay = QWidget(card)
+        hotkey_overlay.setObjectName("siteOverlay")
+        hotkey_overlay.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        hotkey_overlay.setStyleSheet("QWidget#siteOverlay { background: transparent; border: 0; }")
+        hotkey_layout = QHBoxLayout(hotkey_overlay)
+        hotkey_layout.setContentsMargins(0, 0, 0, 0)
+        if hotkey:
+            hotkey_layout.addWidget(make_hotkey_caps(hotkey))
+        else:
+            hotkey_overlay.hide()
+
+        actions = QWidget(card)
+        actions.setObjectName("cardActionBar")
+        actions.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         actions_layout = QHBoxLayout(actions)
-        actions_layout.setContentsMargins(0, 0, 0, 0)
-        actions_layout.setSpacing(4)
-        actions_layout.addStretch(1)
-        pin_btn = make_icon_button("pin", "즐겨찾기", lambda checked=False, value=item: self.toggle_launcher_favorite(value, pin_btn))
+        actions_layout.setContentsMargins(CARD_ACTION_ROW_MARGIN_X, CARD_ACTION_ROW_MARGIN_Y, CARD_ACTION_ROW_MARGIN_X, CARD_ACTION_ROW_MARGIN_Y)
+        actions_layout.setSpacing(CARD_ACTION_ROW_SPACING)
+        actions_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        _sz = QSize(CARD_ACTION_ICON_SIZE, CARD_ACTION_ICON_SIZE)
+        pin_btn = make_icon_button("pin", "즐겨찾기", lambda checked=False, value=item: self.toggle_launcher_favorite(value, pin_btn), size=_sz)
         self.style_launcher_favorite_button(pin_btn, item)
         actions_layout.addWidget(pin_btn)
-        actions_layout.addWidget(make_icon_button("open", "열기", lambda checked=False, value=item: self.open_launcher(value)))
-        actions_layout.addWidget(make_icon_button("edit", "수정", lambda checked=False, value=item: self.edit_launcher(value)))
-        actions_layout.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=item: self.delete_launcher(value), True))
-        body_row.addWidget(actions, 2)
+        actions_layout.addWidget(make_icon_button("open", "열기", lambda checked=False, value=item: self.open_launcher(value), size=_sz))
+        actions_layout.addWidget(make_icon_button("edit", "수정", lambda checked=False, value=item: self.edit_launcher(value), size=_sz))
+        actions_layout.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=item: self.delete_launcher(value), True, size=_sz))
+        actions.hide()
         layout.addLayout(body_row)
+        layout.addStretch(1)
+        card.resizeEvent = lambda event, h=hotkey_overlay, a=actions: self.position_site_card_overlays(card, h, a, event)
+        card.enterEvent = lambda event, h=hotkey_overlay, a=actions: self.set_site_card_actions_visible(h, a, True, event)
+        card.leaveEvent = lambda event, h=hotkey_overlay, a=actions: self.set_site_card_actions_visible(h, a, False, event)
+        QTimer.singleShot(0, lambda c=card, h=hotkey_overlay, a=actions: self.position_site_card_overlays(c, h, a, None))
         return card
 
+    def position_site_card_overlays(self, card: QWidget, hotkey: QWidget, actions: QWidget, event) -> None:
+        margin = CARD_ACTION_OVERLAY_MARGIN
+        for widget in (hotkey, actions):
+            size = widget.sizeHint()
+            widget.setGeometry(
+                max(margin, card.width() - size.width() - margin),
+                max(margin, card.height() - size.height() - margin),
+                size.width(),
+                size.height(),
+            )
+            widget.raise_()
+        if event is not None:
+            event.accept()
+
+    def set_site_card_actions_visible(self, hotkey: QWidget, actions: QWidget, visible: bool, event) -> None:
+        actions.setVisible(visible)
+        hotkey.setVisible((not visible) and hotkey.layout().count() > 0)
+        actions.raise_()
+        event.accept()
+
     def add_launcher_actions(self, card: QWidget, item: dict) -> None:
-        row = QHBoxLayout()
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(4)
+        if item.get("favorite"):
+            add_favorite_badge_to_card(card)
+        action_page = QWidget()
+        row = QHBoxLayout(action_page)
+        row.setContentsMargins(CARD_ACTION_ROW_MARGIN_X, CARD_ACTION_ROW_MARGIN_Y, CARD_ACTION_ROW_MARGIN_X, CARD_ACTION_ROW_MARGIN_Y)
+        row.setSpacing(CARD_ACTION_ROW_SPACING)
+        _sz = QSize(CARD_ACTION_ICON_SIZE, CARD_ACTION_ICON_SIZE)
         status = QLabel("")
         status.setStyleSheet("color: #168A4A; font-weight: 700;")
         status.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self.status_labels[item.get("id", "")] = status
         row.addWidget(status, 1)
-        pin_btn = make_icon_button("pin", "즐겨찾기", lambda checked=False, value=item: self.toggle_launcher_favorite(value, pin_btn))
+        pin_btn = make_icon_button("pin", "즐겨찾기", lambda checked=False, value=item, c=card: self.toggle_launcher_favorite(value, pin_btn, c), size=_sz)
         self.style_launcher_favorite_button(pin_btn, item)
         row.addWidget(pin_btn)
-        row.addWidget(make_icon_button("open", "열기", lambda checked=False, value=item: self.open_launcher(value)))
-        row.addWidget(make_icon_button("edit", "수정", lambda checked=False, value=item: self.edit_launcher(value)))
-        row.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=item: self.delete_launcher(value), True))
-        card.layout().addLayout(row)
+        row.addWidget(make_icon_button("open", "열기", lambda checked=False, value=item: self.open_launcher(value), size=_sz))
+        row.addWidget(make_icon_button("edit", "수정", lambda checked=False, value=item: self.edit_launcher(value), size=_sz))
+        row.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=item: self.delete_launcher(value), True, size=_sz))
+        set_card_action_widget(card, action_page)
 
-    def toggle_launcher_favorite(self, item: dict, button=None) -> None:
+    def toggle_launcher_favorite(self, item: dict, button=None, card: QWidget | None = None) -> None:
         item["favorite"] = not bool(item.get("favorite"))
         if button is not None:
             self.style_launcher_favorite_button(button, item)
+        if card is not None:
+            if item.get("favorite"):
+                add_favorite_badge_to_card(card)
+            else:
+                remove_favorite_badge_from_card(card)
         QApplication.processEvents()
         QTimer.singleShot(0, self.main.save_data)
         QTimer.singleShot(1000, self.refresh)
@@ -693,10 +751,11 @@ class LauncherTab(QWidget):
         self.main.save_data()
 
     def style_launcher_favorite_button(self, button, item: dict) -> None:
-        color = "#F5B301" if item.get("favorite") else "#A3A8B3"
-        button.setText("★")
+        button.setText("💛" if item.get("favorite") else "🩶")
         button.setStyleSheet(
-            f"QToolButton#iconButton {{ color: {color}; font-size: 13pt; font-weight: 900; padding: 0 0 2px 0; }}"
+            "QToolButton#iconButton { font-size: 11pt; padding: 0; "
+            "min-width: 24px; max-width: 24px; min-height: 24px; max-height: 24px; }"
+            "QToolButton#iconButton:hover { background: transparent; }"
         )
 
     def show_credential_status(self, item: dict) -> None:
@@ -790,17 +849,22 @@ class LauncherTab(QWidget):
             return
         url = value.get("url", "").strip()
         if not url:
+            value["favicon_attempted"] = True
             return
         if original and original.get("url") == url and valid_favicon_path(original.get("favicon_path", "")):
             value["favicon_path"] = original.get("favicon_path")
+            value["favicon_attempted"] = True
             return
         value.pop("favicon_path", None)
         parsed = urlparse(url if "://" in url else f"https://{url}")
         domain = parsed.netloc or parsed.path.split("/")[0]
         if not domain:
+            value["favicon_attempted"] = True
             return
         base_url = f"{parsed.scheme or 'https'}://{domain}"
+        self._run_favicon_fetch(value, base_url, domain)
 
+    def _run_favicon_fetch(self, item: dict, base_url: str, domain: str) -> None:
         def fetch() -> None:
             try:
                 import requests
@@ -831,16 +895,48 @@ class LauncherTab(QWidget):
                             break
                     except Exception:
                         continue
-                if not valid_favicon_path(str(target)):
+                if valid_favicon_path(str(target)):
+                    item["favicon_path"] = str(target.resolve().relative_to(config.BASE_DIR.resolve())).replace("\\", "/")
+                else:
                     target.unlink(missing_ok=True)
-                    return
-                value["favicon_path"] = str(target.resolve().relative_to(config.BASE_DIR.resolve())).replace("\\", "/")
             except Exception:
                 pass
             finally:
+                item["favicon_attempted"] = True
                 self._favicon_done.emit()
 
         threading.Thread(target=fetch, daemon=True).start()
+
+    def _startup_favicon_scan(self) -> None:
+        pending = [
+            item for item in self.main.data.get("launchers", [])
+            if launcher_type(item.get("type")) == "site"
+            and launcher_icon_mode(item) == "auto"
+            and not item.get("favicon_attempted")
+        ]
+        if not pending:
+            return
+        needs_save = False
+        for item in pending:
+            url = item.get("url", "").strip()
+            if not url:
+                item["favicon_attempted"] = True
+                needs_save = True
+                continue
+            if valid_favicon_path(item.get("favicon_path", "")):
+                item["favicon_attempted"] = True
+                needs_save = True
+                continue
+            parsed = urlparse(url if "://" in url else f"https://{url}")
+            domain = parsed.netloc or parsed.path.split("/")[0]
+            if not domain:
+                item["favicon_attempted"] = True
+                needs_save = True
+                continue
+            base_url = f"{parsed.scheme or 'https'}://{domain}"
+            self._run_favicon_fetch(item, base_url, domain)
+        if needs_save:
+            self.main.save_data()
 
     def _on_favicon_ready(self) -> None:
         self.main.save_data()

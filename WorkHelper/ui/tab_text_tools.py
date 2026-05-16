@@ -5,6 +5,8 @@ from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsp
 
 from PyQt6.QtWidgets import QComboBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTabWidget, QTextEdit, QVBoxLayout, QWidget
 
+from ui.common import bottom_action_bar
+
 
 class PlainTextEdit(QTextEdit):
     def insertFromMimeData(self, source) -> None:
@@ -15,25 +17,25 @@ class UrlCodecTab(QWidget):
     def __init__(self, main) -> None:
         super().__init__()
         self.main = main
-        layout = QVBoxLayout(self)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        content = QWidget()
+        layout = QVBoxLayout(content)
         self.input = PlainTextEdit()
         self.output = PlainTextEdit()
-        row = QHBoxLayout()
         encode = QPushButton("URL 인코딩")
         decode = QPushButton("URL 디코딩")
         copy = QPushButton("결과 복사")
         encode.clicked.connect(lambda: self.convert(True))
         decode.clicked.connect(lambda: self.convert(False))
         copy.clicked.connect(lambda: self.main.app.clipboard().setText(self.output.toPlainText()))
-        row.addStretch(1)
-        row.addWidget(encode)
-        row.addWidget(decode)
-        row.addWidget(copy)
         layout.addWidget(QLabel("입력"))
         layout.addWidget(self.input, 1)
-        layout.addLayout(row)
         layout.addWidget(QLabel("결과"))
         layout.addWidget(self.output, 1)
+        root.addWidget(content, 1)
+        root.addLayout(bottom_action_bar(encode, decode, copy))
 
     def convert(self, encode: bool) -> None:
         text = self.input.toPlainText()
@@ -46,7 +48,11 @@ class UtmTab(QWidget):
     def __init__(self, main) -> None:
         super().__init__()
         self.main = main
-        layout = QVBoxLayout(self)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        content = QWidget()
+        layout = QVBoxLayout(content)
         form = QFormLayout()
         self.url = QLineEdit()
         self.fields = {key: QLineEdit() for key in self.UTM_KEYS}
@@ -54,19 +60,15 @@ class UtmTab(QWidget):
         for key, field in self.fields.items():
             form.addRow(key, field)
         layout.addLayout(form)
-        row = QHBoxLayout()
         split = QPushButton("분해")
         build = QPushButton("조합")
         copy = QPushButton("URL 복사")
         split.clicked.connect(self.split_url)
         build.clicked.connect(self.build_url)
         copy.clicked.connect(lambda: self.main.app.clipboard().setText(self.url.text()))
-        row.addStretch(1)
-        row.addWidget(split)
-        row.addWidget(build)
-        row.addWidget(copy)
-        layout.addLayout(row)
         layout.addStretch(1)
+        root.addWidget(content, 1)
+        root.addLayout(bottom_action_bar(split, build, copy))
 
     def split_url(self) -> None:
         parts = urlsplit(self.url.text().strip())
@@ -99,7 +101,11 @@ class LineBreakTab(QWidget):
     def __init__(self, main) -> None:
         super().__init__()
         self.main = main
-        layout = QVBoxLayout(self)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        content = QWidget()
+        layout = QVBoxLayout(content)
         self.mode = QComboBox()
         self.mode.addItems(list(self.EXAMPLES))
         self.mode.currentTextChanged.connect(self.update_example)
@@ -120,20 +126,18 @@ class LineBreakTab(QWidget):
         convert.clicked.connect(self.convert)
         copy.clicked.connect(lambda: self.main.app.clipboard().setText(self.output.toPlainText()))
         self.mode.setFixedHeight(ROW_H)
-        convert.setFixedHeight(ROW_H)
-        copy.setFixedHeight(ROW_H)
         row = QHBoxLayout()
         row.setSpacing(6)
         row.addWidget(self.mode)
         row.addWidget(self.before_example, 1)
         row.addWidget(self.after_example, 1)
-        row.addWidget(convert)
-        row.addWidget(copy)
         layout.addLayout(row)
         layout.addWidget(QLabel("입력"))
         layout.addWidget(self.input, 1)
         layout.addWidget(QLabel("결과"))
         layout.addWidget(self.output, 1)
+        root.addWidget(content, 1)
+        root.addLayout(bottom_action_bar(convert, copy))
         self.update_example(self.mode.currentText())
 
     def update_example(self, mode: str) -> None:
@@ -161,25 +165,26 @@ class CaseCycleTab(QWidget):
     def __init__(self, main) -> None:
         super().__init__()
         self.main = main
-        layout = QVBoxLayout(self)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        content = QWidget()
+        layout = QVBoxLayout(content)
         hint = QLabel("UPPER_CASE ↔ camelCase ↔ PascalCase 형식을 순환 변환합니다.")
         hint.setObjectName("mutedText")
         layout.addWidget(hint)
         self.input = PlainTextEdit()
         self.output = PlainTextEdit()
-        row = QHBoxLayout()
         convert = QPushButton("순환 변환")
         copy = QPushButton("결과 복사")
         convert.clicked.connect(self.convert)
         copy.clicked.connect(lambda: self.main.app.clipboard().setText(self.output.toPlainText()))
-        row.addStretch(1)
-        row.addWidget(convert)
-        row.addWidget(copy)
         layout.addWidget(QLabel("입력"))
         layout.addWidget(self.input, 1)
-        layout.addLayout(row)
         layout.addWidget(QLabel("결과"))
         layout.addWidget(self.output, 1)
+        root.addWidget(content, 1)
+        root.addLayout(bottom_action_bar(convert, copy))
 
     def words(self, text: str) -> list[str]:
         if "_" in text:

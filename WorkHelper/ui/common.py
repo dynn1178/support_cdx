@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from PyQt6.QtCore import QEvent, QPoint, QSize, Qt
+from PyQt6.QtCore import QEvent, QPoint, QPropertyAnimation, QSize, Qt, QTimer
+from PyQt6.QtWidgets import QGraphicsOpacityEffect
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -15,6 +16,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QListWidgetItem,
     QMessageBox,
+    QPushButton,
     QScrollArea,
     QSizePolicy,
     QTextEdit,
@@ -36,6 +38,46 @@ CORNER_CONTAINER_HEIGHT = 32
 CORNER_SEARCH_WIDTH = 120
 CORNER_SORT_MODE_WIDTH = 92
 CORNER_SORT_ORDER_WIDTH = 104
+BOTTOM_ACTION_HEIGHT = 30
+BOTTOM_ACTION_MARGINS = (0, 0, 3, 3)  # (left, top, right, bottom) - 우측 하단 3px 기준
+BOTTOM_ACTION_SPACING = 6
+CARD_ACTION_ICON_SIZE = 24
+CARD_ACTION_ROW_MARGIN_X = 3
+CARD_ACTION_ROW_MARGIN_Y = 0
+CARD_ACTION_ROW_SPACING = 2
+CARD_ACTION_OVERLAY_MARGIN = 8
+CARD_ACTION_OVERLAY_Y_OFFSET = 0
+CARD_ACTION_ICON_PADDING = "0 0 2px 0"
+CARD_CONTENT_TOP_MARGIN = 8
+CARD_LABEL_ALIGNMENT = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+GRID_PANEL_MARGINS = (10, 10, 10, 10)  # (left, top, right, bottom) - 카드 그리드 시작 상단 10px 기준
+
+# [정책] 용어: 왼쪽 사이드바 버튼은 "메뉴", 메뉴 안의 QTabWidget 세부 화면은 "탭"으로 부른다.
+# [정책] 메뉴/탭 수정 요청은 아래 한글명을 먼저 확인하고 해당 py 파일에서 변경한다.
+# [정책] 메뉴: 홈=ui/tab_home.py, 상용구=ui/tab_phrase.py, 바로가기=ui/tab_launcher.py,
+# [정책] 메뉴: 클립보드=ui/tab_clipboard.py, 캡처 · 그리기=ui/tab_image.py,
+# [정책] 메뉴: 일정 관리=ui/tab_memo.py(TodoListTab), 메모=ui/tab_memo.py(MemoListTab),
+# [정책] 메뉴: 매크로=ui/tab_macro.py, 계산기=ui/tab_calculator.py, 텍스트 변환=ui/tab_text_tools.py,
+# [정책] 메뉴: 피커 · 기타=ui/tab_misc.py, 설정=ui/tab_settings.py.
+# [정책] 탭: 상용구/일반 텍스트·스니펫·핫스트링·날짜/보고 양식=ui/tab_phrase.py.
+# [정책] 탭: 바로가기/사이트·파일/폴더·바로검색=ui/tab_launcher.py.
+# [정책] 탭: 클립보드/클립보드=ui/tab_clipboard.py.
+# [정책] 탭: 캡처 · 그리기/캡처 · 그리기·컨닝페이퍼=ui/tab_image.py.
+# [정책] 탭: 일정 관리/To Do·타이머=ui/tab_memo.py, 메모/메모=ui/tab_memo.py.
+# [정책] 탭: 매크로/매크로=ui/tab_macro.py, 계산기/연산 계산·날짜 계산=ui/tab_calculator.py.
+# [정책] 탭: 텍스트 변환/URL 인코딩·UTM·줄바꿈/따옴표·대소문자 변환=ui/tab_text_tools.py.
+# [정책] 탭: 피커 · 기타/컬러·이모지·특수문자·마우스 하이라이트·화면 그리기=ui/tab_misc.py.
+# [정책] 탭: 설정/일반·단축키·테마·위젯=ui/tab_settings.py.
+# [정책] 카드 패널 위의 컨텐츠는 테마 배경(bg/content)보다 카드 패널 배경(panel)을 우선 적용한다.
+# [정책] 카드 컨텐츠의 상단 여백은 CARD_CONTENT_TOP_MARGIN(8px)로 고정한다. 한 줄/여러 줄 모두 같은 시작점에서 내용을 시작한다.
+# [정책] make_card()를 쓰지 않는 수동 카드도 상단 여백은 CARD_CONTENT_TOP_MARGIN 값을 직접 참조한다.
+# [정책] 카드 목록 그리드의 외곽 여백은 GRID_PANEL_MARGINS 값을 참조한다. 카드 시작 상단 위치는 GRID_PANEL_MARGINS[1](10px) 기준이다.
+# [정책] 카드 텍스트 라벨은 CARD_LABEL_ALIGNMENT(좌측+상단 정렬)을 사용한다. 라벨 내부에서도 한 줄/여러 줄 모두 상단 기준으로 정렬한다.
+# [정책] 단축키 마커는 make_hotkey_caps()를 사용한다. hotkeyCaps는 패널 배경 + 패널색 2px 테두리 기준이다.
+# [정책] 홈 인라인 단축키는 inline_hotkey=True + hotkeyCapsInline(투명)을 사용한다.
+# [정책] 호버 아이콘은 add_card_actions() 또는 set_card_action_widget()를 사용하고, 행/아이콘 높이는 CARD_ACTION_* 전역 상수만 변경해 관리한다.
+# [정책] 우측 하단 버튼 묶음은 bottom_action_bar()를 사용한다. 시작점은 우측 하단 꼭지점 기준 가로/세로 3px 여백이며 버튼 높이는 BOTTOM_ACTION_HEIGHT로 통일한다.
+# [정책] 탭 하단 추가 버튼은 내부 컨텐츠 margin이 아니라 bottom_action_bar 전역 정책만 따른다.
 
 SORT_MODES = [
     ("등록", "created"),
@@ -78,6 +120,21 @@ def set_corner_combo_policy(combo: QComboBox, width: int) -> None:
     combo.setStyleSheet("padding: 1px 6px; font-size: 9pt;")
 
 
+def set_bottom_action_button_policy(button: QPushButton | QToolButton) -> None:
+    button.setFixedHeight(BOTTOM_ACTION_HEIGHT)
+
+
+def bottom_action_bar(*buttons: QPushButton | QToolButton) -> QHBoxLayout:
+    layout = QHBoxLayout()
+    layout.setContentsMargins(*BOTTOM_ACTION_MARGINS)
+    layout.setSpacing(BOTTOM_ACTION_SPACING)
+    layout.addStretch(1)
+    for button in buttons:
+        set_bottom_action_button_policy(button)
+        layout.addWidget(button)
+    return layout
+
+
 PRIORITY_STYLES = {
     "상": {"background": "#FFD6D6", "border": "#F4A3A3", "text": "#7F1D1D"},
     "중": {"background": "#D8EAFE", "border": "#A9CFF5", "text": "#1E3A8A"},
@@ -105,8 +162,8 @@ ACTION_ICONS = {
     "delete": "✕",
     "play": "▶️",
     "view": "🔍",
-    "pin": "★",
-    "open": "↗️",
+    "pin": "🩶",
+    "open": "🔗",
     "sticker": "🗒️",
     "history": "📜",
 }
@@ -116,6 +173,8 @@ class ElidedLabel(QLabel):
     def __init__(self, text: str) -> None:
         super().__init__()
         self._full_text = text
+        self.setAlignment(CARD_LABEL_ALIGNMENT)
+        self.setContentsMargins(0, 0, 0, 0)
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.setMinimumWidth(0)
@@ -134,15 +193,21 @@ class ElidedLabel(QLabel):
 
 
 class ElidedMultilineLabel(QLabel):
-    def __init__(self, text: str, max_lines: int = 2) -> None:
+    def __init__(self, text: str, max_lines: int = 2, line_height: int | None = None) -> None:
         super().__init__()
         self._full_text = text
         self._max_lines = max(1, max_lines)
+        self._line_height = line_height
+        self.setAlignment(CARD_LABEL_ALIGNMENT)
+        self.setContentsMargins(0, 0, 0, 0)
         self.setToolTip(text)
         self.setWordWrap(True)
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.setMinimumWidth(0)
-        self.setFixedHeight(self.fontMetrics().lineSpacing() * self._max_lines + 4)
+        if line_height is not None:
+            self.setFixedHeight(line_height * self._max_lines + 4)
+        else:
+            self.setFixedHeight(self.fontMetrics().lineSpacing() * self._max_lines + 4)
         self._update_elided_text()
 
     def resizeEvent(self, event) -> None:
@@ -155,7 +220,12 @@ class ElidedMultilineLabel(QLabel):
         visible = lines[: self._max_lines]
         if len(lines) > self._max_lines:
             visible[-1] += " ..."
-        text = "\n".join(self.fontMetrics().elidedText(line, Qt.TextElideMode.ElideRight, width) for line in visible)
+        if self._line_height is not None:
+            elided = [self.fontMetrics().elidedText(line, Qt.TextElideMode.ElideRight, width) for line in visible]
+            safe = [l.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") for l in elided]
+            text = f'<div style="line-height:{self._line_height}px;margin:0;padding:0;">{"<br>".join(safe)}</div>'
+        else:
+            text = "\n".join(self.fontMetrics().elidedText(line, Qt.TextElideMode.ElideRight, width) for line in visible)
         if self.text() != text:
             self.setText(text)
 
@@ -172,6 +242,12 @@ def make_card(
     word_wrap: bool = False,
     title_bold: bool = True,
     dense: bool = False,
+    inline_hotkey: bool = False,
+    title_max_lines: int = 2,
+    subtitle_max_lines: int | None = None,
+    dense_top_margin: int | None = None,
+    v_center: bool = False,
+    title_line_height: int | None = None,
 ) -> QWidget:
     card = QWidget()
     card.setObjectName("card")
@@ -190,25 +266,23 @@ def make_card(
     card.setFixedHeight(card_height)
     layout = QVBoxLayout(card)
     if compact:
-        layout.setContentsMargins(10, 6, 10, 6)
+        layout.setContentsMargins(10, CARD_CONTENT_TOP_MARGIN, 10, CARD_CONTENT_TOP_MARGIN if v_center else 6)
         layout.setSpacing(4)
     elif dense:
-        layout.setContentsMargins(12, 6, 12, 6)
+        _top_m = CARD_CONTENT_TOP_MARGIN if dense_top_margin is None else dense_top_margin
+        layout.setContentsMargins(12, _top_m, 12, _top_m if v_center else 6)
         layout.setSpacing(3)
     elif card_size == "c":
-        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setContentsMargins(12, CARD_CONTENT_TOP_MARGIN, 12, 8)
         layout.setSpacing(5)
     else:
-        layout.setContentsMargins(12, 8, 12, 10)
+        layout.setContentsMargins(12, CARD_CONTENT_TOP_MARGIN, 12, CARD_CONTENT_TOP_MARGIN if v_center else 10)
         layout.setSpacing(6)
     row = QHBoxLayout()
     row.setSpacing(10)
     if word_wrap:
-        title_label = QLabel(title)
+        title_label = ElidedMultilineLabel(title, max_lines=title_max_lines, line_height=title_line_height)
         title_label.setObjectName("cardTitle")
-        title_label.setWordWrap(True)
-        title_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
-        title_label.setMinimumWidth(0)
     else:
         title_display = title.splitlines()[0] + "..." if "\n" in title or "\r" in title else title
         title_label = ElidedLabel(title_display)
@@ -221,36 +295,64 @@ def make_card(
     if not title_bold:
         title_label.setStyleSheet("font-weight: 400;")
     row.addWidget(title_label, 1)
-    reserve_hotkey = bool(hotkey)
-    if reserve_hotkey:
-        hotkey_slot = QWidget()
-        hotkey_slot.setObjectName("hotkeySlot")
-        hotkey_slot.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
-        hotkey_slot.setStyleSheet("QWidget#hotkeySlot { background: transparent; border: 0; }")
-        hotkey_layout = QHBoxLayout(hotkey_slot)
-        hotkey_layout.setContentsMargins(0, 0, 0, 0)
-        hotkey_layout.setSpacing(0)
-        hotkey_layout.addStretch(1)
-        if hotkey:
-            caps = make_hotkey_caps(hotkey, hotkey_color)
-            hotkey_slot.setFixedSize(max(56, caps.sizeHint().width() + 4), 22)
-            hotkey_layout.addWidget(caps)
-        else:
-            hotkey_slot.setFixedSize(56, 22)
-        row.addWidget(hotkey_slot)
+    if inline_hotkey and hotkey:
+        # [정책] 홈화면 단축키 카드: 제목 행 우측에 인라인 표시, 투명 배경(hotkeyCapsInline)
+        caps = make_hotkey_caps(hotkey, hotkey_color)
+        caps.setObjectName("hotkeyCapsInline")
+        row.addWidget(caps)
     layout.addLayout(row)
     if subtitle or card_size in {"b", "c"}:
-        sub = ElidedMultilineLabel(subtitle, max_lines=2 if card_size == "c" else 1 if compact else 2)
+        line_count = subtitle_max_lines if subtitle_max_lines is not None else 2 if card_size == "c" else 1 if compact else 2
+        sub = ElidedMultilineLabel(subtitle, max_lines=line_count)
         sub.setObjectName("cardSubtitle")
-        sub.setFixedHeight(38 if card_size == "c" else 18 if compact else 24)
+        if subtitle_max_lines is not None:
+            sub.setFixedHeight(sub.fontMetrics().lineSpacing() * line_count + 4)
+        else:
+            sub.setFixedHeight(38 if card_size == "c" else 18 if compact else 24)
         layout.addWidget(sub)
     layout.addStretch(1)
+    if v_center:
+        layout.insertStretch(0, 1)
+    if not inline_hotkey:
+        hotkey_overlay = QWidget(card)
+        hotkey_overlay.setObjectName("cardOverlayHotkey")
+        hotkey_overlay.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        hotkey_overlay.setStyleSheet("QWidget#cardOverlayHotkey { background: transparent; border: 0; }")
+        h_layout = QHBoxLayout(hotkey_overlay)
+        h_layout.setContentsMargins(0, 0, 0, 0)
+        h_layout.setSpacing(2)
+        if hotkey:
+            h_layout.addWidget(make_hotkey_caps(hotkey, hotkey_color))
+        else:
+            hotkey_overlay.hide()
+        card._hotkey_overlay = hotkey_overlay
+
+        _MARGIN = 8
+
+        def _position_hotkey(c=card, h=hotkey_overlay, m=_MARGIN):
+            try:
+                size = h.sizeHint()
+                h.setGeometry(
+                    max(m, c.width() - size.width() - m),
+                    max(m, c.height() - size.height() - m),
+                    size.width(), size.height(),
+                )
+                h.raise_()
+            except RuntimeError:
+                pass
+
+        def _on_card_resize(event, fn=_position_hotkey):
+            fn()
+
+        card.resizeEvent = _on_card_resize
+        QTimer.singleShot(0, _position_hotkey)
     return card
 
 
 def make_hotkey_caps(hotkey: str, hotkey_color: str = "") -> QWidget:
     container = QWidget()
     container.setObjectName("hotkeyCaps")
+    container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
     container.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
     layout = QHBoxLayout(container)
     layout.setContentsMargins(0, 0, 0, 0)
@@ -294,15 +396,13 @@ def make_icon_button(text: str, tooltip: str, callback, danger: bool = False, si
     button.setText(ACTION_ICONS.get(text, text))
     button.setToolTip(tooltip)
     button.setFixedSize(size or QSize(30, 28))
-    if text == "pin":
-        button.setStyleSheet("QToolButton#iconButton { color: #A3A8B3; font-size: 13pt; font-weight: 900; }")
     if danger:
         button.setStyleSheet("QToolButton#dangerIconButton { color: #D7263D; font-size: 14pt; font-weight: 900; }")
     if size is not None:
         selector = "QToolButton#dangerIconButton" if danger else "QToolButton#iconButton"
         color_rule = "color: #D7263D;" if danger else ""
         button.setStyleSheet(
-            f"{selector} {{ background: transparent; border: 0; border-radius: 3px; padding: 0; "
+            f"{selector} {{ background: transparent; border: 0; border-radius: 3px; padding: {CARD_ACTION_ICON_PADDING}; "
             f"min-width: {size.width()}px; min-height: {size.height()}px; "
             f"max-width: {size.width()}px; max-height: {size.height()}px; font-size: 10pt; {color_rule} }}"
         )
@@ -478,12 +578,183 @@ def apply_modern_dialog_style(dialog: QDialog, accent: str = "#3B6CF5") -> None:
 
 
 def add_card_actions(card: QWidget, actions: list[tuple[str, str, object, bool]]) -> None:
-    row = QHBoxLayout()
-    row.setContentsMargins(0, 2, 0, 0)
-    row.addStretch(1)
+    # [정책] 카드 패널 위에 배치되는 항목은 테마 배경색보다 카드 배경색(panel)을 우선 적용한다.
+    action_page = QWidget()
+    action_page.setObjectName("cardActionBar")
+    row = QHBoxLayout(action_page)
+    row.setContentsMargins(CARD_ACTION_ROW_MARGIN_X, CARD_ACTION_ROW_MARGIN_Y, CARD_ACTION_ROW_MARGIN_X, CARD_ACTION_ROW_MARGIN_Y)
+    row.setSpacing(CARD_ACTION_ROW_SPACING)
+    row.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
     for text, tooltip, callback, danger in actions:
-        row.addWidget(make_icon_button(text, tooltip, callback, danger))
-    card.layout().addLayout(row)
+        row.addWidget(make_icon_button(text, tooltip, callback, danger, size=QSize(CARD_ACTION_ICON_SIZE, CARD_ACTION_ICON_SIZE)))
+    set_card_action_widget(card, action_page)
+
+
+def set_card_action_widget(card: QWidget, action_page: QWidget) -> None:
+    # 기존 액션 오버레이 제거
+    old = getattr(card, "_actions_overlay", None)
+    if old is not None:
+        try:
+            old.hide()
+            old.setParent(None)
+            old.deleteLater()
+        except RuntimeError:
+            pass
+
+    hotkey_overlay = getattr(card, "_hotkey_overlay", None)
+    action_page.setParent(card)
+    action_page.setObjectName("cardActionBar")
+    action_page.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+    action_page.hide()
+    card._actions_overlay = action_page
+
+    _MARGIN = CARD_ACTION_OVERLAY_MARGIN
+    _Y_OFFSET = CARD_ACTION_OVERLAY_Y_OFFSET
+
+    def _position(c=card, h=hotkey_overlay, a=action_page, m=_MARGIN, y_offset=_Y_OFFSET):
+        try:
+            a_size = a.sizeHint()
+            a.setGeometry(
+                max(m, c.width() - a_size.width() - m),
+                max(m, c.height() - a_size.height() - m + y_offset),
+                a_size.width(), a_size.height(),
+            )
+            a.raise_()
+            if h is not None:
+                size = h.sizeHint()
+                h.setGeometry(
+                    max(m, c.width() - size.width() - m),
+                    max(m, c.height() - size.height() - m),
+                    size.width(), size.height(),
+                )
+                h.raise_()
+        except RuntimeError:
+            pass
+
+    # enterEvent/leaveEvent은 반드시 None을 반환해야 한다 (SIP sipBadCatcherResult 방지).
+    # 캡처된 C++ 객체가 이미 해제된 경우 RuntimeError를 조용히 무시한다.
+    def _on_enter(event, h=hotkey_overlay, a=action_page):
+        try:
+            a.setVisible(True)
+            if h is not None:
+                h.setVisible(False)
+            a.raise_()
+        except RuntimeError:
+            pass
+
+    def _on_leave(event, h=hotkey_overlay, a=action_page):
+        try:
+            a.setVisible(False)
+            if h is not None and h.layout() is not None and h.layout().count() > 0:
+                h.setVisible(True)
+        except RuntimeError:
+            pass
+
+    def _on_resize(event, fn=_position):
+        fn()
+
+    card.enterEvent = _on_enter
+    card.leaveEvent = _on_leave
+    card.resizeEvent = _on_resize
+
+    QTimer.singleShot(0, _position)
+
+
+def add_card_status_label(card: QWidget) -> QLabel:
+    label = QLabel("")
+    label.setParent(card)
+    label.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+    label.setStyleSheet("color: #168A4A; font-weight: 700; background: transparent; border: 0;")
+    effect = QGraphicsOpacityEffect(label)
+    effect.setOpacity(1.0)
+    label.setGraphicsEffect(effect)
+    label.hide()
+    card._status_label = label
+    return label
+
+
+def show_card_status(card: QWidget, text: str, hold_ms: int = 1100, fade_ms: int = 900) -> None:
+    label = getattr(card, "_status_label", None)
+    if label is None:
+        return
+    try:
+        old_animation = getattr(label, "_fade_animation", None)
+        if old_animation is not None:
+            old_animation.stop()
+        effect = label.graphicsEffect()
+        if isinstance(effect, QGraphicsOpacityEffect):
+            effect.setOpacity(1.0)
+        generation = int(getattr(label, "_status_generation", 0)) + 1
+        label._status_generation = generation
+        label.setText(text)
+        label.adjustSize()
+        _M = 8
+        label.move(_M, max(_M, card.height() - label.height() - _M))
+        label.raise_()
+        label.show()
+
+        def _fade_out(lbl=label, expected_generation=generation):
+            try:
+                if getattr(lbl, "_status_generation", None) != expected_generation:
+                    return
+                current_effect = lbl.graphicsEffect()
+                if not isinstance(current_effect, QGraphicsOpacityEffect):
+                    lbl.hide()
+                    return
+                animation = QPropertyAnimation(current_effect, b"opacity", lbl)
+                animation.setDuration(fade_ms)
+                animation.setStartValue(1.0)
+                animation.setEndValue(0.0)
+
+                def _hide_after_fade():
+                    try:
+                        lbl.hide()
+                        current_effect.setOpacity(1.0)
+                    except RuntimeError:
+                        pass
+
+                animation.finished.connect(_hide_after_fade)
+                lbl._fade_animation = animation
+                animation.start()
+            except RuntimeError:
+                pass
+
+        QTimer.singleShot(hold_ms, _fade_out)
+    except RuntimeError:
+        pass
+
+
+def add_favorite_badge_to_card(card: QWidget) -> None:
+    card_layout = card.layout()
+    if card_layout is None:
+        return
+    title_row_item = card_layout.itemAt(0)
+    if title_row_item is None:
+        return
+    title_row = title_row_item.layout()
+    if title_row is None:
+        return
+    remove_favorite_badge_from_card(card)
+    badge = QLabel("💛")
+    badge.setObjectName("cardFavoriteBadge")
+    badge.setFixedSize(16, 18)
+    badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    badge.setStyleSheet("QLabel#cardFavoriteBadge { background: transparent; border: 0; font-size: 10pt; padding: 0; }")
+    title_row.addWidget(badge)
+    card._favorite_badge = badge
+
+
+def remove_favorite_badge_from_card(card: QWidget) -> None:
+    badge = getattr(card, "_favorite_badge", None)
+    if badge is None:
+        return
+    try:
+        badge.hide()
+        badge.setParent(None)
+        badge.deleteLater()
+    except RuntimeError:
+        pass
+    card._favorite_badge = None
 
 
 def ensure_item_meta(items: list[dict]) -> None:
@@ -621,7 +892,7 @@ class GridPanel(QScrollArea):
         self.container = QWidget()
         self.container.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.grid = QGridLayout(self.container)
-        self.grid.setContentsMargins(10, 10, 10, 10)
+        self.grid.setContentsMargins(*GRID_PANEL_MARGINS)
         self.grid.setHorizontalSpacing(10)
         self.grid.setVerticalSpacing(10)
         self.setWidget(self.container)

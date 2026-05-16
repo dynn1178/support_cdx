@@ -39,22 +39,33 @@ from PyQt6.QtWidgets import (
 from app import config
 from app.utils import new_id, now_iso, short_preview
 from ui.common import (
+    CARD_ACTION_ICON_SIZE,
+    CARD_ACTION_ROW_MARGIN_X,
+    CARD_ACTION_ROW_MARGIN_Y,
+    CARD_ACTION_ROW_SPACING,
     CORNER_CONTROL_HEIGHT,
     CORNER_SEARCH_WIDTH,
+    GRID_PANEL_MARGINS,
     PRIORITY_STYLES,
     GridPanel,
     SortControls,
     add_card_actions,
+    add_card_status_label,
+    add_favorite_badge_to_card,
     apply_manual_reorder,
     apply_modern_dialog_style,
     ask_modern_question,
+    bottom_action_bar,
     bump_usage,
     confirm_delete,
     fit_combo_to_contents,
     make_card,
     make_icon_button,
     normalize_todo_groups,
+    remove_favorite_badge_from_card,
+    set_card_action_widget,
     set_corner_button_policy,
+    show_card_status,
     show_modern_info,
     show_modern_warning,
 )
@@ -90,7 +101,7 @@ _TIMER_VALUE_STYLE = (
 )
 
 _TIMER_COMPACT_COMBO_STYLE = (
-    "QComboBox#timerCompactCombo { background: #FFFFFF; border: 1px solid #D1D5DB; "
+    "QComboBox#timerCompactCombo { background: transparent; background-color: transparent; border: 1px solid #D1D5DB; "
     "border-radius: 5px; padding: 1px 8px; min-height: 16px; color: #111827; }"
     "QComboBox#timerCompactCombo:focus { border-color: #3B6CF5; }"
     "QComboBox#timerCompactCombo::drop-down { border: 0; width: 0; }"
@@ -140,12 +151,18 @@ class CornerGrip(QSizeGrip):
 
 
 class StickyMemoDialog(QDialog):
+    SNAP_DISTANCE = 16
+    COMPACT_WIDTH = 260
+    COMPACT_HEIGHT = 24
+
     def __init__(self, memo: dict, main=None, on_saved=None) -> None:
         super().__init__()
         self.memo = memo
         self.main = main
         self.on_saved = on_saved
         self.drag_position: QPoint | None = None
+        self.compact = bool(memo.get("sticker_compact", False))
+        self.normal_geometry = None
         self.save_timer = QTimer(self)
         self.save_timer.setSingleShot(True)
         self.save_timer.timeout.connect(self.persist)
@@ -158,10 +175,16 @@ class StickyMemoDialog(QDialog):
         layout.setSpacing(0)
         self.drag_bar = QLabel("")
         self.drag_bar.setFixedHeight(12)
+        self.drag_bar.setContentsMargins(8, 0, 6, 0)
+        self.drag_bar.mousePressEvent = self.drag_bar_mouse_press
+        self.drag_bar.mouseMoveEvent = self.drag_bar_mouse_move
+        self.drag_bar.mouseReleaseEvent = self.drag_bar_mouse_release
+        self.drag_bar.mouseDoubleClickEvent = self.drag_bar_mouse_double_click
         layout.addWidget(self.drag_bar)
         self.text = QTextEdit()
         self.text.setPlainText(memo.get("content", ""))
         self.text.textChanged.connect(self.schedule_save)
+        self.text.textChanged.connect(self.update_drag_bar_text)
         layout.addWidget(self.text, 1)
         controls = QHBoxLayout()
         controls.setContentsMargins(6, 2, 6, 4)
@@ -199,7 +222,17 @@ class StickyMemoDialog(QDialog):
         self.resize(int(memo.get("width", 300)), int(memo.get("height", 240)))
         if "x" in memo and "y" in memo:
             self.move(int(memo.get("x", 0)), int(memo.get("y", 0)))
+        else:
+            self.move_default_position()
         self.memo["sticker_open"] = True
+        self.update_drag_bar_text()
+        if self.compact:
+            # 위치 재계산 없이 compact 시각 상태만 직접 적용 (apply_compact_state 호출 시 위치 drift 발생 방지)
+            self.text.hide()
+            self.set_controls_visible(False)
+            self.drag_bar.setFixedHeight(22)
+            self.setFixedSize(self.COMPACT_WIDTH, self.COMPACT_HEIGHT)
+            self.update_drag_bar_text()
 
     def apply_color(self, *_args) -> None:
         color = MEMO_COLORS.get(self.color.currentText(), "#FFF9C4")
@@ -225,6 +258,24 @@ class StickyMemoDialog(QDialog):
     def schedule_save(self, *_args) -> None:
         self.save_timer.start(400)
 
+    def first_line(self) -> str:
+        for line in self.text.toPlainText().splitlines():
+            line = line.strip()
+            if line:
+                return line
+        return self.memo.get("title", "메모")
+
+    def update_drag_bar_text(self) -> None:
+        self.drag_bar.setText(self.first_line() if self.compact else "")
+
+    def move_default_position(self) -> None:
+        screen = QApplication.screenAt(self.pos()) or QApplication.primaryScreen()
+        if not screen:
+            return
+        area = screen.availableGeometry()
+        margin = 18
+        self.move(area.right() - self.width() - margin + 1, area.top() + margin)
+
     def set_controls_visible(self, visible: bool) -> None:
         self.slider.setVisible(visible)
         self.close_button.setVisible(visible)
@@ -233,7 +284,8 @@ class StickyMemoDialog(QDialog):
         self.grip.setVisible(visible)
 
     def enterEvent(self, event) -> None:
-        self.set_controls_visible(True)
+        if not self.compact:
+            self.set_controls_visible(True)
         super().enterEvent(event)
 
     def leaveEvent(self, event) -> None:
@@ -241,6 +293,9 @@ class StickyMemoDialog(QDialog):
         super().leaveEvent(event)
 
     def hide_controls_if_idle(self) -> None:
+        if self.compact:
+            self.set_controls_visible(False)
+            return
         if self.underMouse() or self.color.view().isVisible() or self.color.hasFocus():
             return
         self.set_controls_visible(False)
@@ -250,23 +305,137 @@ class StickyMemoDialog(QDialog):
             self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
         super().mousePressEvent(event)
 
+    def drag_bar_mouse_press(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+        event.accept()
+
     def mouseMoveEvent(self, event) -> None:
         if self.drag_position and event.buttons() & Qt.MouseButton.LeftButton:
             self.move(event.globalPosition().toPoint() - self.drag_position)
         super().mouseMoveEvent(event)
 
+    def drag_bar_mouse_move(self, event) -> None:
+        if self.drag_position and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self.drag_position)
+        event.accept()
+
     def mouseReleaseEvent(self, event) -> None:
         self.drag_position = None
+        self.snap_to_neighbors()
         self.schedule_save()
         super().mouseReleaseEvent(event)
 
+    def drag_bar_mouse_release(self, event) -> None:
+        self.drag_position = None
+        self.snap_to_neighbors()
+        self.schedule_save()
+        event.accept()
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and event.position().y() <= self.drag_bar.height() + 4:
+            self.toggle_compact()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def drag_bar_mouse_double_click(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.toggle_compact()
+        event.accept()
+
+    def toggle_compact(self) -> None:
+        self.compact = not self.compact
+        self.apply_compact_state(save=True)
+
+    def apply_compact_state(self, save: bool = True) -> None:
+        # 현재 스티커 위치 기준으로 화면 사분면을 계산해 앵커 꼭지점을 결정한다.
+        # 우측 상단 → 우상단 기준, 좌측 하단 → 좌하단 기준으로 접기/펼치기 후 위치를 보정한다.
+        screen = QApplication.screenAt(self.geometry().center()) or QApplication.primaryScreen()
+        screen_rect = screen.availableGeometry() if screen else self.geometry()
+        geo = self.geometry()
+        anchor_right = geo.left() > screen_rect.center().x()
+        anchor_bottom = geo.top() > screen_rect.center().y()
+
+        if self.compact:
+            if self.normal_geometry is None:
+                self.normal_geometry = self.geometry()
+            self.memo["normal_width"] = self.normal_geometry.width()
+            self.memo["normal_height"] = self.normal_geometry.height()
+            self.text.hide()
+            self.set_controls_visible(False)
+            self.drag_bar.setFixedHeight(22)
+            new_w, new_h = self.COMPACT_WIDTH, self.COMPACT_HEIGHT
+            self.setFixedSize(new_w, new_h)
+            new_x = geo.right() - new_w + 1 if anchor_right else geo.left()
+            new_y = geo.bottom() - new_h + 1 if anchor_bottom else geo.top()
+            self.move(new_x, new_y)
+        else:
+            self.setMinimumWidth(0)
+            self.setMaximumWidth(16777215)
+            self.setMaximumHeight(16777215)
+            self.setMinimumHeight(80)
+            self.drag_bar.setFixedHeight(12)
+            self.text.show()
+            new_w = int(self.memo.get("normal_width", self.memo.get("width", 300)) or 300)
+            new_h = max(120, int(self.memo.get("normal_height", self.memo.get("height", 240)) or 240))
+            self.resize(new_w, new_h)
+            new_x = geo.right() - new_w + 1 if anchor_right else geo.left()
+            new_y = geo.bottom() - new_h + 1 if anchor_bottom else geo.top()
+            self.move(new_x, new_y)
+            self.normal_geometry = self.geometry()
+        self.update_drag_bar_text()
+        if save:
+            self.schedule_save()
+
+    def other_stickers(self) -> list["StickyMemoDialog"]:
+        if self.main is None or len(getattr(self.main, "tabs", [])) <= 6:
+            return []
+        memo_tab = self.main.tabs[6]
+        windows = getattr(memo_tab, "sticky_windows", {})
+        return [dialog for dialog in windows.values() if dialog is not self and dialog.isVisible()]
+
+    def snap_to_neighbors(self) -> None:
+        rect = self.geometry()
+        new_x = rect.x()
+        new_y = rect.y()
+        for other in self.other_stickers():
+            target = other.geometry()
+            if abs(rect.left() - target.right() - 1) <= self.SNAP_DISTANCE:
+                new_x = target.right() + 1
+            elif abs(rect.right() - target.left() + 1) <= self.SNAP_DISTANCE:
+                new_x = target.left() - rect.width()
+            elif abs(rect.left() - target.left()) <= self.SNAP_DISTANCE:
+                new_x = target.left()
+            elif abs(rect.right() - target.right()) <= self.SNAP_DISTANCE:
+                new_x = target.right() - rect.width() + 1
+
+            if abs(rect.top() - target.bottom() - 1) <= self.SNAP_DISTANCE:
+                new_y = target.bottom() + 1
+            elif abs(rect.bottom() - target.top() + 1) <= self.SNAP_DISTANCE:
+                new_y = target.top() - rect.height()
+            elif abs(rect.top() - target.top()) <= self.SNAP_DISTANCE:
+                new_y = target.top()
+            elif abs(rect.bottom() - target.bottom()) <= self.SNAP_DISTANCE:
+                new_y = target.bottom() - rect.height() + 1
+        if new_x != rect.x() or new_y != rect.y():
+            self.move(new_x, new_y)
+
     def persist(self) -> None:
         self.memo["content"] = self.text.toPlainText()
+        self.update_drag_bar_text()
         self.memo["always_on_top"] = self.always_on_top.isChecked()
         self.memo["background"] = self.color.currentText()
         self.memo["opacity"] = self.slider.value()
-        self.memo["width"] = self.width()
-        self.memo["height"] = self.height()
+        self.memo["sticker_compact"] = self.compact
+        if self.compact:
+            self.memo["normal_width"] = int(self.memo.get("normal_width", self.width()))
+            self.memo["normal_height"] = int(self.memo.get("normal_height", self.memo.get("height", 240)) or 240)
+        else:
+            self.memo["width"] = self.width()
+            self.memo["height"] = self.height()
+            self.memo["normal_width"] = self.width()
+            self.memo["normal_height"] = self.height()
         self.memo["x"] = self.x()
         self.memo["y"] = self.y()
         self.memo["sticker_open"] = bool(self.memo.get("sticker_open", self.isVisible()))
@@ -297,9 +466,9 @@ class MemoDialog(QDialog):
         self.title = QLineEdit(self.memo.get("title", ""))
         self.content = QTextEdit()
         self.content.setPlainText(self.memo.get("content", ""))
-        self.pinned = QCheckBox("메모 목록 상단에 고정")
-        self.pinned.setToolTip("체크하면 메모 탭 목록에서 이 메모가 위쪽에 먼저 표시됩니다.")
-        self.pinned.setChecked(bool(self.memo.get("pinned")))
+        self.pinned = QCheckBox("즐겨찾기")
+        self.pinned.setToolTip("체크하면 메모 탭 목록에서 이 메모가 먼저 표시되고 별표가 표시됩니다.")
+        self.pinned.setChecked(bool(self.memo.get("favorite", self.memo.get("pinned"))))
         self.always_on_top = QCheckBox("스티커 항상 위")
         self.always_on_top.setChecked(bool(self.memo.get("always_on_top", True)))
         self.background = QComboBox()
@@ -307,7 +476,7 @@ class MemoDialog(QDialog):
         self.background.setCurrentText(self.memo.get("background", "노랑") if self.memo.get("background", "노랑") in MEMO_COLORS else "노랑")
         form.addRow("제목", self.title)
         form.addRow("내용", self.content)
-        form.addRow("목록 옵션", self.pinned)
+        form.addRow("즐겨찾기", self.pinned)
         form.addRow("스티커 옵션", self.always_on_top)
         form.addRow("배경색", self.background)
         layout.addLayout(form)
@@ -329,6 +498,7 @@ class MemoDialog(QDialog):
             {
                 "title": self.title.text().strip(),
                 "content": self.content.toPlainText(),
+                "favorite": self.pinned.isChecked(),
                 "pinned": self.pinned.isChecked(),
                 "always_on_top": self.always_on_top.isChecked(),
                 "background": self.background.currentText(),
@@ -523,6 +693,7 @@ class MemoListTab(QWidget):
         super().__init__()
         self.main = main
         self.sticky_windows: dict[str, StickyMemoDialog] = {}
+        self._recently_closed_sticker_keys: list[str] = []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.search = QLineEdit()
@@ -542,15 +713,24 @@ class MemoListTab(QWidget):
         self.tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
         add_btn = QPushButton("+ 메모")
         add_btn.clicked.connect(lambda: self.edit_memo())
+        expand_btn = QPushButton("모두 펼치기")
+        expand_btn.clicked.connect(self.expand_all_stickers)
+        collapse_btn = QPushButton("모두 접기")
+        collapse_btn.clicked.connect(self.collapse_all_stickers)
+        arrange_btn = QPushButton("정렬")
+        arrange_btn.clicked.connect(self.arrange_compact_stickers)
+        sticker_toggle_btn = QPushButton("★ 열기/닫기")
+        sticker_toggle_btn.clicked.connect(self.toggle_pinned_stickers)
+        close_all_btn = QPushButton("열기/닫기")
+        close_all_btn.clicked.connect(self.toggle_recent_stickers)
+        for button in (expand_btn, collapse_btn, arrange_btn, sticker_toggle_btn, close_all_btn, add_btn):
+            button.setFixedHeight(30)
         self.grid = GridPanel(columns=2)
         page = QWidget()
         page_layout = QVBoxLayout(page)
         page_layout.setContentsMargins(0, 0, 0, 0)
         page_layout.addWidget(self.grid, 1)
-        bottom = QHBoxLayout()
-        bottom.addStretch(1)
-        bottom.addWidget(add_btn)
-        page_layout.addLayout(bottom)
+        page_layout.addLayout(bottom_action_bar(expand_btn, collapse_btn, arrange_btn, sticker_toggle_btn, close_all_btn, add_btn))
         self.tabs.addTab(page, "메모")
         layout.addWidget(self.tabs, 1)
 
@@ -560,34 +740,64 @@ class MemoListTab(QWidget):
         source_items = self.main.data.get("memos", [])
         memos = self.sort_controls.sort_items(source_items, lambda item: item.get("title") or item.get("content", ""))
         if not self.sort_controls.is_manual():
-            memos = sorted(memos, key=lambda item: not item.get("pinned"))
+            memos = sorted(memos, key=lambda item: not self.is_favorite_memo(item))
         for memo in memos:
             if q and q not in (memo.get("title", "") + " " + memo.get("content", "")).lower():
                 continue
-            card = make_card(memo.get("title", "(제목 없음)"), memo_card_preview(memo.get("content", ""), 160), card_size="c")
+            card = make_card(
+                memo.get("title", "(제목 없음)"),
+                memo_card_preview(memo.get("content", ""), 160, max_lines=3),
+                card_height=96,
+                subtitle_max_lines=3,
+                dense=True,
+                v_center=True,
+            )
             self.add_memo_actions(card, memo)
             cards.append(card)
         callback = (lambda old, new: self.reorder_items(source_items, memos, old, new)) if self.sort_controls.is_manual() else None
         self.grid.add_cards(cards, on_reorder=callback)
 
-    def add_memo_actions(self, card: QWidget, memo: dict) -> None:
-        row = QHBoxLayout()
-        row.setContentsMargins(0, 2, 0, 0)
-        row.addStretch(1)
-        pin = make_icon_button("pin", "목록 상단 고정/해제", lambda checked=False, value=memo: self.toggle_pin(value, pin))
-        if memo.get("pinned"):
-            pin.setStyleSheet("QToolButton#iconButton { color: #F5B301; font-size: 13pt; font-weight: 900; }")
-        row.addWidget(pin)
-        row.addWidget(make_icon_button("sticker", "스티커", lambda checked=False, value=memo: self.show_sticker(value)))
-        row.addWidget(make_icon_button("edit", "수정", lambda checked=False, value=memo: self.edit_memo(value)))
-        row.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=memo: self.delete_memo(value), True))
-        card.layout().addLayout(row)
+    def is_favorite_memo(self, memo: dict) -> bool:
+        return bool(memo.get("favorite", memo.get("pinned")))
 
-    def toggle_pin(self, memo: dict, button: QWidget | None = None) -> None:
-        memo["pinned"] = not bool(memo.get("pinned"))
+    def style_memo_favorite_button(self, button, memo: dict) -> None:
+        color = "#F5B301" if self.is_favorite_memo(memo) else "#A3A8B3"
+        button.setStyleSheet(
+            f"QToolButton#iconButton {{ color: {color}; font-size: 13pt; font-weight: 900; padding: 0 0 2px 0; "
+            f"min-width: 24px; max-width: 24px; min-height: 24px; max-height: 24px; }}"
+            f"QToolButton#iconButton:hover {{ color: {color}; background: transparent; }}"
+        )
+
+    def add_memo_actions(self, card: QWidget, memo: dict) -> None:
+        add_card_status_label(card)
+        if self.is_favorite_memo(memo):
+            add_favorite_badge_to_card(card)
+        action_page = QWidget()
+        action_page.setObjectName("cardActionBar")
+        row = QHBoxLayout(action_page)
+        row.setContentsMargins(CARD_ACTION_ROW_MARGIN_X, CARD_ACTION_ROW_MARGIN_Y, CARD_ACTION_ROW_MARGIN_X, CARD_ACTION_ROW_MARGIN_Y)
+        row.setSpacing(CARD_ACTION_ROW_SPACING)
+        row.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
+        _sz = QSize(CARD_ACTION_ICON_SIZE, CARD_ACTION_ICON_SIZE)
+        pin = make_icon_button("pin", "즐겨찾기", lambda checked=False, value=memo, c=card: self.toggle_pin(value, c, pin), size=_sz)
+        self.style_memo_favorite_button(pin, memo)
+        row.addWidget(pin)
+        row.addWidget(make_icon_button("sticker", "스티커", lambda checked=False, value=memo: self.show_sticker(value), size=_sz))
+        row.addWidget(make_icon_button("edit", "수정", lambda checked=False, value=memo: self.edit_memo(value), size=_sz))
+        row.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=memo: self.delete_memo(value), True, size=_sz))
+        set_card_action_widget(card, action_page)
+
+    def toggle_pin(self, memo: dict, card: QWidget | None = None, button: QWidget | None = None) -> None:
+        memo["favorite"] = not self.is_favorite_memo(memo)
+        memo["pinned"] = bool(memo["favorite"])
         if button is not None:
-            color = "#F5B301" if memo.get("pinned") else "#A3A8B3"
-            button.setStyleSheet(f"QToolButton#iconButton {{ color: {color}; font-size: 13pt; font-weight: 900; }}")
+            self.style_memo_favorite_button(button, memo)
+        if card is not None:
+            if self.is_favorite_memo(memo):
+                add_favorite_badge_to_card(card)
+            else:
+                remove_favorite_badge_from_card(card)
+            show_card_status(card, "즐겨찾기 등록!" if self.is_favorite_memo(memo) else "즐겨찾기 해제!")
         self.main.save_data()
 
     def reorder_items(self, source: list[dict], visible: list[dict], old: int, new: int) -> None:
@@ -596,6 +806,12 @@ class MemoListTab(QWidget):
 
     def memo_key(self, memo: dict) -> str:
         return str(memo.get("id") or id(memo))
+
+    def memo_by_key(self, memo_key: str) -> dict | None:
+        for memo in self.main.data.get("memos", []):
+            if self.memo_key(memo) == memo_key:
+                return memo
+        return None
 
     def show_sticker(self, memo: dict, track_usage: bool = True, raise_window: bool = True, toggle_existing: bool = True) -> None:
         key = self.memo_key(memo)
@@ -621,6 +837,98 @@ class MemoListTab(QWidget):
 
     def forget_sticker(self, memo_key: str) -> None:
         self.sticky_windows.pop(memo_key, None)
+
+    def visible_stickers(self) -> list[StickyMemoDialog]:
+        return [dialog for dialog in self.sticky_windows.values() if dialog.isVisible()]
+
+    def expand_all_stickers(self) -> None:
+        for dialog in self.visible_stickers():
+            if dialog.compact:
+                dialog.compact = False
+                dialog.apply_compact_state(save=False)
+            dialog.raise_()
+            dialog.persist()
+
+    def collapse_all_stickers(self) -> None:
+        for dialog in self.visible_stickers():
+            if not dialog.compact:
+                dialog.compact = True
+                dialog.apply_compact_state(save=False)
+            dialog.persist()
+
+    def toggle_recent_stickers(self) -> None:
+        visible = self.visible_stickers()
+        if visible:
+            self._recently_closed_sticker_keys = [
+                key for key, dialog in self.sticky_windows.items()
+                if dialog in visible and dialog.isVisible()
+            ]
+            for dialog in visible:
+                dialog.accept()
+            return
+        if not self._recently_closed_sticker_keys:
+            return
+        keys = list(self._recently_closed_sticker_keys)
+        self._recently_closed_sticker_keys = []
+        for memo_key in keys:
+            memo = self.memo_by_key(memo_key)
+            if memo is not None:
+                self.show_sticker(memo, track_usage=False, raise_window=False, toggle_existing=False)
+
+    def close_all_stickers(self) -> None:
+        self._recently_closed_sticker_keys = []
+        for dialog in self.visible_stickers():
+            dialog.accept()
+
+    def toggle_pinned_stickers(self) -> None:
+        memos = self.main.data.get("memos", [])
+        pinned = [memo for memo in memos if self.is_favorite_memo(memo)]
+        if not pinned:
+            return
+        open_keys = {key for key, dlg in self.sticky_windows.items() if dlg.isVisible()}
+        any_open = any(self.memo_key(m) in open_keys for m in pinned)
+        if any_open:
+            for memo in pinned:
+                key = self.memo_key(memo)
+                dialog = self.sticky_windows.get(key)
+                if dialog is not None and dialog.isVisible():
+                    dialog.accept()
+        else:
+            for memo in pinned:
+                self.show_sticker(memo, track_usage=False, raise_window=False, toggle_existing=False)
+
+    def arrange_compact_stickers(self) -> None:
+        stickers = self.visible_stickers()
+        if not stickers:
+            return
+        settings = getattr(self.main, "settings", {})
+        screens = QApplication.screens()
+        monitor_index = int(settings.get("sticky_memo_arrange_monitor", 1) or 1)
+        screen = screens[max(0, min(len(screens) - 1, monitor_index - 1))] if screens else None
+        screen = screen or QApplication.screenAt(stickers[0].pos()) or QApplication.primaryScreen()
+        if not screen:
+            return
+        area = screen.availableGeometry()
+        margin = 18
+        gap = 0
+        corner = str(settings.get("sticky_memo_arrange_corner", "top_right") or "top_right")
+        top_anchor = corner in {"top_right", "top_left"}
+        right_anchor = corner in {"top_right", "bottom_right"}
+        y = area.top() + margin if top_anchor else area.bottom() - margin + 1
+        for dialog in stickers:
+            x = area.right() - dialog.width() - margin + 1 if right_anchor else area.left() + margin
+            if top_anchor:
+                if y + dialog.height() > area.bottom() - margin + 1:
+                    y = area.top() + margin
+                place_y = y
+            else:
+                if y - dialog.height() < area.top() + margin:
+                    y = area.bottom() - margin + 1
+                place_y = y - dialog.height()
+            dialog.move(x, place_y)
+            y = dialog.geometry().bottom() + 1 + gap if top_anchor else dialog.geometry().top() - gap
+            dialog.raise_()
+            dialog.persist()
 
     def edit_memo(self, memo: dict | None = None) -> None:
         dialog = MemoDialog(memo)
@@ -676,10 +984,7 @@ class ScheduleListTab(QWidget):
         page_layout = QVBoxLayout(page)
         page_layout.setContentsMargins(0, 0, 0, 0)
         page_layout.addWidget(self.grid, 1)
-        bottom = QHBoxLayout()
-        bottom.addStretch(1)
-        bottom.addWidget(add_btn)
-        page_layout.addLayout(bottom)
+        page_layout.addLayout(bottom_action_bar(add_btn))
         self.tabs.addTab(page, "일정 알림")
         layout.addWidget(self.tabs, 1)
 
@@ -731,7 +1036,7 @@ class ScheduleListTab(QWidget):
         self.main.save_data()
 
 
-# ── 그룹 관리 다이얼로그 ─────────────────────────────────────────────────────
+# 그룹 관리 다이얼로그
 
 class _GroupManagerDialog(QDialog):
     """할 일 그룹 이름 설정 (최대 3개)."""
@@ -758,7 +1063,7 @@ class _GroupManagerDialog(QDialog):
             row.addWidget(lbl)
             row.addWidget(edit)
             layout.addLayout(row)
-        hint = QLabel("※ 비워두면 해당 그룹은 숨겨집니다.")
+        hint = QLabel("비워두면 해당 그룹은 숨겨집니다.")
         hint.setStyleSheet("color:#9CA3AF;font-size:9pt;")
         layout.addWidget(hint)
         btn_row = QHBoxLayout()
@@ -773,14 +1078,14 @@ class _GroupManagerDialog(QDialog):
         self.resize(310, 230)
 
     def result_groups(self) -> list[str]:
-        """비어있는 슬롯을 제외하고 그룹명만 반환."""
+        """비어있는 칸은 제외하고 그룹명만 반환."""
         return [edit.text().strip() for edit in self._edits if edit.text().strip()]
 
 
-# ── 할 일 다이얼로그 ─────────────────────────────────────────────────────────
+# 할 일 다이얼로그
 
 class TodoDialog(QDialog):
-    """할 일 등록/수정 다이얼로그 (그룹·일정시간·반복·알림 포함)."""
+    """할 일 등록/수정 다이얼로그."""
 
     def __init__(self, item: dict | None = None, groups: list[str] | None = None) -> None:
         super().__init__()
@@ -815,7 +1120,7 @@ class TodoDialog(QDialog):
         self.priority_combo.setCurrentText(self.item.get("priority", "하") if self.item.get("priority", "하") in {"상", "중", "하"} else "하")
         fit_combo_to_contents(self.priority_combo, 88)
 
-        # 일정 시간 (date + time)
+        # 일정 시간
         current = QDateTime.fromString(self.item.get("datetime", ""), Qt.DateFormat.ISODate)
         if not current.isValid():
             current = QDateTime.currentDateTime()
@@ -844,7 +1149,7 @@ class TodoDialog(QDialog):
         dt_widget = QWidget()
         dt_widget.setLayout(dt_row)
 
-        # 시간 선택 (white buttons, 28px height)
+        # 시간 선택
         q_row1 = QHBoxLayout()
         q_row1.setContentsMargins(0, 0, 0, 0)
         q_row1.setSpacing(3)
@@ -1018,7 +1323,7 @@ class TodoDialog(QDialog):
         return data
 
 
-# ── 완료 항목 다이얼로그 ──────────────────────────────────────────────────────
+# 완료 항목 다이얼로그
 
 class CompletedItemsDialog(QDialog):
     """완료된 할 일 목록. 체크 해제로 복원 가능."""
@@ -1106,7 +1411,7 @@ class CompletedItemsDialog(QDialog):
                     w.setStyleSheet("color:#15803D;")
 
 
-# ── 할 일(Todo) + 타이머 탭 ──────────────────────────────────────────────────
+# 할 일(Todo) + 타이머 탭
 
 class TodoListTab(QWidget):
     """그룹별 칸반 컬럼 + 타이머 탭."""
@@ -1129,7 +1434,7 @@ class TodoListTab(QWidget):
 
         self._tab_widget = QTabWidget()
 
-        # ── 코너 컨트롤 (탭 헤더와 같은 행) ──
+        # 코너 컨트롤
         self.search = QLineEdit()
         self.search.setPlaceholderText("검색...")
         self.search.setFixedWidth(CORNER_SEARCH_WIDTH)
@@ -1159,12 +1464,12 @@ class TodoListTab(QWidget):
         self._tab_widget.setCornerWidget(corner, Qt.Corner.TopRightCorner)
         self._tab_widget.currentChanged.connect(self._on_tab_changed)
 
-        # ── To Do 탭 ──
+        # To Do 탭
         self._todo_page = QWidget()
         self._build_todo_page()
         self._tab_widget.addTab(self._todo_page, "To Do")
 
-        # ── 타이머 탭 ──
+        # 타이머 탭
         self._timer_page = QWidget()
         self._build_timer_page()
         self._tab_widget.addTab(self._timer_page, "타이머")
@@ -1176,39 +1481,35 @@ class TodoListTab(QWidget):
         for widget in (self.search, self.grp_btn, self.sort_controls):
             widget.setVisible(todo_visible)
 
-    # ════════════════════════════════════════════════════════════════════════
     # To Do 탭
-    # ════════════════════════════════════════════════════════════════════════
+
+
 
     def _build_todo_page(self) -> None:
         layout = QVBoxLayout(self._todo_page)
-        layout.setContentsMargins(8, 4, 8, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(8, GRID_PANEL_MARGINS[1], 8, 8)
+        content_layout.setSpacing(6)
 
         # 컬럼 컨테이너
         self._cols_container = QWidget()
         self._cols_hbox = QHBoxLayout(self._cols_container)
         self._cols_hbox.setContentsMargins(0, 0, 0, 0)
         self._cols_hbox.setSpacing(6)
-        layout.addWidget(self._cols_container, 1)
+        content_layout.addWidget(self._cols_container, 1)
+        layout.addWidget(content, 1)
 
-        # 하단 바 — 우측 정렬
-        bottom = QHBoxLayout()
-        bottom.addStretch(1)
         comp_btn = QPushButton("완료 항목 보기")
-        comp_btn.setFixedHeight(28)
         comp_btn.clicked.connect(self.show_completed_items)
         clear_btn = QPushButton("완료 항목 지우기")
-        clear_btn.setFixedHeight(28)
         clear_btn.clicked.connect(self.clear_completed_items)
         add_btn = QPushButton("할 일 등록")
-        add_btn.setFixedHeight(28)
         add_btn.clicked.connect(lambda: self.edit_item())
-        bottom.addWidget(comp_btn)
-        bottom.addWidget(clear_btn)
-        bottom.addWidget(add_btn)
-        layout.addLayout(bottom)
-
+        layout.addLayout(bottom_action_bar(comp_btn, clear_btn, add_btn))
     def _get_groups(self) -> list[str]:
         return normalize_todo_groups(self.main.data.get("todo_groups", ["그룹 1", "그룹 2", "그룹 3"]))
 
@@ -1246,7 +1547,7 @@ class TodoListTab(QWidget):
             self.main.save_data()
             self.refresh()
 
-    # ── 리프레시 ─────────────────────────────────────────────────────────────
+    # 리프레시
 
     def refresh(self) -> None:
         # 기존 컬럼 삭제
@@ -1267,7 +1568,7 @@ class TodoListTab(QWidget):
             col = self._make_col_widget(g_idx, group_name, g_items)
             self._cols_hbox.addWidget(col, 1)
 
-    # ── 컬럼 위젯 ────────────────────────────────────────────────────────────
+    # 컬럼 위젯
 
     def _make_col_widget(self, idx: int, name: str, items: list[dict]) -> QWidget:
         col = QWidget()
@@ -1353,7 +1654,7 @@ class TodoListTab(QWidget):
             return 0
         return max(int(item.get("sort_order", 0) or 0) for item in items) + 1
 
-    # ── 카드 ─────────────────────────────────────────────────────────────────
+    # 카드
 
     def _make_card(self, item: dict) -> QWidget:
         card = QWidget()
@@ -1403,9 +1704,15 @@ class TodoListTab(QWidget):
             except Exception:
                 pass
 
-        h.setSpacing(4)
-        h.addWidget(make_icon_button("edit", "수정", lambda c=False, i=item: self.edit_item(i), size=QSize(22, 22)))
-        h.addWidget(make_icon_button("delete", "삭제", lambda c=False, i=item: self.delete_item(i), True, size=QSize(22, 22)))
+        action_page = QWidget()
+        action_row = QHBoxLayout(action_page)
+        action_row.setContentsMargins(CARD_ACTION_ROW_MARGIN_X, CARD_ACTION_ROW_MARGIN_Y, CARD_ACTION_ROW_MARGIN_X, CARD_ACTION_ROW_MARGIN_Y)
+        action_row.setSpacing(CARD_ACTION_ROW_SPACING)
+        action_row.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
+        icon_size = QSize(CARD_ACTION_ICON_SIZE, CARD_ACTION_ICON_SIZE)
+        action_row.addWidget(make_icon_button("edit", "수정", lambda c=False, i=item: self.edit_item(i), size=icon_size))
+        action_row.addWidget(make_icon_button("delete", "삭제", lambda c=False, i=item: self.delete_item(i), True, size=icon_size))
+        set_card_action_widget(card, action_page)
         if priority in {"상", "중"}:
             style = PRIORITY_STYLES[priority]
             card.setStyleSheet(
@@ -1416,7 +1723,7 @@ class TodoListTab(QWidget):
             card.setStyleSheet("QWidget#todoCard{border-radius:5px;border:1px solid #E5E7EB;}")
         return card
 
-    # ── CRUD ─────────────────────────────────────────────────────────────────
+    # CRUD
 
     def _on_check(self, item: dict, checked: bool) -> None:
         if checked:
@@ -1475,16 +1782,16 @@ class TodoListTab(QWidget):
             ]
             self.main.save_data()
 
-    # ════════════════════════════════════════════════════════════════════════
     # 타이머 탭
-    # ════════════════════════════════════════════════════════════════════════
+
+
 
     def _build_timer_page(self) -> None:
         layout = QVBoxLayout(self._timer_page)
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(12)
 
-        # ── 지속시간 입력 섹션 ──
+        # 지속시간 입력 섹션
         self._timer_dur_section = QWidget()
         self._timer_dur_section.setMinimumWidth(300)
         self._timer_dur_section.setObjectName("timerPanel")
@@ -1535,7 +1842,7 @@ class TodoListTab(QWidget):
         self._timer_duration_start_btn.clicked.connect(self._start_duration_timer)
         dur_layout.addWidget(self._timer_duration_start_btn)
 
-        # ── 특정 시간 입력 섹션 ──
+        # 특정 시간 입력 섹션
         self._timer_exact_section = QWidget()
         self._timer_exact_section.setMinimumWidth(250)
         self._timer_exact_section.setObjectName("timerPanel")
@@ -1586,8 +1893,10 @@ class TodoListTab(QWidget):
         exact_time_row.addWidget(self._exact_timer_min)
         exact_time_row.addStretch(1)
         exact_time_widget = QWidget()
+        exact_time_widget.setObjectName("timerExactTimeField")
         exact_time_widget.setLayout(exact_time_row)
         exact_time_widget.setFixedHeight(26)
+        exact_time_widget.setStyleSheet("QWidget#timerExactTimeField { background: transparent; }")
 
         exact_form.addRow("날짜", self._exact_timer_date)
         exact_form.addRow("시간", exact_time_widget)
@@ -1667,10 +1976,17 @@ class TodoListTab(QWidget):
                 border-radius: 6px;
                 background: rgba(255,255,255,0.55);
             }
+            QWidget#timerPanel QComboBox#timerCompactCombo QAbstractItemView {
+                background: rgba(255,255,255,0.55);
+                border: 1px solid #E5E7EB;
+            }
+            QWidget#timerPanel QWidget#timerExactTimeField {
+                background: transparent;
+            }
             """
         )
 
-    # ── 타이머 헬퍼 ──────────────────────────────────────────────────────────
+    # 타이머 헬퍼
 
     def _timer_preset(self, minutes: int) -> None:
         self._t_h.setValue(minutes // 60)
@@ -1736,14 +2052,14 @@ class TodoListTab(QWidget):
         if seconds <= 0:
             return
         self._timer_msg.setText(note)
-        self._timer_status.setText(f"{label} 시작됨" if label else "빠른 작업에서 시작됨")
+        self._timer_status.setText(f"{label} 시작" if label else "빠른 작업에서 시작")
         self._start_timer(seconds, "duration")
         self._tab_widget.setCurrentWidget(self._timer_page)
 
     def _pause_timer(self) -> None:
         self._countdown_qTimer_obj.stop()
         self._timer_running = False
-        self._timer_status.setText("일시정지됨")
+        self._timer_status.setText("일시정지")
         self._update_timer_buttons(paused=True)
 
     def _resume_timer(self, mode: str) -> None:

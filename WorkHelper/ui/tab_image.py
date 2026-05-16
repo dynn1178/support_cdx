@@ -37,7 +37,28 @@ from PyQt6.QtWidgets import (
 
 from app import config
 from app.utils import display_hotkey, new_id, now_iso, resolve_image_path
-from ui.common import GridPanel, HotkeyFields, SortControls, add_card_actions, apply_manual_reorder, bump_usage, confirm_delete, confirm_shift_digit_hotkey, make_card, make_icon_button, show_modern_info
+from ui.common import (
+    CARD_ACTION_ICON_SIZE,
+    CARD_ACTION_ROW_MARGIN_X,
+    CARD_ACTION_ROW_MARGIN_Y,
+    CARD_ACTION_ROW_SPACING,
+    CARD_CONTENT_TOP_MARGIN,
+    GridPanel,
+    HotkeyFields,
+    SortControls,
+    add_card_actions,
+    apply_manual_reorder,
+    bottom_action_bar,
+    bump_usage,
+    confirm_delete,
+    confirm_shift_digit_hotkey,
+    make_card,
+    make_icon_button,
+    set_card_action_widget,
+    show_modern_info,
+)
+
+STEEL_CUT_CARD_HEIGHT = 82
 
 
 def active_window_title() -> str:
@@ -815,43 +836,27 @@ class ImageTab(QWidget):
         corner_layout.addWidget(self.sort_controls)
         self.tabs = QTabWidget()
         self.tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
-        self.list = GridPanel(columns=2)
-        self.steel_cut_list = GridPanel(columns=2)
+        self.list = GridPanel(columns=3)
+        self.steel_cut_list = GridPanel(columns=3)
         add_btn = QPushButton("+ 이미지")
         add_btn.clicked.connect(self.edit_image)
         page = QWidget()
         page_layout = QVBoxLayout(page)
         page_layout.setContentsMargins(0, 0, 0, 0)
         page_layout.addWidget(self.list, 1)
-        row = QHBoxLayout()
-        row.addStretch(1)
         save_folder_btn = QPushButton("저장 폴더 열기")
         save_folder_btn.clicked.connect(self.open_saved_image_folder)
-        row.addWidget(save_folder_btn)
-        row.addWidget(add_btn)
-        page_layout.addLayout(row)
+        page_layout.addLayout(bottom_action_bar(save_folder_btn, add_btn))
         steel_page = QWidget()
         steel_layout = QVBoxLayout(steel_page)
         steel_layout.setContentsMargins(0, 0, 0, 0)
-        steel_layout.setSpacing(8)
-        steel_hint = QLabel(
-            "참고해야 할 창이 자꾸 뒤로 숨을 때, 스틸 컷 화면을 띄워보세요. "
-            "일주일 이상 사용하지 않은 스틸 컷은 자동 삭제됩니다."
-        )
-        steel_hint.setObjectName("mutedText")
-        steel_hint.setWordWrap(True)
-        steel_layout.addSpacing(8)
-        steel_layout.addWidget(steel_hint)
-        steel_hint.hide()
+        steel_layout.setSpacing(0)
         steel_layout.addWidget(self.steel_cut_list, 1)
-        reset_row = QHBoxLayout()
         reset_btn = QPushButton("초기화")
         reset_btn.setText("저장 폴더 열기")
         reset_btn.clicked.connect(self.open_screenshot_folder)
-        reset_row.addStretch(1)
-        reset_row.addWidget(reset_btn)
-        steel_layout.addLayout(reset_row)
-        self.tabs.addTab(steel_page, "캡처 & 그리기")
+        steel_layout.addLayout(bottom_action_bar(reset_btn))
+        self.tabs.addTab(steel_page, "캡처 · 그리기")
         self.tabs.addTab(page, "컨닝페이퍼")
         layout.addWidget(self.tabs, 1)
 
@@ -880,7 +885,7 @@ class ImageTab(QWidget):
 
     def refresh_steel_cuts(self, q: str = "") -> None:
         source_items = self.main.data.setdefault("steel_cuts", [])
-        visible_items = sorted(source_items, key=lambda value: value.get("created_at", ""), reverse=True)[:50]
+        visible_items = sorted(source_items, key=lambda value: value.get("created_at", ""), reverse=True)[:30]
         cards = []
         for item in visible_items:
             haystack = f"{item.get('window_title', '')} {item.get('created_at', '')}".lower()
@@ -892,13 +897,14 @@ class ImageTab(QWidget):
     def make_steel_cut_card(self, item: dict) -> QWidget:
         card = QWidget()
         card.setObjectName("card")
+        card.setFixedHeight(STEEL_CUT_CARD_HEIGHT)
         card.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         layout = QHBoxLayout(card)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(10, CARD_CONTENT_TOP_MARGIN, 10, 10)
         layout.setSpacing(10)
 
         image = QLabel()
-        image.setFixedSize(QSize(110, 74))
+        image.setFixedSize(QSize(92, 52))
         image.setAlignment(Qt.AlignmentFlag.AlignCenter)
         image.setStyleSheet("background:#F8FAFC;border:1px solid #E5E7EB;border-radius:5px;")
         path = resolve_image_path(item.get("path", ""), config.BASE_DIR)
@@ -906,7 +912,7 @@ class ImageTab(QWidget):
         if pixmap.isNull():
             image.setText("이미지 없음")
         else:
-            image.setPixmap(pixmap.scaled(QSize(108, 72), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            image.setPixmap(pixmap.scaled(QSize(90, 50), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         layout.addWidget(image)
 
         right = QVBoxLayout()
@@ -924,20 +930,23 @@ class ImageTab(QWidget):
 
         right.addStretch(1)
 
-        btn_row = QHBoxLayout()
-        btn_row.setContentsMargins(0, 0, 0, 0)
-        btn_row.addStretch(1)
-        btn_row.addWidget(make_icon_button("view", "보기", lambda checked=False, value=item: self.view_steel_cut(value)))
-        btn_row.addWidget(make_icon_button("open", "컨닝페이퍼로 이동", lambda checked=False, value=item: self.move_steel_cut_to_cheat_sheet(value)))
-        btn_row.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=item: self.delete_steel_cut(value), True))
-        right.addLayout(btn_row)
-
         layout.addLayout(right, 1)
+        action_page = QWidget()
+        action_row = QHBoxLayout(action_page)
+        action_row.setContentsMargins(CARD_ACTION_ROW_MARGIN_X, CARD_ACTION_ROW_MARGIN_Y, CARD_ACTION_ROW_MARGIN_X, CARD_ACTION_ROW_MARGIN_Y)
+        action_row.setSpacing(CARD_ACTION_ROW_SPACING)
+        action_row.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
+        icon_size = QSize(CARD_ACTION_ICON_SIZE, CARD_ACTION_ICON_SIZE)
+        action_row.addWidget(make_icon_button("view", "보기", lambda checked=False, value=item: self.view_steel_cut(value), size=icon_size))
+        action_row.addWidget(make_icon_button("➡️", "컨닝페이퍼로 이동", lambda checked=False, value=item: self.move_steel_cut_to_cheat_sheet(value), size=icon_size))
+        action_row.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=item: self.delete_steel_cut(value), True, size=icon_size))
+        set_card_action_widget(card, action_page)
         return card
 
     def format_created_at(self, value: str) -> str:
         try:
-            return datetime.fromisoformat(value).strftime("%Y-%m-%d %H:%M")
+            dt = datetime.fromisoformat(value)
+            return f"{dt.month}/{dt.day} {dt.hour}:{dt.minute:02d}"
         except ValueError:
             return value
 
@@ -1115,7 +1124,7 @@ class ImageTab(QWidget):
             steel_items.remove(item)
         self.main.save_data()
         self.refresh()
-        show_modern_info(self, "이동 완료", "캡처 & 그리기 항목을 컨닝페이퍼에 등록했습니다.")
+        show_modern_info(self, "이동 완료", "캡처 · 그리기 항목을 컨닝페이퍼에 등록했습니다.")
 
     def delete_steel_cut(self, item: dict) -> None:
         if not confirm_delete(self, "선택한 스틸 컷을 삭제할까요?"):

@@ -881,7 +881,7 @@ class MainWindow(QMainWindow):
             self.stack.addWidget(tab)
         content_layout.addWidget(self.stack, 1)
 
-        names = ["홈", "상용구", "바로가기", "클립보드", "캡처 도구", "일정 관리", "메모", "매크로", "계산기", "텍스트 변환", "피커 · 기타", "설정"]
+        names = ["홈", "상용구", "바로가기", "클립보드", "캡처 · 그리기", "일정 관리", "메모", "매크로", "계산기", "텍스트 변환", "피커 · 기타", "설정"]
         self.buttons: list[QToolButton] = []
         for i, name in enumerate(names):
             button = QToolButton()
@@ -985,6 +985,11 @@ class MainWindow(QMainWindow):
         apply_theme(self.app, settings.get("theme", "light"))
         if getattr(self, "floating_widget", None) is not None:
             self.floating_widget.apply_settings()
+        tabs = getattr(self, "tabs", None)
+        if tabs and len(tabs) > 10 and hasattr(tabs[10], "apply_theme"):
+            tabs[10].apply_theme()
+        if tabs and len(tabs) > 11 and hasattr(tabs[11], "apply_theme"):
+            tabs[11].apply_theme()
 
     def apply_always_on_top(self, enabled: bool) -> None:
         if sys.platform.startswith("win"):
@@ -1040,7 +1045,7 @@ class MainWindow(QMainWindow):
             ("snippets", "코드"),
             ("title_templates", "제목 생성"),
             ("launchers", "바로가기"),
-            ("images", "캡처 도구"),
+            ("images", "캡처 · 그리기"),
             ("macros", "매크로"),
         ]:
             for item in self.data.get(collection, []):

@@ -15,6 +15,7 @@ THEMES = {
         "field": "#FFFFFF",
         "hover": "#EEF2FF",
         "accent": "#3B6CF5",
+        "highlight": "#94AEF4",  # (accent + bg) / 2 — 슬라이더·컬러탭용
         "danger": "#E25C6C",
     },
     "dark": {
@@ -27,6 +28,7 @@ THEMES = {
         "field": "#303136",
         "hover": "#3A3D45",
         "accent": "#7AA2FF",
+        "highlight": "#4D6191",
         "danger": "#FF7B8A",
         "kbd_bg": "#3F4A5F",
     },
@@ -40,6 +42,7 @@ THEMES = {
         "field": "#FFFFFF",
         "hover": "#DCEBFA",
         "accent": "#2F72B8",
+        "highlight": "#91B4D9",
         "danger": "#D94D5E",
     },
     "green": {
@@ -52,6 +55,7 @@ THEMES = {
         "field": "#FFFFFF",
         "hover": "#DDF1E4",
         "accent": "#2E8A57",
+        "highlight": "#90C1A5",
         "danger": "#CF4D5B",
     },
     "warm": {
@@ -64,6 +68,7 @@ THEMES = {
         "field": "#FFFFFF",
         "hover": "#F4E5D3",
         "accent": "#B66A25",
+        "highlight": "#D8B08A",
         "danger": "#C94F5E",
     },
     "dark_red": {
@@ -76,6 +81,7 @@ THEMES = {
         "field": "#3A3030",
         "hover": "#513737",
         "accent": "#FF8A8A",
+        "highlight": "#935656",
         "danger": "#FF7B8A",
         "kbd_bg": "#5A3B3B",
     },
@@ -89,6 +95,7 @@ THEMES = {
         "field": "#FFFFFF",
         "hover": "#E9EBEF",
         "accent": "#4B5563",
+        "highlight": "#9EA3AB",
         "danger": "#C24150",
     },
     "mint": {
@@ -101,6 +108,7 @@ THEMES = {
         "field": "#FFFFFF",
         "hover": "#DDF3EE",
         "accent": "#168A7A",
+        "highlight": "#82C1B8",
         "danger": "#D04F62",
     },
     "lavender": {
@@ -113,6 +121,7 @@ THEMES = {
         "field": "#FFFFFF",
         "hover": "#ECE7F8",
         "accent": "#7257B5",
+        "highlight": "#B3A5D7",
         "danger": "#C84F70",
     },
     "graphite": {
@@ -125,6 +134,7 @@ THEMES = {
         "field": "#333940",
         "hover": "#3A414A",
         "accent": "#7BC7E8",
+        "highlight": "#4D7588",
         "danger": "#FF7B8A",
         "kbd_bg": "#415060",
     },
@@ -138,6 +148,7 @@ THEMES = {
         "field": "#FFFFFF",
         "hover": "#E6F0FF",
         "accent": "#005FCC",
+        "highlight": "#7FAFE5",
         "danger": "#B00020",
     },
 }
@@ -187,6 +198,18 @@ def build_stylesheet(colors: dict[str, str]) -> str:
             background: {colors["panel"]}; border: 1px solid {colors["border"]}; border-radius: 8px;
         }}
         QWidget#card:hover {{ border-color: {colors["accent"]}; }}
+        QWidget#cardActionBar {{
+            background: {colors["panel"]}; border: 1px solid {colors["border"]}; border-radius: 6px;
+        }}
+        QWidget#hotkeyCaps {{
+            background: {colors["panel"]}; border: 2px solid {colors["panel"]}; border-radius: 8px; padding: 5px 8px;
+        }}
+        QWidget#hotkeyCapsInline {{
+            background: transparent; border: 0; padding: 0;
+        }}
+        QWidget#hotkeyCapsInline QLabel#keyCap {{
+            background: transparent;
+        }}
         QWidget#card[dragging="true"] {{ border: 2px dashed {colors["accent"]}; }}
         QWidget#sortControls {{
             background: {colors["panel"]}; border: 1px solid {colors["border"]}; border-radius: 7px;

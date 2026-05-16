@@ -7,6 +7,7 @@ from PyQt6.QtGui import QColor, QTextCharFormat
 from PyQt6.QtWidgets import QCheckBox, QComboBox, QDateEdit, QFormLayout, QHBoxLayout, QLabel, QPushButton, QSpinBox, QVBoxLayout, QWidget
 
 from app.date_tools import apply_offset, format_date
+from ui.common import GRID_PANEL_MARGINS
 
 
 def highlight_today(date_edit: QDateEdit) -> None:
@@ -23,7 +24,7 @@ class DateCalculatorTab(QWidget):
         super().__init__()
         self.main = main
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setContentsMargins(14, GRID_PANEL_MARGINS[1], 14, 12)
         layout.setSpacing(10)
         panel = QWidget()
         panel.setMaximumWidth(560)

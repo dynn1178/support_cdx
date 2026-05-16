@@ -55,6 +55,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "favorite_emojis": [],
     "recent_emojis": [],
     "emoji_usage": {},
+    "special_char_usage": {},
     "mouse_highlight_color": "#FFDD33",
     "mouse_highlight_shape": "원",
     "mouse_highlight_size": 70,
@@ -70,7 +71,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "floating_widget_theme": "dark",
     "floating_widget_icon_shape": "square",
     "floating_widget_show_hover_text": True,
+    "floating_widget_hint_dismissed": False,
     "floating_widget_categories": ["text", "snippet", "date", "site", "file", "folder", "cheat", "memo", "emoji"],
+    "sticky_memo_arrange_monitor": 1,
+    "sticky_memo_arrange_corner": "top_right",
 }
 
 
@@ -338,7 +342,7 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
     "custom_searches": [],
 }
 
-EXPORT_STRIP_ITEM_FIELDS = ("last_used_at", "used_today_date", "used_today_count", "usage_count")
+EXPORT_STRIP_ITEM_FIELDS = ("last_used_at", "used_today_date", "used_today_count", "usage_count", "favicon_attempted")
 EXPORT_EXCLUDED_COLLECTIONS = frozenset({"steel_cuts"})
 
 PRESET_COLLECTION_KEYS = (

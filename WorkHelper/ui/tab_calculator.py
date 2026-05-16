@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.date_tools import apply_offset, format_date
+from ui.common import GRID_PANEL_MARGINS
 
 
 def highlight_today(date_edit: QDateEdit) -> None:
@@ -75,7 +76,7 @@ class ArithmeticTab(QWidget):
         self.history: list[str] = []
         self.raw_result = ""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 12)
+        layout.setContentsMargins(16, GRID_PANEL_MARGINS[1], 16, 12)
         layout.setSpacing(12)
 
         # 계산기 패널 (중앙 정렬)
@@ -179,7 +180,7 @@ class DateCalcTab(QWidget):
         super().__init__()
         self.main = main
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 12)
+        layout.setContentsMargins(16, GRID_PANEL_MARGINS[1], 16, 12)
         layout.setSpacing(0)
 
         # 날짜계산 패널 (중앙 정렬, card 스타일)
@@ -214,7 +215,9 @@ class DateCalcTab(QWidget):
         calc_row.addWidget(self.unit)
         calc_row.addStretch(1)
         calc_widget = QWidget()
+        calc_widget.setObjectName("calcWidget")
         calc_widget.setLayout(calc_row)
+        calc_widget.setStyleSheet("QWidget#calcWidget { background: transparent; border: 0; }")
         self.business_days = QCheckBox("일 단위 계산 시 영업일 기준")
         self.format = QComboBox()
         self.format.setEditable(True)

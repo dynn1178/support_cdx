@@ -33,7 +33,7 @@ from app import config
 from app.theme import THEMES
 from app.update_checker import check_update_dialog
 from app.utils import display_hotkey, is_startup_enabled, resolve_image_path, set_startup_enabled
-from ui.common import HotkeyFields, ask_modern_question, confirm_shift_digit_hotkey, show_modern_info, show_modern_warning
+from ui.common import HotkeyFields, ask_modern_question, bottom_action_bar, confirm_shift_digit_hotkey, show_modern_info, show_modern_warning
 from ui.floating_widget import CATEGORY_ORDER
 
 
@@ -53,10 +53,13 @@ THEME_LABELS = {
 
 
 class SettingsTab(QWidget):
+    FIELD_MAX_WIDTH = 340  # 드롭다운·슬라이더 최대 너비 (카드 폭의 ~50%)
+
     def __init__(self, main) -> None:
         super().__init__()
         self.main = main
         self._refreshing = False
+        self._widget_slider_holders: list[QWidget] = []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.tabs = QTabWidget()
@@ -74,15 +77,11 @@ class SettingsTab(QWidget):
         self.build_theme()
         self.build_widget()
 
-        preset_buttons = QHBoxLayout()
-        preset_buttons.setContentsMargins(10, 4, 10, 0)
-        action_buttons = QHBoxLayout()
-        action_buttons.setContentsMargins(10, 4, 10, 8)
         save_btn = QPushButton("설정 저장")
         update_btn = QPushButton("업데이트 확인")
-        export_btn = QPushButton("현재 프리셋 내보내기")
-        import_btn = QPushButton("현재 프리셋 가져오기")
-        reset_btn = QPushButton("현재 프리셋 초기화")
+        export_btn = QPushButton("내보내기")
+        import_btn = QPushButton("가져오기")
+        reset_btn = QPushButton("초기화")
         creator_btn = QPushButton("문의 및 홈페이지")
         save_btn.clicked.connect(self.save_settings)
         update_btn.clicked.connect(self.check_update_now)
@@ -92,16 +91,7 @@ class SettingsTab(QWidget):
         creator_btn.clicked.connect(self.show_creator)
         for button in [export_btn, import_btn, reset_btn, creator_btn, update_btn, save_btn]:
             button.setMinimumWidth(button.fontMetrics().horizontalAdvance(button.text()) + 34)
-        preset_buttons.addStretch(1)
-        preset_buttons.addWidget(export_btn)
-        preset_buttons.addWidget(import_btn)
-        preset_buttons.addWidget(reset_btn)
-        action_buttons.addStretch(1)
-        action_buttons.addWidget(creator_btn)
-        action_buttons.addWidget(update_btn)
-        action_buttons.addWidget(save_btn)
-        layout.addLayout(preset_buttons)
-        layout.addLayout(action_buttons)
+        layout.addLayout(bottom_action_bar(export_btn, import_btn, reset_btn, creator_btn, update_btn, save_btn))
         self._general_snapshot = {}
         self._settings_snapshot = {}
 
@@ -110,11 +100,14 @@ class SettingsTab(QWidget):
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.template = QComboBox()
+        self.template.setMaximumWidth(self.FIELD_MAX_WIDTH)
         self.template.currentIndexChanged.connect(self.change_template)
         self.template_name = QLineEdit()
+        self.template_name.setMaximumWidth(self.FIELD_MAX_WIDTH)
         self.always_on_top = QCheckBox("항상 위")
         self.clipboard_limit = QSpinBox()
         self.clipboard_limit.setRange(10, 500)
+        self.clipboard_limit.setMaximumWidth(self.FIELD_MAX_WIDTH)
         self.auto_update_check = QCheckBox("프로그램 시작 시 자동 확인")
         self.auto_update_install = QCheckBox("업데이트 동의 시 앱에서 바로 설치")
         self.auto_update_install.setEnabled(False)
@@ -282,6 +275,7 @@ class SettingsTab(QWidget):
         self.popup_mode_group.addButton(self.popup_mode_double_ctrl, 1)
         self.clipboard_popup_hotkey = HotkeyFields()
         self.clipboard_popup_hotkey.setFixedHeight(28)
+        self.clipboard_popup_hotkey.setMaximumWidth(self.FIELD_MAX_WIDTH)
         layout.addWidget(self.hotkey_group("클립보드 미니팝업", self.popup_mode_double_ctrl, self.popup_mode_hotkey, self.clipboard_popup_hotkey))
 
         self.memo_mode_group = QButtonGroup(self)
@@ -291,14 +285,17 @@ class SettingsTab(QWidget):
         self.memo_mode_group.addButton(self.memo_mode_double_alt, 1)
         self.quick_memo_hotkey = HotkeyFields()
         self.quick_memo_hotkey.setFixedHeight(28)
+        self.quick_memo_hotkey.setMaximumWidth(self.FIELD_MAX_WIDTH)
         layout.addWidget(self.hotkey_group("빠른 메모", self.memo_mode_double_alt, self.memo_mode_hotkey, self.quick_memo_hotkey))
 
         self.phrase_popup_hotkey = HotkeyFields()
         self.phrase_popup_hotkey.setFixedHeight(28)
+        self.phrase_popup_hotkey.setMaximumWidth(self.FIELD_MAX_WIDTH)
         layout.addWidget(self.single_hotkey_group("상용구 미니팝업", "단축키", self.phrase_popup_hotkey))
 
         self.steel_cut_hotkey = HotkeyFields()
         self.steel_cut_hotkey.setFixedHeight(28)
+        self.steel_cut_hotkey.setMaximumWidth(self.FIELD_MAX_WIDTH)
         self.steel_cut_capture_mode_group = QButtonGroup(self)
         self.steel_cut_capture_mode_widget = QWidget()
         self.steel_cut_capture_mode_widget.setObjectName("captureModeRow")
@@ -328,6 +325,7 @@ class SettingsTab(QWidget):
 
         self.screen_draw_hotkey = HotkeyFields()
         self.screen_draw_hotkey.setFixedHeight(28)
+        self.screen_draw_hotkey.setMaximumWidth(self.FIELD_MAX_WIDTH)
 
         steel_box = QWidget()
         steel_box.setObjectName("card")
@@ -402,9 +400,9 @@ class SettingsTab(QWidget):
         scroll.setWidget(content)
         root.addWidget(scroll, 1)
 
-        box = QWidget()
-        box.setObjectName("card")
-        form = QFormLayout(box)
+        sidebar_box = QWidget()
+        sidebar_box.setObjectName("card")
+        form = QFormLayout(sidebar_box)
         form.setContentsMargins(14, 14, 14, 14)
         form.setVerticalSpacing(12)
         title = QLabel("플로팅 위젯")
@@ -415,11 +413,13 @@ class SettingsTab(QWidget):
         form.addRow("사용", self.floating_widget_enabled)
 
         self.floating_widget_edge = QComboBox()
-        for label, value in [("하", "bottom"), ("상", "top"), ("좌", "left"), ("우", "right")]:
+        self.floating_widget_edge.setMaximumWidth(self.FIELD_MAX_WIDTH)
+        for label, value in [("아래", "bottom"), ("위", "top"), ("왼쪽", "left"), ("오른쪽", "right")]:
             self.floating_widget_edge.addItem(label, value)
         form.addRow("사이드 영역", self.floating_widget_edge)
 
         self.floating_widget_monitor = QComboBox()
+        self.floating_widget_monitor.setMaximumWidth(self.FIELD_MAX_WIDTH)
         form.addRow("표시 모니터", self.floating_widget_monitor)
 
         self.floating_widget_panel_size = self.widget_slider(130, 280, " px")
@@ -434,6 +434,7 @@ class SettingsTab(QWidget):
         form.addRow("투명도", self.floating_widget_opacity)
 
         self.floating_widget_theme = QComboBox()
+        self.floating_widget_theme.setMaximumWidth(self.FIELD_MAX_WIDTH)
         self.floating_widget_theme.addItem("밝은 테마", "light")
         self.floating_widget_theme.addItem("어두운 테마", "dark")
         self.floating_widget_theme.addItem("미러 글래스", "glass")
@@ -455,11 +456,11 @@ class SettingsTab(QWidget):
         menu_box.setStyleSheet(
             f"""
             QWidget#floatingWidgetMenuBox {{
-                background: {menu_theme["panel"]};
+                background: transparent;
                 border: 0;
             }}
             QWidget#floatingWidgetMenuBox QCheckBox {{
-                background: {menu_theme["panel"]};
+                background: transparent;
                 color: {menu_theme["text"]};
             }}
             """
@@ -476,8 +477,65 @@ class SettingsTab(QWidget):
             check.toggled.connect(lambda _checked: self.preview_widget_settings())
         form.addRow("표시 메뉴", menu_box)
 
-        layout.addWidget(box)
+        layout.addWidget(sidebar_box)
+
+        memo_box = QWidget()
+        memo_box.setObjectName("card")
+        memo_form = QFormLayout(memo_box)
+        memo_form.setContentsMargins(14, 14, 14, 14)
+        memo_form.setVerticalSpacing(12)
+        memo_title = QLabel("메모 정렬")
+        memo_title.setObjectName("cardTitle")
+        memo_form.addRow(memo_title)
+        self.sticky_memo_arrange_monitor = QComboBox()
+        self.sticky_memo_arrange_monitor.setMaximumWidth(self.FIELD_MAX_WIDTH)
+        memo_form.addRow("정렬 모니터", self.sticky_memo_arrange_monitor)
+        self.sticky_memo_arrange_corner = QComboBox()
+        self.sticky_memo_arrange_corner.setMaximumWidth(self.FIELD_MAX_WIDTH)
+        for label, value in [
+            ("우측 상단", "top_right"),
+            ("좌측 상단", "top_left"),
+            ("우측 하단", "bottom_right"),
+            ("좌측 하단", "bottom_left"),
+        ]:
+            self.sticky_memo_arrange_corner.addItem(label, value)
+        memo_form.addRow("정렬 기준", self.sticky_memo_arrange_corner)
+
+        layout.addWidget(memo_box)
         layout.addStretch(1)
+
+    def _accent(self) -> str:
+        return THEMES.get(self.main.settings.get("theme", "light"), THEMES["light"]).get("highlight", "#94AEF4")
+
+    def _slider_stylesheet(self, accent: str) -> str:
+        return f"""
+            QWidget {{ background: transparent; border: 0; }}
+            QSlider {{ background: transparent; }}
+            QSlider::groove:horizontal {{
+                height: 6px;
+                background: rgba(148, 163, 184, 70);
+                border: 0;
+                border-radius: 3px;
+            }}
+            QSlider::sub-page:horizontal {{
+                background: {accent};
+                border: 0;
+                border-radius: 3px;
+            }}
+            QSlider::handle:horizontal {{
+                width: 15px;
+                height: 15px;
+                margin: -5px 0;
+                background: #FFFFFF;
+                border: 1px solid {accent};
+                border-radius: 8px;
+            }}
+        """
+
+    def apply_theme(self) -> None:
+        stylesheet = self._slider_stylesheet(self._accent())
+        for holder in self._widget_slider_holders:
+            holder.setStyleSheet(stylesheet)
 
     def widget_slider(self, minimum: int, maximum: int, suffix: str) -> QWidget:
         holder = QWidget()
@@ -494,31 +552,9 @@ class SettingsTab(QWidget):
         row.addWidget(value_label)
         holder.slider = slider
         holder.value_label = value_label
-        holder.setStyleSheet(
-            """
-            QWidget { background: transparent; border: 0; }
-            QSlider { background: transparent; }
-            QSlider::groove:horizontal {
-                height: 6px;
-                background: rgba(148, 163, 184, 70);
-                border: 0;
-                border-radius: 3px;
-            }
-            QSlider::sub-page:horizontal {
-                background: rgba(59, 108, 245, 150);
-                border: 0;
-                border-radius: 3px;
-            }
-            QSlider::handle:horizontal {
-                width: 15px;
-                height: 15px;
-                margin: -5px 0;
-                background: #FFFFFF;
-                border: 1px solid rgba(59, 108, 245, 155);
-                border-radius: 8px;
-            }
-            """
-        )
+        holder.setMaximumWidth(self.FIELD_MAX_WIDTH)
+        holder.setStyleSheet(self._slider_stylesheet(self._accent()))
+        self._widget_slider_holders.append(holder)
         return holder
 
     def set_widget_slider_value(self, holder: QWidget, value: int) -> None:
@@ -587,6 +623,8 @@ class SettingsTab(QWidget):
             "floating_widget_theme": self.floating_widget_theme.currentData(),
             "floating_widget_show_hover_text": self.floating_widget_show_hover_text.isChecked(),
             "floating_widget_categories": self.widget_categories_value(),
+            "sticky_memo_arrange_monitor": int(self.sticky_memo_arrange_monitor.currentData() or 1),
+            "sticky_memo_arrange_corner": self.sticky_memo_arrange_corner.currentData(),
         }
 
     def preview_widget_settings(self) -> None:
@@ -606,16 +644,28 @@ class SettingsTab(QWidget):
         screens = QApplication.screens()
         self.floating_widget_monitor.blockSignals(True)
         self.floating_widget_monitor.clear()
+        if hasattr(self, "sticky_memo_arrange_monitor"):
+            sticky_selected = int(self.main.settings.get("sticky_memo_arrange_monitor", 1) or 1)
+            self.sticky_memo_arrange_monitor.blockSignals(True)
+            self.sticky_memo_arrange_monitor.clear()
         if not screens:
             self.floating_widget_monitor.addItem("1번 모니터", 1)
+            if hasattr(self, "sticky_memo_arrange_monitor"):
+                self.sticky_memo_arrange_monitor.addItem("1번 모니터", 1)
         else:
             for index, screen in enumerate(screens, start=1):
                 geo = screen.geometry()
                 primary = " · 기본" if screen is QApplication.primaryScreen() else ""
                 self.floating_widget_monitor.addItem(f"{index}번 모니터 ({geo.width()}x{geo.height()}){primary}", index)
+                if hasattr(self, "sticky_memo_arrange_monitor"):
+                    self.sticky_memo_arrange_monitor.addItem(f"{index}번 모니터 ({geo.width()}x{geo.height()}){primary}", index)
         index = self.floating_widget_monitor.findData(max(1, min(self.floating_widget_monitor.count(), selected)))
         self.floating_widget_monitor.setCurrentIndex(index if index >= 0 else 0)
         self.floating_widget_monitor.blockSignals(False)
+        if hasattr(self, "sticky_memo_arrange_monitor"):
+            sticky_index = self.sticky_memo_arrange_monitor.findData(max(1, min(self.sticky_memo_arrange_monitor.count(), sticky_selected)))
+            self.sticky_memo_arrange_monitor.setCurrentIndex(sticky_index if sticky_index >= 0 else 0)
+            self.sticky_memo_arrange_monitor.blockSignals(False)
 
     def set_widget_categories(self, categories: list | None) -> None:
         enabled = categories if isinstance(categories, list) else [key for key, _label, _icon in CATEGORY_ORDER]
@@ -645,17 +695,18 @@ class SettingsTab(QWidget):
         box.setObjectName("card")
         layout = QVBoxLayout(box)
         layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(8)
+        layout.setSpacing(6)
         title_label = QLabel(title)
         title_label.setObjectName("cardTitle")
         layout.addWidget(title_label)
-        mode_row = QHBoxLayout()
-        mode_row.setContentsMargins(0, 0, 0, 0)
-        mode_row.setSpacing(16)
-        mode_row.addWidget(default_radio)
-        mode_row.addWidget(custom_radio)
-        mode_row.addWidget(fields, 1)
-        layout.addLayout(mode_row)
+        layout.addWidget(default_radio)
+        custom_row = QHBoxLayout()
+        custom_row.setContentsMargins(0, 0, 0, 0)
+        custom_row.setSpacing(12)
+        custom_row.addWidget(custom_radio)
+        custom_row.addWidget(fields)
+        custom_row.addStretch(1)
+        layout.addLayout(custom_row)
         return box
 
     def theme_card_style(self, theme: dict, checked: bool) -> str:
@@ -743,6 +794,9 @@ class SettingsTab(QWidget):
         self.floating_widget_show_hover_text.setChecked(bool(settings.get("floating_widget_show_hover_text", True)))
         self.sync_widget_size_sliders("refresh")
         self.set_widget_categories(settings.get("floating_widget_categories"))
+        sticky_corner = str(settings.get("sticky_memo_arrange_corner", "top_right") or "top_right")
+        sticky_corner_index = self.sticky_memo_arrange_corner.findData(sticky_corner)
+        self.sticky_memo_arrange_corner.setCurrentIndex(sticky_corner_index if sticky_corner_index >= 0 else 0)
         self.clipboard_popup_hotkey.set_hotkey(settings.get("clipboard_popup_hotkey"))
         self.quick_memo_hotkey.set_hotkey(settings.get("quick_memo_hotkey"))
         self.phrase_popup_hotkey.set_hotkey(settings.get("phrase_popup_hotkey"))
@@ -783,6 +837,8 @@ class SettingsTab(QWidget):
             "floating_widget_theme": self.floating_widget_theme.currentData() if hasattr(self, "floating_widget_theme") else "dark",
             "floating_widget_show_hover_text": self.floating_widget_show_hover_text.isChecked() if hasattr(self, "floating_widget_show_hover_text") else True,
             "floating_widget_categories": self.widget_categories_value() if hasattr(self, "floating_widget_category_checks") else [key for key, _label, _icon in CATEGORY_ORDER],
+            "sticky_memo_arrange_monitor": int(self.sticky_memo_arrange_monitor.currentData() or 1) if hasattr(self, "sticky_memo_arrange_monitor") else 1,
+            "sticky_memo_arrange_corner": self.sticky_memo_arrange_corner.currentData() if hasattr(self, "sticky_memo_arrange_corner") else "top_right",
         }
 
     def format_update_snooze_until(self, value: str) -> str:
@@ -824,7 +880,7 @@ class SettingsTab(QWidget):
             labels = {"region": "드래그", "full": "전체 화면", "window": "선택 창", "fixed": "고정 크기"}
             return labels.get(value, str(value))
         if key == "floating_widget_edge":
-            return {"top": "상", "bottom": "하", "left": "좌", "right": "우"}.get(value, str(value))
+            return {"top": "위", "bottom": "아래", "left": "왼쪽", "right": "오른쪽"}.get(value, str(value))
         if key == "floating_widget_theme":
             return {"light": "밝은 테마", "dark": "어두운 테마", "glass": "미러 글래스", "mint": "민트", "rose": "로즈"}.get(value, str(value))
         if key.endswith("_hotkey"):
@@ -907,6 +963,8 @@ class SettingsTab(QWidget):
         settings["floating_widget_icon_shape"] = "square"
         settings["floating_widget_show_hover_text"] = bool(snapshot.get("floating_widget_show_hover_text", True))
         settings["floating_widget_categories"] = snapshot.get("floating_widget_categories") or [key for key, _label, _icon in CATEGORY_ORDER]
+        settings["sticky_memo_arrange_monitor"] = int(snapshot.get("sticky_memo_arrange_monitor", 1) or 1)
+        settings["sticky_memo_arrange_corner"] = snapshot.get("sticky_memo_arrange_corner", "top_right")
         settings.pop("floating_widget_color", None)
         settings.pop("floating_widget_item_spacing", None)
         settings["theme"] = snapshot.get("theme", "light")
@@ -946,6 +1004,8 @@ class SettingsTab(QWidget):
         self.floating_widget_show_hover_text.setChecked(bool(snapshot.get("floating_widget_show_hover_text", True)))
         self.sync_widget_size_sliders("discard")
         self.set_widget_categories(snapshot.get("floating_widget_categories"))
+        sticky_corner_index = self.sticky_memo_arrange_corner.findData(snapshot.get("sticky_memo_arrange_corner", "top_right"))
+        self.sticky_memo_arrange_corner.setCurrentIndex(sticky_corner_index if sticky_corner_index >= 0 else 0)
         self.popup_mode_double_ctrl.setChecked(bool(snapshot.get("clipboard_popup_double_ctrl", True)))
         self.popup_mode_hotkey.setChecked(not self.popup_mode_double_ctrl.isChecked())
         self.memo_mode_double_alt.setChecked(bool(snapshot.get("quick_memo_double_alt", True)))
@@ -1026,6 +1086,8 @@ class SettingsTab(QWidget):
         settings["floating_widget_icon_shape"] = "square"
         settings["floating_widget_show_hover_text"] = self.floating_widget_show_hover_text.isChecked()
         settings["floating_widget_categories"] = self.widget_categories_value()
+        settings["sticky_memo_arrange_monitor"] = int(self.sticky_memo_arrange_monitor.currentData() or 1)
+        settings["sticky_memo_arrange_corner"] = self.sticky_memo_arrange_corner.currentData()
         settings.pop("floating_widget_color", None)
         settings.pop("floating_widget_item_spacing", None)
         settings["screen_draw_hotkey"] = self.screen_draw_hotkey.value()
@@ -1173,7 +1235,7 @@ class SettingsTab(QWidget):
             show_modern_warning(self, "내보내기 실패", str(exc))
 
     def import_template(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "현재 프리셋 가져오기", "", "JSON (*.json)")
+        path, _ = QFileDialog.getOpenFileName(self, "가져오기", "", "JSON (*.json)")
         if not path:
             return
         try:
@@ -1215,6 +1277,9 @@ class SettingsTab(QWidget):
         self.main.settings["phrase_popup_hotkey"] = {"modifiers": ["ctrl"], "key": ";"}
         self.main.settings["steel_cut_hotkey"] = {"modifiers": ["ctrl", "shift"], "key": "S"}
         self.main.settings["steel_cut_capture_mode"] = "region"
+        self.main.settings["screen_draw_hotkey"] = None
+        for key in ("mouse_highlight_color", "mouse_highlight_shape", "mouse_highlight_size", "mouse_highlight_opacity"):
+            self.main.settings[key] = config.DEFAULT_SETTINGS[key]
         for key in (
             "floating_widget_enabled",
             "floating_widget_edge",
@@ -1228,6 +1293,8 @@ class SettingsTab(QWidget):
             "floating_widget_icon_shape",
             "floating_widget_show_hover_text",
             "floating_widget_categories",
+            "sticky_memo_arrange_monitor",
+            "sticky_memo_arrange_corner",
         ):
             value = config.DEFAULT_SETTINGS.get(key)
             self.main.settings[key] = list(value) if isinstance(value, list) else value

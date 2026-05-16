@@ -4,7 +4,7 @@ import hashlib
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from PyQt6.QtCore import QAbstractNativeEventFilter, QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import QAbstractNativeEventFilter, QSize, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QCursor, QImage, QKeyEvent, QPixmap
 from PyQt6.QtWidgets import QApplication, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QTabWidget, QVBoxLayout, QWidget
 
@@ -12,7 +12,24 @@ from app import config
 from app.clipboard_watcher import ClipboardWatcher
 from app.hotkey_manager import USER32, WM_HOTKEY
 from app.utils import new_id, now_iso, short_preview
-from ui.common import GridPanel, SortControls, add_card_actions, apply_manual_reorder, ask_modern_question, bump_usage, make_card, make_icon_button
+from ui.common import (
+    CARD_ACTION_ICON_SIZE,
+    CARD_ACTION_ROW_MARGIN_X,
+    CARD_ACTION_ROW_MARGIN_Y,
+    CARD_ACTION_ROW_SPACING,
+    CARD_CONTENT_TOP_MARGIN,
+    GridPanel,
+    SortControls,
+    add_favorite_badge_to_card,
+    apply_manual_reorder,
+    ask_modern_question,
+    bottom_action_bar,
+    bump_usage,
+    make_card,
+    make_icon_button,
+    remove_favorite_badge_from_card,
+    set_card_action_widget,
+)
 
 
 IMAGE_THUMB_SIZE = 52
@@ -311,11 +328,7 @@ class ClipboardTab(QWidget):
         page_layout = QVBoxLayout(page)
         page_layout.setContentsMargins(0, 0, 0, 0)
         page_layout.addWidget(self.list, 1)
-        bottom = QHBoxLayout()
-        bottom.setContentsMargins(10, 0, 10, 10)
-        bottom.addStretch(1)
-        bottom.addWidget(clear_btn)
-        page_layout.addLayout(bottom)
+        page_layout.addLayout(bottom_action_bar(clear_btn))
         self.tabs.addTab(page, "클립보드")
         layout.addWidget(self.tabs, 1)
         self.watcher = ClipboardWatcher()
@@ -434,18 +447,13 @@ class ClipboardTab(QWidget):
                 card = self.make_image_card(item)
             else:
                 text = item.get("text", "")
-                card = make_card(("📌 " if item.get("pinned") else "") + short_preview(text, 160), "", single_line=True, card_size="a")
+                card = make_card(text, "", word_wrap=True, title_max_lines=2, title_bold=False, title_line_height=20, card_size="a")
             if item.get("pinned"):
-                card.setStyleSheet("QWidget#card { border: 2px solid #3B6CF5; background: #EEF2FF; }")
-            if not is_image_item(item):
-                add_card_actions(
-                    card,
-                    [
-                        ("copy", "복사", lambda checked=False, value=item: self.copy_item(value), False),
-                        ("pin", "고정/해제", lambda checked=False, value=item: self.toggle_pin(value), False),
-                        ("delete", "삭제", lambda checked=False, value=item: self.delete_item(value), True),
-                    ],
-                )
+                if is_image_item(item):
+                    self.add_image_pin_badge(card)
+                else:
+                    add_favorite_badge_to_card(card)
+            self.add_card_actions(card, item)
             cards.append(card)
         callback = (lambda old, new: self.reorder_items(source_items, items, old, new)) if self.sort_controls.is_manual() else None
         self.list.add_cards(cards, on_reorder=callback)
@@ -455,6 +463,28 @@ class ClipboardTab(QWidget):
         config.save_clipboard_history(self.history)
         self.refresh()
 
+    def style_pin_button(self, button, pinned: bool) -> None:
+        button.setText("💛" if pinned else "🩶")
+        button.setStyleSheet(
+            "QToolButton#iconButton { font-size: 11pt; padding: 0; "
+            "min-width: 24px; max-width: 24px; min-height: 24px; max-height: 24px; }"
+            "QToolButton#iconButton:hover { background: transparent; }"
+        )
+
+    def add_card_actions(self, card: QWidget, item: dict) -> None:
+        action_page = QWidget()
+        row = QHBoxLayout(action_page)
+        row.setContentsMargins(CARD_ACTION_ROW_MARGIN_X, CARD_ACTION_ROW_MARGIN_Y, CARD_ACTION_ROW_MARGIN_X, CARD_ACTION_ROW_MARGIN_Y)
+        row.setSpacing(CARD_ACTION_ROW_SPACING)
+        row.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
+        _sz = QSize(CARD_ACTION_ICON_SIZE, CARD_ACTION_ICON_SIZE)
+        row.addWidget(make_icon_button("copy", "복사", lambda checked=False, value=item: self.copy_item(value), size=_sz))
+        pin_btn = make_icon_button("pin", "고정/해제", lambda checked=False, value=item, c=card: self.toggle_pin(value, c, pin_btn), size=_sz)
+        self.style_pin_button(pin_btn, bool(item.get("pinned")))
+        row.addWidget(pin_btn)
+        row.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=item: self.delete_item(value), True, size=_sz))
+        set_card_action_widget(card, action_page)
+
     def copy_item(self, item: dict) -> None:
         bump_usage(item)
         if is_image_item(item):
@@ -463,10 +493,22 @@ class ClipboardTab(QWidget):
         config.save_clipboard_history(self.history)
         self.refresh()
 
-    def toggle_pin(self, item: dict) -> None:
+    def toggle_pin(self, item: dict, card: QWidget | None = None, button=None) -> None:
         item["pinned"] = not item.get("pinned")
+        if button is not None:
+            self.style_pin_button(button, bool(item.get("pinned")))
+        if card is not None:
+            if item.get("pinned"):
+                if is_image_item(item):
+                    self.add_image_pin_badge(card)
+                else:
+                    add_favorite_badge_to_card(card)
+            else:
+                if is_image_item(item):
+                    self.remove_image_pin_badge(card)
+                else:
+                    remove_favorite_badge_from_card(card)
         config.save_clipboard_history(self.history)
-        self.refresh()
 
     def delete_item(self, item: dict) -> None:
         self.history.get("history", []).remove(item)
@@ -548,7 +590,7 @@ class ClipboardTab(QWidget):
         card.setObjectName("card")
         card.setFixedHeight(72)
         layout = QHBoxLayout(card)
-        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setContentsMargins(10, CARD_CONTENT_TOP_MARGIN, 10, 8)
         layout.setSpacing(8)
         preview = QLabel()
         preview.setFixedSize(IMAGE_THUMB_SIZE, IMAGE_THUMB_SIZE)
@@ -561,33 +603,47 @@ class ClipboardTab(QWidget):
         text_col = QVBoxLayout()
         text_col.setContentsMargins(0, 0, 0, 0)
         text_col.setSpacing(2)
-        title = QLabel(("📌 " if item.get("pinned") else "") + "이미지")
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(4)
+        title = QLabel("이미지")
         title.setObjectName("cardTitle")
-        title.setText(("★ " if item.get("pinned") else "") + "이미지")
+        title_row.addWidget(title)
+        title_row.addStretch(1)
         time_label = QLabel(display_copied_at(item.get("copied_at", "")))
         time_label.setObjectName("cardSubtitle")
-        text_col.addWidget(title)
+        text_col.addLayout(title_row)
         text_col.addWidget(time_label)
         text_col.addStretch(1)
-        actions = QHBoxLayout()
-        actions.setContentsMargins(0, 0, 0, 0)
-        copy_btn = make_icon_button("copy", "복사", lambda checked=False, value=item: self.copy_item(value))
-        pin_btn = make_icon_button("pin", "고정/해제", lambda checked=False, value=item: self.toggle_pin(value))
-        if item.get("pinned"):
-            pin_btn.setStyleSheet("QToolButton#iconButton { color: #F5B301; font-size: 13pt; font-weight: 900; }")
-        delete_btn = make_icon_button("delete", "삭제", lambda checked=False, value=item: self.delete_item(value), True)
-        actions.addWidget(copy_btn)
-        actions.addWidget(pin_btn)
-        actions.addWidget(delete_btn)
-        action_widget = QWidget()
-        action_widget.setLayout(actions)
-        action_widget.setFixedHeight(30)
-        action_widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
-        action_widget.setStyleSheet("QWidget { background: transparent; border: 0; }")
+        card._image_title_row = title_row
         layout.addWidget(preview)
         layout.addLayout(text_col, 1)
-        layout.addWidget(action_widget, 0, Qt.AlignmentFlag.AlignBottom)
         return card
+
+    def add_image_pin_badge(self, card: QWidget) -> None:
+        row = getattr(card, "_image_title_row", None)
+        if row is None:
+            return
+        self.remove_image_pin_badge(card)
+        badge = QLabel("💛")
+        badge.setObjectName("cardFavoriteBadge")
+        badge.setFixedSize(16, 18)
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        badge.setStyleSheet("QLabel#cardFavoriteBadge { background: transparent; border: 0; font-size: 10pt; padding: 0; }")
+        row.insertWidget(max(0, row.count() - 1), badge)
+        card._image_pin_badge = badge
+
+    def remove_image_pin_badge(self, card: QWidget) -> None:
+        badge = getattr(card, "_image_pin_badge", None)
+        if badge is None:
+            return
+        try:
+            badge.hide()
+            badge.setParent(None)
+            badge.deleteLater()
+        except RuntimeError:
+            pass
+        card._image_pin_badge = None
 
 
 def copy_to_clipboard(item: dict) -> None:

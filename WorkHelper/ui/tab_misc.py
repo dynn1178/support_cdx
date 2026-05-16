@@ -25,8 +25,9 @@ from PyQt6.QtWidgets import (
 )
 
 from app import config
+from app.theme import THEMES
 from app.utils import new_id, now_iso
-from ui.common import ask_modern_question, show_modern_info, show_modern_warning
+from ui.common import ask_modern_question, bottom_action_bar, show_modern_info, show_modern_warning
 
 
 def hex_to_rgb(value: str) -> tuple[int, int, int]:
@@ -107,10 +108,15 @@ class ColorToolsTab(QWidget):
         self.main = main
         self._updating = False
         self.screen_pixel_requested.connect(self.capture_screen_pixel)
-        layout = QVBoxLayout(self)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        content = QWidget()
+        layout = QVBoxLayout(content)
         form = QFormLayout()
         form.setVerticalSpacing(10)
         self.hex_value = QLineEdit("#3B6CF5")
+        self.hex_value.setMaximumWidth(340)
         self.hex_value.editingFinished.connect(self.apply_hex)
         self.rgb_fields = [self.spin(0, 255) for _ in range(3)]
         self.hsl_fields = [self.spin(0, 360), self.spin(0, 100), self.spin(0, 100)]
@@ -119,10 +125,13 @@ class ColorToolsTab(QWidget):
         for field in self.hsl_fields:
             field.valueChanged.connect(self.apply_hsl)
         self.rgb_text = QLineEdit()
+        self.rgb_text.setMaximumWidth(340)
         self.rgb_text.setReadOnly(True)
         self.hsl_text = QLineEdit()
+        self.hsl_text.setMaximumWidth(340)
         self.hsl_text.setReadOnly(True)
         self.swatch = QLabel("")
+        self.swatch.setMaximumWidth(340)
         self.swatch.setFixedHeight(52)
         form.addRow("HEX", self.hex_value)
         form.addRow("RGB 입력", self.field_row(self.rgb_fields))
@@ -146,8 +155,7 @@ class ColorToolsTab(QWidget):
         layout.addLayout(form)
         layout.addStretch(1)
 
-        row = QHBoxLayout()
-        row.addStretch(1)
+        buttons = []
         for text, callback in [
             ("색 선택", self.pick_color),
             ("화면에서 찍기", self.pick_screen_color),
@@ -158,10 +166,16 @@ class ColorToolsTab(QWidget):
         ]:
             button = QPushButton(text)
             button.clicked.connect(callback)
-            row.addWidget(button)
-        layout.addLayout(row)
+            buttons.append(button)
+        root.addWidget(content, 1)
+        root.addLayout(bottom_action_bar(*buttons))
         self.refresh()
-        self.set_color("#3B6CF5", add_history=False)
+        colors = self.main.settings.get("color_history", [])
+        if colors:
+            default_color = colors[0].get("hex", "#94AEF4")
+        else:
+            default_color = THEMES.get(self.main.settings.get("theme", "light"), THEMES["light"]).get("highlight", "#94AEF4")
+        self.set_color(default_color, add_history=False)
 
     def spin(self, low: int, high: int) -> QSpinBox:
         spin = QSpinBox()
@@ -283,6 +297,12 @@ class ColorToolsTab(QWidget):
         config.save_settings(self.main.settings)
         self.refresh()
 
+    def apply_theme(self) -> None:
+        colors = self.main.settings.get("color_history", [])
+        if not colors:
+            highlight = THEMES.get(self.main.settings.get("theme", "light"), THEMES["light"]).get("highlight", "#94AEF4")
+            self.set_color(highlight, add_history=False)
+
 
 class MouseHighlightOverlay(QWidget):
     def __init__(self, settings: dict) -> None:
@@ -346,35 +366,44 @@ class MouseHighlightTab(QWidget):
     def __init__(self, main) -> None:
         super().__init__()
         self.main = main
-        layout = QFormLayout(self)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        content = QWidget()
+        layout = QFormLayout(content)
         self.color = QLineEdit(main.settings.get("mouse_highlight_color", "#FFDD33"))
+        self.color.setMaximumWidth(340)
         self.shape = QComboBox()
+        self.shape.setMaximumWidth(340)
         self.shape.addItems(["원", "채워진 원", "사각형", "채워진 사각형", "십자"])
         self.shape.setCurrentText(main.settings.get("mouse_highlight_shape", "원"))
         self.size = QSlider(Qt.Orientation.Horizontal)
+        self.size.setMaximumWidth(340)
         self.size.setRange(0, 100)
         self.size.setValue(int(main.settings.get("mouse_highlight_size", 50)))
         self.opacity = QSlider(Qt.Orientation.Horizontal)
+        self.opacity.setMaximumWidth(340)
         self.opacity.setRange(0, 100)
         self.opacity.setValue(int(main.settings.get("mouse_highlight_opacity", 50)))
+        highlight = THEMES.get(main.settings.get("theme", "light"), THEMES["light"]).get("highlight", "#94AEF4")
+        slider_style = self._slider_style(highlight)
+        self.size.setStyleSheet(slider_style)
+        self.opacity.setStyleSheet(slider_style)
         self.shape.currentTextChanged.connect(self.apply_live)
         self.size.valueChanged.connect(self.apply_live)
         self.opacity.valueChanged.connect(self.apply_live)
-        row = QHBoxLayout()
         on = QPushButton("켜기")
         off = QPushButton("끄기")
         pick = QPushButton("색 선택")
         on.clicked.connect(self.enable)
         off.clicked.connect(self.disable)
         pick.clicked.connect(self.pick)
-        for widget in [on, off, pick]:
-            row.addWidget(widget)
-        row.addStretch(1)
         layout.addRow("색상", self.color)
         layout.addRow("모양", self.shape)
         layout.addRow("크기", self.size)
         layout.addRow("투명도", self.opacity)
-        layout.addRow("", row)
+        root.addWidget(content, 1)
+        root.addLayout(bottom_action_bar(on, off, pick))
 
     def pick(self) -> None:
         color = QColorDialog.getColor(QColor(self.color.text()), self, "하이라이트 색")
@@ -403,6 +432,27 @@ class MouseHighlightTab(QWidget):
 
     def disable(self) -> None:
         self.main.set_mouse_highlight(False)
+
+    @staticmethod
+    def _slider_style(highlight: str) -> str:
+        return f"""
+            QSlider::groove:horizontal {{
+                height: 6px; background: rgba(148,163,184,70); border: 0; border-radius: 3px;
+            }}
+            QSlider::sub-page:horizontal {{
+                background: {highlight}; border: 0; border-radius: 3px;
+            }}
+            QSlider::handle:horizontal {{
+                width: 15px; height: 15px; margin: -5px 0;
+                background: #FFFFFF; border: 1px solid {highlight}; border-radius: 8px;
+            }}
+        """
+
+    def apply_theme(self) -> None:
+        highlight = THEMES.get(self.main.settings.get("theme", "light"), THEMES["light"]).get("highlight", "#94AEF4")
+        slider_style = self._slider_style(highlight)
+        self.size.setStyleSheet(slider_style)
+        self.opacity.setStyleSheet(slider_style)
 
 
 class ScreenDrawOverlay(QWidget):
@@ -781,7 +831,11 @@ class ScreenDrawTab(QWidget):
         super().__init__()
         self.main = main
         self.overlay: ScreenDrawOverlay | None = None
-        layout = QVBoxLayout(self)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(14, 14, 14, 14)
         info = QLabel(
             "발표 중 현재 화면 위에 형광펜, 펜, 지우개로 표시할 수 있습니다.\n"
@@ -815,8 +869,9 @@ class ScreenDrawTab(QWidget):
         layout.addWidget(info)
         layout.addWidget(hotkey_note)
         layout.addLayout(option_grid)
-        layout.addWidget(start)
         layout.addStretch(1)
+        root.addWidget(content, 1)
+        root.addLayout(bottom_action_bar(start))
 
     def start_overlay(self) -> None:
         if self.overlay is None:
@@ -839,13 +894,17 @@ class EmojiTab(QWidget):
         "활동/물건": "⚽ 🏀 🏈 ⚾ 🥎 🎾 🏐 🏉 🥏 🎱 🪀 🏓 🏸 🏒 🏑 🥍 🏏 🪃 🥅 ⛳ 🪁 🏹 🎣 🤿 🥊 🥋 🎽 🛹 🛼 🛷 ⛸ 🥌 🎿 ⛷ 🏂 🪂 🏋️ 🤼 🤸 ⛹️ 🤺 🤾 🏌️ 🧘 🛀 🛌 🎮 🕹 🎲 ♟ 🎯 🎳 🎭 🎨 🧵 🪡 🧶 🪢 👓 🕶 🥽 🥼 🦺 👔 👕 👖 🧣 🧤 🧥 🧦 👗 👘 🥻 🩱 🩲 🩳 👙 👚 👛 👜 👝 🛍 🎒 🩴 👞 👟 🥾 🥿 👠 👡 🩰 👢 👑 👒 🎩 🎓 🧢 🪖 ⛑ 💄 💍 💼 📱 💻 ⌨️ 🖥 🖨 🖱 🕹 🗜 💽 💾 💿 📀 📼 📷 📸 📹 🎥 📽 🎞 📞 ☎️ 📟 📠 📺 📻 🎙 🎚 🎛 🧭 ⏱ ⏲ ⏰ 🕰 ⌛ ⏳ 📡 🔋 🪫 🔌 💡 🔦 🕯 🪔 🧯 🛢 💸 💵 💴 💶 💷 🪙 💰 💳 💎 ⚖️ 🪜 🧰 🪛 🔧 🔨 ⚒ 🛠 ⛏ 🪚 🔩 ⚙️ 🧱 ⛓ 🧲 🔫 💣 🧨 🪓 🔪 🗡 ⚔️ 🛡 🚬 ⚰️ 🪦 ⚱️ 🏺 🔮 📿 🧿 🪬 💈 ⚗️ 🔭 🔬 🕳 🩹 🩺 💊 💉 🩸 🧬 🦠 🧫 🧪 🌡 🧹 🪠 🧽 🧴 🛎 🔑 🗝 🚪 🪑 🛋 🛏 🪞 🪟 🧳 🛒 🎁 🎈 🎏 🎀 🪄 🪅 🎊 🎉".split(),
         "기호": "❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💟 ☮️ ✝️ ☪️ 🕉 ☸️ ✡️ 🔯 🕎 ☯️ ☦️ 🛐 ⛎ ♈ ♉ ♊ ♋ ♌ ♍ ♎ ♏ ♐ ♑ ♒ ♓ 🆔 ⚛️ 🉑 ☢️ ☣️ 📴 📳 🈶 🈚 🈸 🈺 🈷️ ✴️ 🆚 💮 🉐 ㊙️ ㊗️ 🈴 🈵 🈹 🈲 🅰️ 🅱️ 🆎 🆑 🅾️ 🆘 ❌ ⭕ 🛑 ⛔ 📛 🚫 💯 💢 ♨️ 🚷 🚯 🚳 🚱 🔞 📵 🚭 ❗ ❕ ❓ ❔ ‼️ ⁉️ 🔅 🔆 〽️ ⚠️ 🚸 🔱 ⚜️ 🔰 ♻️ ✅ 🈯 💹 ❇️ ✳️ ❎ 🌐 💠 Ⓜ️ 🌀 💤 🏧 🚾 ♿ 🅿️ 🛗 🈳 🈂️ 🛂 🛃 🛄 🛅 🚹 🚺 🚼 ⚧ 🚻 🚮 🎦 📶 🈁 🔣 ℹ️ 🔤 🔡 🔠 🆖 🆗 🆙 🆒 🆕 🆓 0️⃣ 1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣ 6️⃣ 7️⃣ 8️⃣ 9️⃣ 🔟 🔢 #️⃣ *️⃣ ⏏️ ▶️ ⏸ ⏯ ⏹ ⏺ ⏭ ⏮ ⏩ ⏪ ⏫ ⏬ ◀️ 🔼 🔽 ➡️ ⬅️ ⬆️ ⬇️ ↗️ ↘️ ↙️ ↖️ ↕️ ↔️ ↪️ ↩️ ⤴️ ⤵️ 🔀 🔁 🔂 🔄 🔃 🎵 🎶 ➕ ➖ ➗ ✖️ 🟰 ♾ 💲 💱 ™️ ©️ ®️ 〰️ ➰ ➿ 🔚 🔙 🔛 🔝 🔜 ✔️ ☑️ 🔘 🔴 🟠 🟡 🟢 🔵 🟣 ⚫ ⚪ 🟤 🔺 🔻 🔸 🔹 🔶 🔷 🔳 🔲 ▪️ ▫️ ◾ ◽ ◼️ ◻️ 🟥 🟧 🟨 🟩 🟦 🟪 ⬛ ⬜ 🟫".split(),
         "국기": "🇰🇷 🇺🇸 🇯🇵 🇨🇳 🇬🇧 🇫🇷 🇩🇪 🇨🇦 🇦🇺 🇮🇹 🇪🇸 🇧🇷 🇲🇽 🇮🇳 🇸🇬 🇹🇭 🇻🇳 🇵🇭 🇮🇩 🇲🇾 🇳🇿 🇹🇼 🇭🇰 🇪🇺 🇦🇷 🇦🇹 🇧🇪 🇨🇭 🇨🇱 🇨🇴 🇨🇿 🇩🇰 🇪🇬 🇫🇮 🇬🇷 🇭🇺 🇮🇪 🇮🇱 🇳🇱 🇳🇴 🇵🇱 🇵🇹 🇸🇦 🇸🇪 🇹🇷 🇺🇦 🇿🇦".split(),
-        "특수문자": "★ ☆ ♥ ♡ ◆ ◇ ● ○ ■ □ ▲ △ ▼ ▽ → ← ↑ ↓ ↔ ↕ ✓ ✔ ✕ ✖ ✚ ✦ ✧ ※ 〒 ☎ ☑ ☐ ⚠ ⚡ ♠ ♣ ♦ ♪ ♫".split(),
     }
+    # 특수문자 카테고리는 '특수문자' 탭(SpecialCharTab)과 내용이 중복되므로 이모지 탭에서는 제외한다.
 
     def __init__(self, main) -> None:
         super().__init__()
         self.main = main
-        layout = QVBoxLayout(self)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        content = QWidget()
+        layout = QVBoxLayout(content)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
@@ -855,12 +914,10 @@ class EmojiTab(QWidget):
         self.rows.setSpacing(8)
         scroll.setWidget(container)
         layout.addWidget(scroll, 1)
-        bottom = QHBoxLayout()
-        bottom.addStretch(1)
         clear = QPushButton("최근 이모지 초기화")
         clear.clicked.connect(self.clear_usage)
-        bottom.addWidget(clear)
-        layout.addLayout(bottom)
+        root.addWidget(content, 1)
+        root.addLayout(bottom_action_bar(clear))
         self.refresh()
 
     def refresh(self) -> None:
@@ -1017,7 +1074,11 @@ class SpecialCharTab(QWidget):
     def __init__(self, main) -> None:
         super().__init__()
         self.main = main
-        layout = QVBoxLayout(self)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        content = QWidget()
+        layout = QVBoxLayout(content)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
@@ -1027,12 +1088,10 @@ class SpecialCharTab(QWidget):
         self.rows.setSpacing(8)
         scroll.setWidget(container)
         layout.addWidget(scroll, 1)
-        bottom = QHBoxLayout()
-        bottom.addStretch(1)
         clear = QPushButton("최근 특수문자 초기화")
         clear.clicked.connect(self.clear_usage)
-        bottom.addWidget(clear)
-        layout.addLayout(bottom)
+        root.addWidget(content, 1)
+        root.addLayout(bottom_action_bar(clear))
         self.refresh()
 
     def refresh(self) -> None:
@@ -1096,12 +1155,18 @@ class MiscTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         tabs = QTabWidget()
-        tabs.addTab(ColorToolsTab(main), "컬러")
+        self._color_tab = ColorToolsTab(main)
+        self._mouse_tab = MouseHighlightTab(main)
+        tabs.addTab(self._color_tab, "컬러")
         tabs.addTab(EmojiTab(main), "이모지")
         tabs.addTab(SpecialCharTab(main), "특수문자")
-        tabs.addTab(MouseHighlightTab(main), "마우스 하이라이트")
+        tabs.addTab(self._mouse_tab, "마우스 하이라이트")
         tabs.addTab(ScreenDrawTab(main), "화면 그리기")
         layout.addWidget(tabs, 1)
+
+    def apply_theme(self) -> None:
+        self._color_tab.apply_theme()
+        self._mouse_tab.apply_theme()
 
     def start_screen_draw(self) -> None:
         tab_widget = self.findChild(QTabWidget)

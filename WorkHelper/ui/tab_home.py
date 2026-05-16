@@ -198,10 +198,10 @@ class HomeTab(QWidget):
         cards = []
 
         def system_card(label: str, hotkey_label: str) -> QWidget:
-            card = make_card(label, "", hotkey_label, single_line=True, compact=True, card_height=46)
+            card = make_card(label, "", hotkey_label, single_line=True, compact=True, card_height=46, inline_hotkey=True)
             card.setStyleSheet(
                 f"QWidget#card {{ background: {content}; border: 1px solid {border}; }}"
-                f"QLabel#keyCap {{ background: {content}; border: 1px solid {border}; color: {text}; }}"
+                f"QLabel#keyCap {{ background: transparent; border: 1px solid {border}; color: {text}; }}"
             )
             return card
 
@@ -241,7 +241,7 @@ class HomeTab(QWidget):
             for item in items:
                 key = display_hotkey(item.get("hotkey"))
                 if key:
-                    hotkey_cards.append(make_card(self.single_line_preview(content(item), 90), "", key, single_line=True, compact=True, card_height=46, title_bold=False))
+                    hotkey_cards.append(make_card(self.single_line_preview(content(item), 90), "", key, single_line=True, compact=True, card_height=46, title_bold=False, inline_hotkey=True))
         if not hotkey_cards:
             hotkey_cards.append(make_card("등록된 단축키 없음", "각 기능 화면에서 단축키를 지정할 수 있습니다.", compact=True, card_height=56))
         self.hotkeys.add_cards(hotkey_cards)
