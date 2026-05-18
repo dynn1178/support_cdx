@@ -162,7 +162,7 @@ ACTION_ICONS = {
     "delete": "✕",
     "play": "▶️",
     "view": "🔍",
-    "pin": "🩶",
+    "pin": "★",
     "open": "🔗",
     "sticker": "🗒️",
     "history": "📜",
@@ -735,11 +735,14 @@ def add_favorite_badge_to_card(card: QWidget) -> None:
     if title_row is None:
         return
     remove_favorite_badge_from_card(card)
-    badge = QLabel("💛")
+    badge = QLabel("★")
     badge.setObjectName("cardFavoriteBadge")
     badge.setFixedSize(16, 18)
     badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    badge.setStyleSheet("QLabel#cardFavoriteBadge { background: transparent; border: 0; font-size: 10pt; padding: 0; }")
+    badge.setStyleSheet(
+        'QLabel#cardFavoriteBadge { color: #F5B301; background: transparent; border: 0; '
+        'font-family: "Segoe UI Symbol", "Malgun Gothic"; font-size: 11pt; font-weight: 900; padding: 0 0 1px 0; }'
+    )
     title_row.addWidget(badge)
     card._favorite_badge = badge
 

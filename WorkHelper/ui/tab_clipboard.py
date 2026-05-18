@@ -464,11 +464,13 @@ class ClipboardTab(QWidget):
         self.refresh()
 
     def style_pin_button(self, button, pinned: bool) -> None:
-        button.setText("💛" if pinned else "🩶")
+        color = "#F5B301" if pinned else "#A3A8B3"
+        button.setText("★")
         button.setStyleSheet(
-            "QToolButton#iconButton { font-size: 11pt; padding: 0; "
+            f'QToolButton#iconButton {{ color: {color}; font-family: "Segoe UI Symbol", "Malgun Gothic"; '
+            "font-size: 13pt; font-weight: 900; padding: 0 0 2px 0; "
             "min-width: 24px; max-width: 24px; min-height: 24px; max-height: 24px; }"
-            "QToolButton#iconButton:hover { background: transparent; }"
+            f"QToolButton#iconButton:hover {{ color: {color}; background: transparent; }}"
         )
 
     def add_card_actions(self, card: QWidget, item: dict) -> None:
@@ -625,11 +627,14 @@ class ClipboardTab(QWidget):
         if row is None:
             return
         self.remove_image_pin_badge(card)
-        badge = QLabel("💛")
+        badge = QLabel("★")
         badge.setObjectName("cardFavoriteBadge")
         badge.setFixedSize(16, 18)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        badge.setStyleSheet("QLabel#cardFavoriteBadge { background: transparent; border: 0; font-size: 10pt; padding: 0; }")
+        badge.setStyleSheet(
+            'QLabel#cardFavoriteBadge { color: #F5B301; background: transparent; border: 0; '
+            'font-family: "Segoe UI Symbol", "Malgun Gothic"; font-size: 11pt; font-weight: 900; padding: 0 0 1px 0; }'
+        )
         row.insertWidget(max(0, row.count() - 1), badge)
         card._image_pin_badge = badge
 

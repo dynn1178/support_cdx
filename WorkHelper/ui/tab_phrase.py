@@ -319,11 +319,13 @@ class PhraseTab(QWidget):
         self.main.save_usage_data()
 
     def style_phrase_favorite_button(self, button, item: dict) -> None:
-        button.setText("💛" if item.get("favorite") else "🩶")
+        color = "#F5B301" if item.get("favorite") else "#A3A8B3"
+        button.setText("★")
         button.setStyleSheet(
-            "QToolButton#iconButton { font-size: 11pt; padding: 0; "
+            f'QToolButton#iconButton {{ color: {color}; font-family: "Segoe UI Symbol", "Malgun Gothic"; '
+            "font-size: 13pt; font-weight: 900; padding: 0 0 2px 0; "
             "min-width: 24px; max-width: 24px; min-height: 24px; max-height: 24px; }"
-            "QToolButton#iconButton:hover { background: transparent; }"
+            f"QToolButton#iconButton:hover {{ color: {color}; background: transparent; }}"
         )
 
     def toggle_phrase_favorite(self, item: dict, card: QWidget, button) -> None:

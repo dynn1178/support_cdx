@@ -636,10 +636,13 @@ class LauncherTab(QWidget):
         title_row.addWidget(title, 1)
 
         if item.get("favorite"):
-            favorite_badge = QLabel("💛")
+            favorite_badge = QLabel("★")
             favorite_badge.setFixedSize(16, 18)
             favorite_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            favorite_badge.setStyleSheet("background:transparent;border:0;font-size:10pt;padding:0;")
+            favorite_badge.setStyleSheet(
+                'color: #F5B301; background: transparent; border: 0; '
+                'font-family: "Segoe UI Symbol", "Malgun Gothic"; font-size: 11pt; font-weight: 900; padding: 0 0 1px 0;'
+            )
             title_row.addWidget(favorite_badge)
 
         status = QLabel("")
@@ -751,11 +754,13 @@ class LauncherTab(QWidget):
         self.main.save_data()
 
     def style_launcher_favorite_button(self, button, item: dict) -> None:
-        button.setText("💛" if item.get("favorite") else "🩶")
+        color = "#F5B301" if item.get("favorite") else "#A3A8B3"
+        button.setText("★")
         button.setStyleSheet(
-            "QToolButton#iconButton { font-size: 11pt; padding: 0; "
+            f'QToolButton#iconButton {{ color: {color}; font-family: "Segoe UI Symbol", "Malgun Gothic"; '
+            "font-size: 13pt; font-weight: 900; padding: 0 0 2px 0; "
             "min-width: 24px; max-width: 24px; min-height: 24px; max-height: 24px; }"
-            "QToolButton#iconButton:hover { background: transparent; }"
+            f"QToolButton#iconButton:hover {{ color: {color}; background: transparent; }}"
         )
 
     def show_credential_status(self, item: dict) -> None:

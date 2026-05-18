@@ -762,8 +762,9 @@ class MemoListTab(QWidget):
 
     def style_memo_favorite_button(self, button, memo: dict) -> None:
         color = "#F5B301" if self.is_favorite_memo(memo) else "#A3A8B3"
+        button.setText("★")
         button.setStyleSheet(
-            f"QToolButton#iconButton {{ color: {color}; font-size: 13pt; font-weight: 900; padding: 0 0 2px 0; "
+            f'QToolButton#iconButton {{ color: {color}; font-family: "Segoe UI Symbol", "Malgun Gothic"; font-size: 13pt; font-weight: 900; padding: 0 0 2px 0; '
             f"min-width: 24px; max-width: 24px; min-height: 24px; max-height: 24px; }}"
             f"QToolButton#iconButton:hover {{ color: {color}; background: transparent; }}"
         )
