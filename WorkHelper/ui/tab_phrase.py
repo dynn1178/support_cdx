@@ -330,6 +330,14 @@ class PhraseTab(QWidget):
 
     def toggle_phrase_favorite(self, item: dict, card: QWidget, button) -> None:
         item["favorite"] = not bool(item.get("favorite"))
+        favorite_ids = self.main.data.setdefault("phrase_popup_favorites", [])
+        item_id = item.get("id")
+        if item_id:
+            if item.get("favorite"):
+                if item_id not in favorite_ids:
+                    favorite_ids.append(item_id)
+            else:
+                self.main.data["phrase_popup_favorites"] = [value for value in favorite_ids if value != item_id]
         self.style_phrase_favorite_button(button, item)
         if item.get("favorite"):
             add_favorite_badge_to_card(card)

@@ -1033,6 +1033,8 @@ class ImageTab(QWidget):
         if rect.width() < 3 or rect.height() < 3:
             return
         pixmap = self.capture_selection(rect)
+        if not pixmap.isNull():
+            QApplication.clipboard().setPixmap(pixmap)
         target = next_capture_jpg_path(self.screenshot_dir())
         if not save_capture_jpg(pixmap, target):
             QMessageBox.warning(self, "스틸 컷 실패", "스크린샷을 저장하지 못했습니다.")
@@ -1052,7 +1054,7 @@ class ImageTab(QWidget):
         self.main.save_data()
         self.tabs.setCurrentIndex(0)
         self.refresh()
-        self.view_steel_cut(value, copy_to_clipboard=True)
+        self.view_steel_cut(value, copy_to_clipboard=False)
 
     def view_image(self, item: dict) -> None:
         path = resolve_image_path(item.get("path", ""), config.BASE_DIR)

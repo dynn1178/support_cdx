@@ -695,6 +695,7 @@ class MainWindow(QMainWindow):
     CLIPBOARD_POPUP_HOTKEY_LABEL = "Ctrl+Shift+V"
     ctrl_double_tapped = pyqtSignal()
     alt_double_tapped = pyqtSignal()
+    phrase_popup_requested = pyqtSignal()
     hotstring_expand_requested = pyqtSignal(str, str, str)
     HOME_TIPS = [
         "상용구에 자주 쓰는 답변을 등록하고 단축키를 지정하면 상담 문구를 바로 붙여넣을 수 있습니다.",
@@ -743,9 +744,12 @@ class MainWindow(QMainWindow):
         self._last_alt_release = 0.0
         self._ctrl_combo_used = False
         self._alt_combo_used = False
+        self._phrase_semicolon_was_down = False
+        self._phrase_popup_open = False
         self._home_tip_index = 0
         self.ctrl_double_tapped.connect(self.show_clipboard_popup)
         self.alt_double_tapped.connect(self.show_quick_action_popup)
+        self.phrase_popup_requested.connect(self.show_phrase_popup)
         self.hotstring_expand_requested.connect(self.expand_hotstring)
         self._notified_schedule_ids: set[str] = set()
         self._quick_timers: list = []
@@ -1198,10 +1202,27 @@ class MainWindow(QMainWindow):
                 if alt_was_down and not alt_down:
                     self.handle_alt_release()
                 alt_was_down = alt_down
+                semicolon_down = bool(USER32.GetAsyncKeyState(0xBA) & 0x8000)
+                if (
+                    ctrl_down
+                    and semicolon_down
+                    and not self._phrase_semicolon_was_down
+                    and self.settings.get("hotkeys_enabled", True)
+                    and self.is_phrase_popup_ctrl_semicolon()
+                ):
+                    self._ctrl_combo_used = True
+                    self.phrase_popup_requested.emit()
+                self._phrase_semicolon_was_down = semicolon_down
                 time.sleep(0.02)
 
         self.ctrl_listener_thread = threading.Thread(target=watch_modifiers, daemon=True)
         self.ctrl_listener_thread.start()
+
+    def is_phrase_popup_ctrl_semicolon(self) -> bool:
+        hotkey = self.settings.get("phrase_popup_hotkey") or {}
+        modifiers = {str(modifier).lower() for modifier in hotkey.get("modifiers", [])}
+        key = str(hotkey.get("key", "")).strip()
+        return key == ";" and bool(modifiers & {"ctrl", "control"}) and not bool(modifiers & {"alt", "shift"})
 
     def handle_ctrl_release(self) -> None:
         if not self.settings.get("hotkeys_enabled", True):
@@ -1257,15 +1278,26 @@ class MainWindow(QMainWindow):
         self.clipboard_tab.show_mini_popup()
 
     def show_phrase_popup(self) -> None:
-        favorite_ids = self.data.get("phrase_popup_favorites", [])[:10]
+        if self._phrase_popup_open:
+            return
+        self._phrase_popup_open = True
+        favorite_ids = list(self.data.get("phrase_popup_favorites", []))
         by_id = {item.get("id"): item for item in self.data.get("phrases", []) + self.data.get("snippets", [])}
         for item in self.data.get("title_templates", []):
             by_id[item.get("id")] = {
                 **item,
                 "text": render_date_template(item.get("template", ""), business_days=bool(item.get("business_days", False))),
             }
-        items = [by_id[item_id] for item_id in favorite_ids if item_id in by_id]
-        NumberedTextPopup(self, "상용구", items, self.paste_text).exec()
+        for item in self.data.get("phrases", []) + self.data.get("snippets", []) + self.data.get("title_templates", []):
+            item_id = item.get("id")
+            if item_id and item.get("favorite") and item_id not in favorite_ids:
+                favorite_ids.append(item_id)
+        self.data["phrase_popup_favorites"] = [item_id for item_id in favorite_ids if item_id in by_id]
+        items = [by_id[item_id] for item_id in self.data["phrase_popup_favorites"][:10]]
+        try:
+            NumberedTextPopup(self, "상용구", items, self.paste_text).exec()
+        finally:
+            self._phrase_popup_open = False
 
     def show_quick_action_popup(self) -> None:
         if self._quick_action_popup is not None and self._quick_action_popup.isVisible():
