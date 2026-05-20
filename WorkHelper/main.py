@@ -3,7 +3,7 @@ from __future__ import annotations
 import ctypes
 import sys
 
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QFont, QIcon
 from PyQt6.QtWidgets import QApplication
 
 from app import config
@@ -35,6 +35,9 @@ def main() -> int:
     enable_dpi_awareness()
     config.ensure_data_files()
     app = QApplication(sys.argv)
+    QFont.insertSubstitution("Fixedsys", "Consolas")
+    QFont.insertSubstitution("Terminal", "Consolas")
+    app.setFont(QFont("Malgun Gothic", 9))
     icon_path = config.APP_ICON_PATH if config.APP_ICON_PATH.exists() else config.BUNDLED_ICON_PATH
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))

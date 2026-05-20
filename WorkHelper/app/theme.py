@@ -317,5 +317,7 @@ def build_stylesheet(colors: dict[str, str]) -> str:
 
 
 def apply_theme(app: QApplication, theme: str) -> None:
+    QFont.insertSubstitution("Fixedsys", "Consolas")
+    QFont.insertSubstitution("Terminal", "Consolas")
     app.setStyleSheet(build_stylesheet(THEMES.get(theme, THEMES["light"])))
     app.setFont(QFont("Malgun Gothic", 9))
