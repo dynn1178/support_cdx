@@ -75,6 +75,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "floating_widget_categories": ["text", "snippet", "date", "site", "file", "folder", "cheat", "memo", "emoji"],
     "sticky_memo_arrange_monitor": 1,
     "sticky_memo_arrange_corner": "top_right",
+    "sticky_memo_display_mode": "floating",
+    "sticky_memo_index_side": "right",
+    "sticky_memo_index_start_y": 0,
 }
 
 

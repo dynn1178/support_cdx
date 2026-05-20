@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l \"/mnt/c/Users/kjh/Documents/GitHub/support_cdx/WorkHelper/ui/tab_memo.py\")",
+      "PowerShell(\\(Get-Content \"C:\\\\Users\\\\kjh\\\\Documents\\\\GitHub\\\\support_cdx\\\\WorkHelper\\\\ui\\\\tab_memo.py\"\\).Count)",
+      "Bash(python -m py_compile ui/tab_memo.py)"
+    ]
+  }
+}

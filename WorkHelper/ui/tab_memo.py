@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 import subprocess
 import sys
 from datetime import date as py_date, datetime, time as dt_time, timedelta
@@ -8,10 +9,11 @@ from pathlib import Path
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from PyQt6.QtCore import QDate, QDateTime, QMimeData, QPoint, QSize, QTime, QTimer, Qt
-from PyQt6.QtGui import QDrag, QTextCharFormat, QColor, QPainter, QPen, QPolygon
+from PyQt6.QtCore import QDate, QDateTime, QEasingCurve, QMimeData, QPoint, QPropertyAnimation, QRect, QSize, QTime, QTimer, Qt
+from PyQt6.QtGui import QCursor, QDrag, QTextCharFormat, QColor, QPainter, QPen, QPolygon
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDateEdit,
@@ -21,6 +23,8 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QFrame,
     QApplication,
+    QGraphicsOpacityEffect,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -78,6 +82,82 @@ MEMO_COLORS = {
     "분홍": "#FFE1EA",
     "흰색": "#FFFFFF",
 }
+
+MEMO_COLOR_LIST = list(MEMO_COLORS.keys())
+
+MEMO_INDEX_EMOJIS = [
+    "📝", "⭐", "📌", "🔥", "✅", "💡", "⚡", "🎯", "📋", "🔖",
+    "💬", "📣", "❤️", "😊", "🎨", "🧰", "⚙️", "🔒", "💼", "📊",
+    "🏠", "📅", "☕", "🎁", "🎬", "🎵", "🎮", "🚀", "💻", "🔑",
+]
+
+_INDEX_COLORS_CYCLE = [
+    "노랑", "하늘", "연두", "분홍", "흰색",
+    "하늘", "연두", "노랑", "분홍", "하늘",
+]
+
+
+class _MemoIconPickerDialog(QDialog):
+    def __init__(self, current_icon: str, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("아이콘 선택")
+        self.setModal(True)
+        apply_modern_dialog_style(self)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 14, 14, 12)
+        layout.setSpacing(10)
+
+        input_row = QHBoxLayout()
+        input_row.setContentsMargins(0, 0, 0, 0)
+        input_row.setSpacing(8)
+        input_row.addWidget(QLabel("직접 입력:"))
+        self._input = QLineEdit(current_icon or "")
+        self._input.setMaxLength(3)
+        self._input.setPlaceholderText("이모지 또는 2-3글자")
+        self._input.setFixedWidth(120)
+        input_row.addWidget(self._input)
+        input_row.addStretch(1)
+        clear_btn = QPushButton("초기화")
+        clear_btn.clicked.connect(lambda: self._input.clear())
+        input_row.addWidget(clear_btn)
+        layout.addLayout(input_row)
+
+        grid_lbl = QLabel("이모지 빠른 선택:")
+        layout.addWidget(grid_lbl)
+
+        emoji_widget = QWidget()
+        grid = QGridLayout(emoji_widget)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(4)
+        grid.setVerticalSpacing(4)
+        cols = 10
+        for idx, emoji in enumerate(MEMO_INDEX_EMOJIS):
+            btn = QPushButton(emoji)
+            btn.setFixedSize(28, 26)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(
+                "QPushButton { background: transparent; border: 1px solid rgba(148,163,184,60);"
+                " border-radius: 5px; font-size: 11pt; padding: 0; margin: 0; }"
+                "QPushButton:hover { background: rgba(148,163,184,30); }"
+                "QPushButton:pressed { background: rgba(59,108,245,40); }"
+            )
+            btn.clicked.connect(lambda checked=False, e=emoji: self._select(e))
+            grid.addWidget(btn, idx // cols, idx % cols)
+        layout.addWidget(emoji_widget)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("확인")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("취소")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self.setMinimumWidth(340)
+
+    def _select(self, emoji: str) -> None:
+        self._input.setText(emoji)
+
+    def result_icon(self) -> str:
+        return self._input.text().strip()[:3]
 
 
 WEEKDAYS = ["월", "화", "수", "목", "금", "토", "일"]
@@ -204,6 +284,11 @@ class StickyMemoDialog(QDialog):
         self.slider.setFixedWidth(64)
         self.slider.valueChanged.connect(lambda value: self.setWindowOpacity(value / 100))
         self.slider.valueChanged.connect(self.schedule_save)
+        self.icon_btn = QPushButton(self._get_icon_text())
+        self.icon_btn.setObjectName("stickyMemoIconButton")
+        self.icon_btn.setFixedSize(36, 24)
+        self.icon_btn.setToolTip("아이콘 변경 (인덱스 카드 표시 문자)")
+        self.icon_btn.clicked.connect(self._open_icon_picker)
         self.close_button = QPushButton("×")
         self.close_button.setFixedSize(26, 22)
         self.close_button.clicked.connect(self.accept)
@@ -211,6 +296,7 @@ class StickyMemoDialog(QDialog):
         self.grip.setFixedSize(18, 18)
         controls.addWidget(self.always_on_top)
         controls.addWidget(self.color)
+        controls.addWidget(self.icon_btn)
         controls.addStretch(1)
         controls.addWidget(self.slider)
         controls.addWidget(self.close_button)
@@ -242,6 +328,7 @@ class StickyMemoDialog(QDialog):
             QLabel {{ background: rgba(0,0,0,22); }}
             QTextEdit {{ background: transparent; border: 0; color: #2F2A14; padding: 6px; }}
             QPushButton {{ background: transparent; border: 0; color: #2F2A14; font-weight: 900; padding: 0; font-size: 15pt; }}
+            QPushButton#stickyMemoIconButton {{ font-size: 11pt; padding: 0 1px 1px 1px; min-width: 36px; min-height: 24px; }}
             QCheckBox, QComboBox {{ background: transparent; color: #2F2A14; border: 0; }}
             QComboBox::drop-down {{ border: 0; width: 0; }}
             QSlider {{ background: transparent; }}
@@ -276,11 +363,48 @@ class StickyMemoDialog(QDialog):
         margin = 18
         self.move(area.right() - self.width() - margin + 1, area.top() + margin)
 
+    def _get_icon_text(self) -> str:
+        custom = str(self.memo.get("index_icon") or "").strip()
+        if not custom:
+            return "◇"
+        if custom:
+            return custom
+        content = self.text.toPlainText() if hasattr(self, "text") else str(self.memo.get("content") or "")
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped:
+                return stripped[:3]
+        title = str(self.memo.get("title") or "")
+        if not title:
+            return "◇"
+        return title[:3] if title else "📝"
+
+    def _get_icon_text(self) -> str:
+        custom = str(self.memo.get("index_icon") or "").strip()
+        if custom:
+            return custom
+        content = self.text.toPlainText() if hasattr(self, "text") else str(self.memo.get("content") or "")
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped:
+                return stripped[:3]
+        title = str(self.memo.get("title") or "")
+        return title[:3] if title else "◇"
+
+    def _open_icon_picker(self) -> None:
+        dialog = _MemoIconPickerDialog(str(self.memo.get("index_icon") or ""), self)
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            icon = dialog.result_icon()
+            self.memo["index_icon"] = icon if icon else None
+            self.icon_btn.setText(self._get_icon_text() or "📝")
+            self.schedule_save()
+
     def set_controls_visible(self, visible: bool) -> None:
         self.slider.setVisible(visible)
         self.close_button.setVisible(visible)
         self.always_on_top.setVisible(visible)
         self.color.setVisible(visible)
+        self.icon_btn.setVisible(visible)
         self.grip.setVisible(visible)
 
     def enterEvent(self, event) -> None:
@@ -455,6 +579,561 @@ class StickyMemoDialog(QDialog):
         super().closeEvent(event)
 
 
+class MemoIndexCard(QWidget):
+    """인덱스 형태 메모 카드. 화면 좌/우 가장자리에 세로로 배열되며 마우스 오버 시 확대 표시됨."""
+
+    COMPACT_W = 40
+    COMPACT_H = 40
+    COMPACT_GAP = 2
+    EXPANDED_W = 300
+    SLOT_SWITCH_DEADZONE = 2
+    LINE_H = 21      # 9pt 기본 폰트 행간 + 여유
+    CTRL_H = 24      # 자연 높이 기준 컨트롤 행 (계산용)
+    MAX_LINES = 10
+    _hover_manager_timer: QTimer | None = None
+
+    _currently_expanded: "MemoIndexCard | None" = None  # 현재 열린 카드
+    _all_cards: "list[MemoIndexCard]" = []              # 모든 카드 레지스트리
+
+    def __init__(self, memo: dict, main=None, on_saved=None) -> None:
+        super().__init__()
+        self.memo = memo
+        self.main = main
+        self.on_saved = on_saved
+        self._expanded = False
+        self._base_x: int | None = None
+        self._base_y: int | None = None
+        self._anim_cb = None
+        self._hover_regions: list[QRect] = []
+        self._last_mouse_y: int | None = None
+        self._expanded_h_cache: tuple[str, int] | None = None
+
+        self.save_timer = QTimer(self)
+        self.save_timer.setSingleShot(True)
+        self.save_timer.timeout.connect(self.persist)
+
+        _flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
+        if memo.get("always_on_top", True):
+            _flags |= Qt.WindowType.WindowStaysOnTopHint
+        self.setWindowFlags(_flags)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # --- 접힌 면 (compact) ---
+        self._compact_face = QWidget()
+        cl = QVBoxLayout(self._compact_face)
+        cl.setContentsMargins(2, 3, 2, 3)
+        cl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._icon_lbl = QLabel()
+        self._icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._icon_lbl.setWordWrap(True)
+        cl.addWidget(self._icon_lbl)
+        outer.addWidget(self._compact_face)
+
+        # 아이콘 페이드 효과
+        self._icon_effect = QGraphicsOpacityEffect()
+        self._icon_effect.setOpacity(1.0)
+        self._icon_lbl.setGraphicsEffect(self._icon_effect)
+        self._icon_fade = QPropertyAnimation(self._icon_effect, b"opacity")
+        self._icon_fade.setDuration(80)
+        self._icon_fade.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        self._icon_fade.finished.connect(self._on_icon_fade_done)
+        self._icon_fade_phase: str | None = None
+        self._icon_pending: str | None = None
+        self._icon_timer = QTimer(self)
+        self._icon_timer.setSingleShot(True)
+        self._icon_timer.timeout.connect(self._do_icon_transition)
+
+        # --- 펼쳐진 면 (expanded) ---
+        self._expanded_face = QWidget()
+        el = QVBoxLayout(self._expanded_face)
+        el.setContentsMargins(6, 5, 6, 5)
+        el.setSpacing(2)
+
+        self._color = QComboBox()
+        self._color.addItems(MEMO_COLOR_LIST)
+        bg = memo.get("background", "노랑")
+        self._color.setCurrentText(bg if bg in MEMO_COLORS else "노랑")
+        self._color.setFixedWidth(58)
+        self._color.currentTextChanged.connect(self._apply_color)
+        self._color.currentTextChanged.connect(self.schedule_save)
+
+        self._icon_pick_btn = QPushButton()
+        self._icon_pick_btn.setObjectName("memoIndexIconButton")
+        self._icon_pick_btn.setFixedSize(34, 22)
+        self._icon_pick_btn.setToolTip("아이콘 변경")
+        self._icon_pick_btn.clicked.connect(self._open_icon_picker)
+
+        close_btn = QPushButton("×")
+        close_btn.setFixedSize(22, 22)
+        close_btn.clicked.connect(self.accept)
+
+        self._text = QTextEdit()
+        self._text.setPlainText(memo.get("content", ""))
+        self._text.textChanged.connect(self.schedule_save)
+        self._text.textChanged.connect(self._update_icon)
+        self._text.textChanged.connect(self._invalidate_expanded_height)
+
+        self._always_on_top_chk = QCheckBox("항상 위")
+        self._always_on_top_chk.setObjectName("memoIndexBottomControl")
+        self._always_on_top_chk.setChecked(bool(memo.get("always_on_top", True)))
+        self._always_on_top_chk.toggled.connect(self._toggle_always_on_top)
+
+        AV = Qt.AlignmentFlag.AlignVCenter
+        ctrl_row = QHBoxLayout()
+        ctrl_row.setContentsMargins(0, 0, 0, 0)
+        ctrl_row.setSpacing(4)
+        ctrl_row.addStretch(1)
+        ctrl_row.addWidget(self._always_on_top_chk, 0, AV)
+        ctrl_row.addWidget(self._color, 0, AV)
+        ctrl_row.addWidget(self._icon_pick_btn, 0, AV)
+        ctrl_row.addWidget(close_btn, 0, AV)
+
+        el.addWidget(self._text, 1)
+        el.addLayout(ctrl_row)
+
+        self._expanded_face.hide()
+        outer.addWidget(self._expanded_face)
+
+        # 애니메이션
+        self._anim = QPropertyAnimation(self, b"geometry")
+        self._anim.setDuration(100)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._anim.finished.connect(self._on_anim_done)
+
+        # 슬롯 전환 타이머 (위아래 마우스 이동 시 순차 확장)
+        self._switch_target: MemoIndexCard | None = None
+        self._switch_timer = QTimer(self)
+        self._switch_timer.setSingleShot(True)
+        self._switch_timer.setInterval(200)  # 200ms debounce — 너무 빠른 전환 방지
+        self._switch_timer.timeout.connect(self._execute_switch)
+        self._switch_timer.setInterval(70)
+
+        self._hover_watch_timer = QTimer(self)
+        self._hover_watch_timer.setInterval(80)
+        self._hover_watch_timer.timeout.connect(self._watch_hover_state)
+
+        self._update_icon()
+        self._apply_color()
+        self._compute_expanded_h()
+        self.setMinimumSize(0, 0)
+        self.resize(self.COMPACT_W, self.COMPACT_H)
+        memo["sticker_open"] = True
+        MemoIndexCard._all_cards.append(self)
+        MemoIndexCard._ensure_hover_manager()
+
+    # ── 아이콘 ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def _truncate_index_text(text: str) -> str:
+        """한글 포함 시 최대 2자, 그 외 최대 3자."""
+        has_hangul = any(0xAC00 <= ord(c) <= 0xD7A3 for c in text)
+        return text[: 2 if has_hangul else 3]
+
+    def _get_index_text(self) -> str:
+        """인덱스 라벨용 텍스트. 커스텀 아이콘 우선, 없으면 내용 첫 글자."""
+        custom = str(self.memo.get("index_icon") or "").strip()
+        if custom:
+            return self._truncate_index_text(custom)
+        content = self._text.toPlainText() if hasattr(self, "_text") else str(self.memo.get("content") or "")
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped:
+                return self._truncate_index_text(stripped)
+        title = str(self.memo.get("title") or "")
+        return self._truncate_index_text(title) if title else ""
+
+    def _get_button_text(self) -> str:
+        """확장 카드 아이콘 버튼용 텍스트. 미지정 시 ❓."""
+        custom = str(self.memo.get("index_icon") or "").strip()
+        return custom if custom else "❓"
+
+    def _get_button_text(self) -> str:
+        custom = str(self.memo.get("index_icon") or "").strip()
+        return custom if custom else "◇"
+
+    @classmethod
+    def _ensure_hover_manager(cls) -> None:
+        timer = cls._hover_manager_timer
+        if timer is None:
+            timer = QTimer()
+            timer.setInterval(50)
+            timer.timeout.connect(cls._manage_hover_state)
+            cls._hover_manager_timer = timer
+        if not timer.isActive():
+            timer.start()
+
+    @classmethod
+    def _stop_hover_manager_if_unused(cls) -> None:
+        if any(card.isVisible() for card in cls._all_cards):
+            return
+        timer = cls._hover_manager_timer
+        if timer is not None:
+            timer.stop()
+
+    @classmethod
+    def _card_at_global_slot(cls, pos: QPoint) -> "MemoIndexCard | None":
+        for card in cls._all_cards:
+            if not card.isVisible() or card._base_x is None or card._base_y is None:
+                continue
+            slot = QRect(card._base_x, card._base_y, card.COMPACT_W, card.COMPACT_H)
+            if slot.adjusted(0, card.SLOT_SWITCH_DEADZONE, 0, -card.SLOT_SWITCH_DEADZONE).contains(pos):
+                return card
+        return None
+
+    @classmethod
+    def _manage_hover_state(cls) -> None:
+        visible_cards = [card for card in cls._all_cards if card.isVisible()]
+        if not visible_cards:
+            cls._stop_hover_manager_if_unused()
+            return
+        pos = QCursor.pos()
+        slot_card = cls._card_at_global_slot(pos)
+        if slot_card is not None:
+            if not slot_card._expanded:
+                slot_card._do_expand()
+            slot_card.raise_()
+            return
+        expanded = cls._currently_expanded
+        if expanded is not None and expanded.isVisible() and expanded._expanded:
+            if expanded._cursor_in_hover_regions():
+                return
+            expanded._do_collapse()
+
+    def _update_icon(self) -> None:
+        self._icon_timer.start(400)
+
+    def _do_icon_transition(self) -> None:
+        if hasattr(self, "_icon_pick_btn"):
+            self._icon_pick_btn.setText(self._get_button_text())
+        idx_txt = self._get_index_text()
+        if self._icon_lbl.text() == idx_txt:
+            return
+        self._icon_pending = idx_txt
+        if self._icon_fade_phase is not None:
+            self._icon_lbl.setText(idx_txt)
+            return
+        self._icon_fade_phase = "out"
+        self._icon_fade.stop()
+        self._icon_fade.setStartValue(1.0)
+        self._icon_fade.setEndValue(0.0)
+        self._icon_fade.start()
+
+    def _on_icon_fade_done(self) -> None:
+        if self._icon_fade_phase == "out":
+            if self._icon_pending is not None:
+                self._icon_lbl.setText(self._icon_pending)
+                self._icon_pending = None
+            self._icon_fade_phase = "in"
+            self._icon_fade.setStartValue(0.0)
+            self._icon_fade.setEndValue(1.0)
+            self._icon_fade.start()
+        else:
+            self._icon_fade_phase = None
+
+    def _open_icon_picker(self) -> None:
+        dialog = _MemoIconPickerDialog(str(self.memo.get("index_icon") or ""), self)
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            icon = dialog.result_icon()
+            self.memo["index_icon"] = icon if icon else None
+            self._icon_timer.stop()
+            self._do_icon_transition()
+            self.schedule_save()
+
+    # ── 색상 ──────────────────────────────────────────────────────
+
+    def _apply_color(self, *_args) -> None:
+        color = MEMO_COLORS.get(self._color.currentText(), "#FFF9C4")
+        self.setStyleSheet(f"""
+            QWidget {{ background: {color}; border: 1px solid #B8B08A; }}
+            QLabel {{ background: transparent; color: #2F2A14; font-size: 9pt; font-weight: bold; border: 0; }}
+            QPushButton {{ background: transparent; border: 0; color: #2F2A14; font-weight: 900; font-size: 9pt; }}
+            QPushButton:hover {{ background: rgba(47,42,20,15); border-radius: 4px; }}
+            QPushButton#memoIndexIconButton {{ font-size: 9pt; padding: 0 1px 1px 1px; min-width: 34px; min-height: 22px; max-width: 34px; max-height: 22px; }}
+            QComboBox {{ background: transparent; border: 0; color: #2F2A14; font-size: 9pt; }}
+            QComboBox::drop-down {{ border: 0; width: 0; }}
+            QTextEdit {{ background: transparent; border: 0; color: #2F2A14; padding: 3px; }}
+            QCheckBox {{ background: transparent; color: #2F2A14; border: 0; font-size: 9pt; }}
+            QCheckBox::indicator {{ width: 12px; height: 12px; }}
+        """)
+        self.memo["background"] = self._color.currentText()
+
+    # ── 항상 위 토글 ────────────────────────────────────────────────
+
+    def _toggle_always_on_top(self, checked: bool) -> None:
+        self.memo["always_on_top"] = checked
+        flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
+        if checked:
+            flags |= Qt.WindowType.WindowStaysOnTopHint
+        self.setWindowFlags(flags)
+        self.show()
+        self.schedule_save()
+
+    # ── 위치 지정 ──────────────────────────────────────────────────
+
+    def set_position(self, x: int, y: int) -> None:
+        """정렬 시 이 카드의 compact 기준 위치를 설정한다."""
+        self._base_x = x
+        self._base_y = y
+        self.memo["index_x"] = x
+        self.memo["index_y"] = y
+        if not self._expanded:
+            self._hover_regions = [QRect(x, y, self.COMPACT_W, self.COMPACT_H)]
+            self.move(x, y)
+            self.setMinimumSize(0, 0)
+            self.resize(self.COMPACT_W, self.COMPACT_H)
+
+    def _side(self) -> str:
+        return str((getattr(self.main, "settings", {}) if self.main else {}).get("sticky_memo_index_side", "right") or "right")
+
+    # ── 확대/축소 ──────────────────────────────────────────────────
+
+    def _invalidate_expanded_height(self) -> None:
+        self._expanded_h_cache = None
+
+    def _compute_expanded_h(self) -> int:
+        content = self._text.toPlainText()
+        if self._expanded_h_cache is not None and self._expanded_h_cache[0] == content:
+            return self._expanded_h_cache[1]
+        lines = max(1, content.count("\n") + 1) if content.strip() else 1
+        if lines <= self.MAX_LINES:
+            self._text.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            text_h = lines * self.LINE_H + 10   # +10: QTextEdit 상하 패딩
+        else:
+            self._text.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            text_h = self.MAX_LINES * self.LINE_H + 10
+        # el: top(5) + text + spacing(2) + ctrl_row + bottom(5)
+        height = max(70, 5 + text_h + 2 + self.CTRL_H + 5)
+        self._expanded_h_cache = (content, height)
+        return height
+
+    def enterEvent(self, event) -> None:
+        if not self._expanded:
+            self._do_expand()
+        super().enterEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if not self._expanded:
+            self._do_expand()
+        else:
+            global_y = int(event.globalPosition().y())
+            previous_y = self._last_mouse_y
+            self._last_mouse_y = global_y
+            self._check_slot_switch(global_y, moving_down=previous_y is not None and global_y > previous_y)
+        super().mouseMoveEvent(event)
+
+    def _check_slot_switch(self, global_y: int, moving_down: bool = False) -> None:
+        for card in MemoIndexCard._all_cards:
+            if card is self or not card.isVisible() or card._base_y is None:
+                continue
+            slot_top = card._base_y + self.SLOT_SWITCH_DEADZONE
+            slot_bot = card._base_y + self.COMPACT_H - self.SLOT_SWITCH_DEADZONE
+            if slot_top <= global_y <= slot_bot:
+                if self._switch_target is not card:
+                    self._switch_target = card
+                    if moving_down:
+                        self._switch_timer.stop()
+                        self._execute_switch()
+                    else:
+                        self._switch_timer.start()
+                return
+        if self._switch_target is not None:
+            self._switch_target = None
+            self._switch_timer.stop()
+
+    def _execute_switch(self) -> None:
+        target = self._switch_target
+        self._switch_target = None
+        if target is not None and target.isVisible() and not target._expanded:
+            target._do_expand()
+            target.raise_()
+
+    def leaveEvent(self, event) -> None:
+        self._switch_timer.stop()
+        self._switch_target = None
+        self._last_mouse_y = None
+        if not self._expanded:
+            QTimer.singleShot(120, self._collapse_if_idle)
+        super().leaveEvent(event)
+
+    def _collapse_if_idle(self) -> None:
+        if self._expanded and not self._cursor_in_hover_regions():
+            self._do_collapse()
+
+    def _cursor_in_hover_regions(self) -> bool:
+        if self.underMouse():
+            return True
+        pos = QCursor.pos()
+        local_pos = self.mapFromGlobal(pos)
+        if self.rect().adjusted(-8, -8, 8, 8).contains(local_pos):
+            return True
+        widget = QApplication.widgetAt(pos)
+        while widget is not None:
+            if widget is self:
+                return True
+            widget = widget.parentWidget()
+        if self.frameGeometry().adjusted(-8, -8, 8, 8).contains(pos):
+            return True
+        return any(region.adjusted(-8, -8, 8, 8).contains(pos) for region in self._hover_regions)
+
+    def _card_at_cursor_slot(self, pos: QPoint) -> "MemoIndexCard | None":
+        for card in MemoIndexCard._all_cards:
+            if not card.isVisible() or card._base_x is None or card._base_y is None:
+                continue
+            slot = QRect(card._base_x, card._base_y, self.COMPACT_W, self.COMPACT_H)
+            if slot.adjusted(0, self.SLOT_SWITCH_DEADZONE, 0, -self.SLOT_SWITCH_DEADZONE).contains(pos):
+                return card
+        return None
+
+    def _watch_hover_state(self) -> None:
+        if not self._expanded:
+            self._hover_watch_timer.stop()
+            return
+        pos = QCursor.pos()
+        slot_card = self._card_at_cursor_slot(pos)
+        if slot_card is not None:
+            if slot_card is not self:
+                slot_card._do_expand()
+                slot_card.raise_()
+            return
+        if self._cursor_in_hover_regions():
+            global_y = pos.y()
+            previous_y = self._last_mouse_y
+            self._last_mouse_y = global_y
+            self._check_slot_switch(global_y, moving_down=previous_y is not None and global_y > previous_y)
+            return
+        self._do_collapse()
+
+    def _do_expand(self) -> None:
+        prev = MemoIndexCard._currently_expanded
+        if prev is not None and prev is not self and prev._expanded:
+            prev._do_collapse()
+        MemoIndexCard._currently_expanded = self
+
+        self._expanded = True
+        self._last_mouse_y = QCursor.pos().y()
+
+        w = self.EXPANDED_W
+        h = self._compute_expanded_h()
+        side = self._side()
+
+        base_x = self._base_x if self._base_x is not None else self.x()
+        base_y = self._base_y if self._base_y is not None else self.y()
+
+        # Expanded card appears in the adjacent inner column, leaving the
+        # compact slot visually empty so other index cards are not obscured.
+        if side == "right":
+            new_x = base_x - w        # expanded right edge = compact left edge
+        else:
+            new_x = base_x + self.COMPACT_W  # expanded left edge = compact right edge
+
+        new_y = base_y
+
+        ref_point = QPoint(base_x + self.COMPACT_W // 2, base_y + self.COMPACT_H // 2)
+        screen = QApplication.screenAt(ref_point) or QApplication.primaryScreen()
+        if screen:
+            area = screen.availableGeometry()
+            if new_y + h > area.bottom():
+                new_y = max(area.top(), area.bottom() - h)
+
+        compact_rect = QRect(base_x, base_y, self.COMPACT_W, self.COMPACT_H)
+        end_rect = QRect(new_x, new_y, w, h)
+        self._hover_regions = [compact_rect, end_rect]
+
+        self._anim_cb = None
+        self._anim.stop()
+        self.setMinimumSize(0, 0)
+        # Switch directly to the final geometry while painting is paused.
+        self.setUpdatesEnabled(False)
+        self.setGeometry(end_rect)
+        self._compact_face.hide()
+        self._expanded_face.show()
+        # Re-lock after face switch — overrides any layout-triggered resize
+        self.setGeometry(end_rect)
+        self.setUpdatesEnabled(True)
+        self.update()
+        self.raise_()
+        MemoIndexCard._ensure_hover_manager()
+
+    def _do_collapse(self) -> None:
+        self._hover_watch_timer.stop()
+        self._switch_timer.stop()
+        self._switch_target = None
+        self._last_mouse_y = None
+        self._expanded = False
+        geo = self.geometry()
+        side = self._side()
+        base_y = self._base_y if self._base_y is not None else geo.top()
+        base_x = self._base_x if self._base_x is not None else (
+            geo.right() - self.COMPACT_W + 1 if side == "right" else geo.left()
+        )
+
+        def _on_done() -> None:
+            self._expanded_face.hide()
+            self._compact_face.show()
+            self.setMinimumSize(0, 0)
+            self.resize(self.COMPACT_W, self.COMPACT_H)
+            self.move(base_x, base_y)
+            self._hover_regions = [QRect(base_x, base_y, self.COMPACT_W, self.COMPACT_H)]
+            if MemoIndexCard._currently_expanded is self:
+                MemoIndexCard._currently_expanded = None
+
+        self._anim.stop()
+        self.setMinimumSize(0, 0)
+        _on_done()
+
+    def _on_anim_done(self) -> None:
+        if self._anim_cb is not None:
+            cb = self._anim_cb
+            self._anim_cb = None
+            cb()
+
+    # ── 저장/닫기 ──────────────────────────────────────────────────
+
+    def schedule_save(self, *_args) -> None:
+        self.save_timer.start(400)
+
+    def persist(self) -> None:
+        self.memo["content"] = self._text.toPlainText()
+        self.memo["background"] = self._color.currentText()
+        self.memo["always_on_top"] = self._always_on_top_chk.isChecked()
+        self.memo["sticker_open"] = self.isVisible()
+        self.memo["x"] = self.x()
+        self.memo["y"] = self.y()
+        self.memo["updated_at"] = now_iso()
+        if self.main is not None:
+            config.save_template(self.main.template_index, self.main.data)
+        if self.on_saved:
+            self.on_saved()
+
+    def accept(self) -> None:
+        self.memo["sticker_open"] = False
+        self.close()
+
+    def closeEvent(self, event) -> None:
+        try:
+            MemoIndexCard._all_cards.remove(self)
+        except ValueError:
+            pass
+        if MemoIndexCard._currently_expanded is self:
+            MemoIndexCard._currently_expanded = None
+        if hasattr(self, "_hover_watch_timer"):
+            self._hover_watch_timer.stop()
+        if hasattr(self, "_switch_timer"):
+            self._switch_timer.stop()
+        MemoIndexCard._stop_hover_manager_if_unused()
+        if hasattr(self, "save_timer") and self.save_timer.isActive():
+            self.save_timer.stop()
+            self.persist()
+        else:
+            self.persist()
+        super().closeEvent(event)
+
+    # isVisible / raise_ / activateWindow 은 QWidget 에 이미 존재
+
+
 class MemoDialog(QDialog):
     def __init__(self, memo: dict | None = None) -> None:
         super().__init__()
@@ -463,6 +1142,7 @@ class MemoDialog(QDialog):
         self.memo = memo or {}
         layout = QVBoxLayout(self)
         form = QFormLayout()
+        self._memo_option_rows: list[QWidget] = []
         self.title = QLineEdit(self.memo.get("title", ""))
         self.content = QTextEdit()
         self.content.setPlainText(self.memo.get("content", ""))
@@ -471,14 +1151,27 @@ class MemoDialog(QDialog):
         self.pinned.setChecked(bool(self.memo.get("favorite", self.memo.get("pinned"))))
         self.always_on_top = QCheckBox("스티커 항상 위")
         self.always_on_top.setChecked(bool(self.memo.get("always_on_top", True)))
+        self.open_as_sticker = QCheckBox("스티커로 띄우기")
+        self.open_as_sticker.setChecked(False)
         self.background = QComboBox()
         self.background.addItems(list(MEMO_COLORS))
-        self.background.setCurrentText(self.memo.get("background", "노랑") if self.memo.get("background", "노랑") in MEMO_COLORS else "노랑")
+        _is_new = not self.memo.get("id")
+        _bg_default = self.memo.get("background") or (random.choice(MEMO_COLOR_LIST) if _is_new else "노랑")
+        self.background.setCurrentText(_bg_default if _bg_default in MEMO_COLORS else "노랑")
         form.addRow("제목", self.title)
         form.addRow("내용", self.content)
         form.addRow("즐겨찾기", self.pinned)
         form.addRow("스티커 옵션", self.always_on_top)
         form.addRow("배경색", self.background)
+        form.removeRow(self.pinned)
+        form.removeRow(self.always_on_top)
+        form.addRow(self.open_as_sticker)
+        form.addRow(self.pinned)
+        form.addRow(self.always_on_top)
+        for option in (self.pinned, self.always_on_top):
+            label = form.labelForField(option)
+            if label is not None:
+                label.hide()
         layout.addLayout(form)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.button(QDialogButtonBox.StandardButton.Ok).setText("확인")
@@ -502,6 +1195,7 @@ class MemoDialog(QDialog):
                 "pinned": self.pinned.isChecked(),
                 "always_on_top": self.always_on_top.isChecked(),
                 "background": self.background.currentText(),
+                "_open_sticker_after_save": self.open_as_sticker.isChecked(),
                 "updated_at": now_iso(),
             }
         )
@@ -692,7 +1386,7 @@ class MemoListTab(QWidget):
     def __init__(self, main) -> None:
         super().__init__()
         self.main = main
-        self.sticky_windows: dict[str, StickyMemoDialog] = {}
+        self.sticky_windows: dict[str, StickyMemoDialog | MemoIndexCard] = {}
         self._recently_closed_sticker_keys: list[str] = []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -719,6 +1413,9 @@ class MemoListTab(QWidget):
         collapse_btn.clicked.connect(self.collapse_all_stickers)
         arrange_btn = QPushButton("정렬")
         arrange_btn.clicked.connect(self.arrange_compact_stickers)
+        self.expand_btn = expand_btn
+        self.collapse_btn = collapse_btn
+        self.arrange_btn = arrange_btn
         sticker_toggle_btn = QPushButton("★ 열기/닫기")
         sticker_toggle_btn.clicked.connect(self.toggle_pinned_stickers)
         close_all_btn = QPushButton("열기/닫기")
@@ -733,14 +1430,31 @@ class MemoListTab(QWidget):
         page_layout.addLayout(bottom_action_bar(expand_btn, collapse_btn, arrange_btn, sticker_toggle_btn, close_all_btn, add_btn))
         self.tabs.addTab(page, "메모")
         layout.addWidget(self.tabs, 1)
+        self._sync_index_action_buttons()
+
+    def _ordered_memos(self, source_items: list[dict] | None = None) -> list[dict]:
+        items = source_items if source_items is not None else self.main.data.get("memos", [])
+        memos = self.sort_controls.sort_items(items, lambda item: item.get("title") or item.get("content", ""))
+        if not self.sort_controls.is_manual():
+            memos = sorted(memos, key=lambda item: not self.is_favorite_memo(item))
+        return memos
+
+    def _sync_index_action_buttons(self) -> None:
+        is_index = self._display_mode() == "index"
+        for button in (getattr(self, "expand_btn", None), getattr(self, "collapse_btn", None), getattr(self, "arrange_btn", None)):
+            if button is not None:
+                button.setEnabled(not is_index)
+                button.setStyleSheet(
+                    "QPushButton { padding: 1px 10px; font-size: 9pt; }"
+                    "QPushButton:disabled { color: #94A3B8; background: #E5E7EB; border: 1px solid #CBD5E1; }"
+                )
 
     def refresh(self) -> None:
         cards = []
         q = self.search.text().strip().lower()
         source_items = self.main.data.get("memos", [])
-        memos = self.sort_controls.sort_items(source_items, lambda item: item.get("title") or item.get("content", ""))
-        if not self.sort_controls.is_manual():
-            memos = sorted(memos, key=lambda item: not self.is_favorite_memo(item))
+        memos = self._ordered_memos(source_items)
+        self._sync_index_action_buttons()
         for memo in memos:
             if q and q not in (memo.get("title", "") + " " + memo.get("content", "")).lower():
                 continue
@@ -756,6 +1470,8 @@ class MemoListTab(QWidget):
             cards.append(card)
         callback = (lambda old, new: self.reorder_items(source_items, memos, old, new)) if self.sort_controls.is_manual() else None
         self.grid.add_cards(cards, on_reorder=callback)
+        if self._display_mode() == "index":
+            self._arrange_index_cards()
 
     def is_favorite_memo(self, memo: dict) -> bool:
         return bool(memo.get("favorite", memo.get("pinned")))
@@ -804,6 +1520,8 @@ class MemoListTab(QWidget):
     def reorder_items(self, source: list[dict], visible: list[dict], old: int, new: int) -> None:
         apply_manual_reorder(source, visible, old, new)
         self.main.save_data()
+        if self._display_mode() == "index":
+            self._arrange_index_cards()
 
     def memo_key(self, memo: dict) -> str:
         return str(memo.get("id") or id(memo))
@@ -814,7 +1532,13 @@ class MemoListTab(QWidget):
                 return memo
         return None
 
+    def _display_mode(self) -> str:
+        return str(getattr(self.main, "settings", {}).get("sticky_memo_display_mode", "floating") or "floating")
+
     def show_sticker(self, memo: dict, track_usage: bool = True, raise_window: bool = True, toggle_existing: bool = True) -> None:
+        if self._display_mode() == "index":
+            self._show_index_card(memo, track_usage=track_usage, raise_window=raise_window, toggle_existing=toggle_existing)
+            return
         key = self.memo_key(memo)
         dialog = self.sticky_windows.get(key)
         if dialog is not None and dialog.isVisible():
@@ -836,26 +1560,62 @@ class MemoListTab(QWidget):
         if raise_window:
             dialog.raise_()
 
+    def _show_index_card(self, memo: dict, track_usage: bool = True, raise_window: bool = True, toggle_existing: bool = True) -> None:
+        key = self.memo_key(memo)
+        card = self.sticky_windows.get(key)
+        if card is not None and card.isVisible():
+            if toggle_existing:
+                card.accept()
+                return
+            if raise_window:
+                card.raise_()
+            return
+        if track_usage:
+            bump_usage(memo)
+            self.main.save_usage_data()
+        card = MemoIndexCard(memo, self.main, self.refresh)
+        card.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        card.destroyed.connect(lambda _obj=None, memo_key=key: self.forget_sticker(memo_key))
+        self.sticky_windows[key] = card
+        # 초기 배치: 지정 모니터 지정 면의 Y 슬롯에 놓기
+        settings = getattr(self.main, "settings", {})
+        screens = QApplication.screens()
+        mon = max(0, min(len(screens) - 1, int(settings.get("sticky_memo_arrange_monitor", 1) or 1) - 1))
+        screen = screens[mon] if screens else QApplication.primaryScreen()
+        if screen:
+            area = screen.availableGeometry()
+            side = str(settings.get("sticky_memo_index_side", "right") or "right")
+            start_pct = int(settings.get("sticky_memo_index_start_y", 0) or 0)
+            start_y = area.top() + int(area.height() * start_pct / 100)
+            open_cards = [d for k2, d in self.sticky_windows.items() if d is not card and isinstance(d, MemoIndexCard) and d.isVisible()]
+            slot_y = start_y + len(open_cards) * (MemoIndexCard.COMPACT_H + MemoIndexCard.COMPACT_GAP)
+            card_x = area.right() - MemoIndexCard.COMPACT_W if side == "right" else area.left()
+            card.set_position(card_x, slot_y)
+        card.show()
+        if raise_window:
+            card.raise_()
+        self._arrange_index_cards()
+
     def forget_sticker(self, memo_key: str) -> None:
         self.sticky_windows.pop(memo_key, None)
 
-    def visible_stickers(self) -> list[StickyMemoDialog]:
+    def visible_stickers(self) -> list:
         return [dialog for dialog in self.sticky_windows.values() if dialog.isVisible()]
 
     def expand_all_stickers(self) -> None:
         for dialog in self.visible_stickers():
-            if dialog.compact:
+            if isinstance(dialog, StickyMemoDialog) and dialog.compact:
                 dialog.compact = False
                 dialog.apply_compact_state(save=False)
-            dialog.raise_()
-            dialog.persist()
+                dialog.raise_()
+                dialog.persist()
 
     def collapse_all_stickers(self) -> None:
         for dialog in self.visible_stickers():
-            if not dialog.compact:
+            if isinstance(dialog, StickyMemoDialog) and not dialog.compact:
                 dialog.compact = True
                 dialog.apply_compact_state(save=False)
-            dialog.persist()
+                dialog.persist()
 
     def toggle_recent_stickers(self) -> None:
         visible = self.visible_stickers()
@@ -881,6 +1641,22 @@ class MemoListTab(QWidget):
         for dialog in self.visible_stickers():
             dialog.accept()
 
+    def reopen_stickers_for_mode(self) -> None:
+        visible_keys = [
+            key for key, dialog in list(self.sticky_windows.items())
+            if dialog.isVisible()
+        ]
+        if not visible_keys:
+            return
+        for dialog in list(self.sticky_windows.values()):
+            if dialog.isVisible():
+                dialog.accept()
+        QApplication.processEvents()
+        for key in visible_keys:
+            memo = self.memo_by_key(key)
+            if memo is not None:
+                self.show_sticker(memo, track_usage=False, raise_window=False, toggle_existing=False)
+
     def toggle_pinned_stickers(self) -> None:
         memos = self.main.data.get("memos", [])
         pinned = [memo for memo in memos if self.is_favorite_memo(memo)]
@@ -899,7 +1675,10 @@ class MemoListTab(QWidget):
                 self.show_sticker(memo, track_usage=False, raise_window=False, toggle_existing=False)
 
     def arrange_compact_stickers(self) -> None:
-        stickers = self.visible_stickers()
+        if self._display_mode() == "index":
+            self._arrange_index_cards()
+            return
+        stickers = [d for d in self.visible_stickers() if isinstance(d, StickyMemoDialog)]
         if not stickers:
             return
         settings = getattr(self.main, "settings", {})
@@ -931,6 +1710,32 @@ class MemoListTab(QWidget):
             dialog.raise_()
             dialog.persist()
 
+    def _arrange_index_cards(self) -> None:
+        cards = [d for d in self.visible_stickers() if isinstance(d, MemoIndexCard)]
+        if not cards:
+            return
+        order = {self.memo_key(memo): idx for idx, memo in enumerate(self._ordered_memos())}
+        cards.sort(key=lambda card: order.get(self.memo_key(card.memo), len(order)))
+        settings = getattr(self.main, "settings", {})
+        screens = QApplication.screens()
+        mon = max(0, min(len(screens) - 1, int(settings.get("sticky_memo_arrange_monitor", 1) or 1) - 1))
+        screen = screens[mon] if screens else None
+        screen = screen or QApplication.screenAt(cards[0].pos()) or QApplication.primaryScreen()
+        if not screen:
+            return
+        area = screen.availableGeometry()
+        side = str(settings.get("sticky_memo_index_side", "right") or "right")
+        start_pct = int(settings.get("sticky_memo_index_start_y", 0) or 0)
+        start_y = area.top() + int(area.height() * start_pct / 100)
+        card_x = area.right() - MemoIndexCard.COMPACT_W if side == "right" else area.left()
+        y = start_y
+        for card in cards:
+            card.set_position(card_x, y)
+            y += MemoIndexCard.COMPACT_H + MemoIndexCard.COMPACT_GAP
+            card.raise_()
+        if self.main is not None:
+            config.save_template(self.main.template_index, self.main.data)
+
     def edit_memo(self, memo: dict | None = None) -> None:
         dialog = MemoDialog(memo)
         while dialog.exec() == dialog.DialogCode.Accepted:
@@ -938,6 +1743,7 @@ class MemoListTab(QWidget):
             if not value.get("title"):
                 show_modern_warning(dialog, "입력 확인", "이름을 지정해주세요.")
                 continue
+            open_sticker = bool(value.pop("_open_sticker_after_save", False))
             items = self.main.data.setdefault("memos", [])
             if memo in items:
                 items[items.index(memo)] = value
@@ -945,6 +1751,8 @@ class MemoListTab(QWidget):
                 value["sort_order"] = len(items)
                 items.append(value)
             self.main.save_data()
+            if open_sticker:
+                self.show_sticker(value, track_usage=False, raise_window=True, toggle_existing=False)
             return
 
     def delete_memo(self, memo: dict) -> None:
