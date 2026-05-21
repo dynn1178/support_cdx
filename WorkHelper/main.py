@@ -32,12 +32,21 @@ def enable_dpi_awareness() -> None:
 
 
 def qt_message_handler(_mode, _context, message: str) -> None:
+    if message.startswith("QFont::setPointSize: Point size <= 0"):
+        return
     if (
         "DirectWrite: CreateFontFaceFromHDC() failed" in message
         and 'Family="Fixedsys"' in message
     ):
         return
-    sys.stderr.write(f"{message}\n")
+    stream = getattr(sys, "stderr", None) or getattr(sys, "__stderr__", None)
+    if stream is None:
+        return
+    try:
+        stream.write(f"{message}\n")
+        stream.flush()
+    except Exception:
+        return
 
 
 def main() -> int:
