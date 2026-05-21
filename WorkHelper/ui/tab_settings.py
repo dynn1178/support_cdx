@@ -699,13 +699,13 @@ class SettingsTab(QWidget):
                 control.currentIndexChanged.connect(lambda _index: self.preview_widget_settings())
         for holder in [
             self.floating_widget_panel_size,
-            self.floating_widget_panel_position,
             self.floating_widget_panel_width,
             self.floating_widget_icon_size,
             self.floating_widget_speed,
             self.floating_widget_opacity,
         ]:
             holder.slider.valueChanged.connect(lambda _value: self.preview_widget_settings())
+        self.floating_widget_panel_position.slider.valueChanged.connect(lambda _value: self.preview_widget_position_settings())
         if hasattr(self, "sticky_memo_arrange_monitor"):
             self.sticky_memo_arrange_monitor.currentIndexChanged.connect(lambda _index: self.preview_memo_arrange_settings())
         if hasattr(self, "sticky_memo_arrange_corner"):
@@ -741,6 +741,16 @@ class SettingsTab(QWidget):
         memo_tab = self._get_memo_tab()
         if memo_tab is not None:
             memo_tab.arrange_compact_stickers()
+
+    def preview_widget_position_settings(self) -> None:
+        if self._refreshing:
+            return
+        if not hasattr(self, "floating_widget_panel_position"):
+            return
+        self.main.settings["floating_widget_panel_position"] = self.widget_slider_value(self.floating_widget_panel_position, 50)
+        widget = getattr(self.main, "floating_widget", None)
+        if widget is not None:
+            widget.preview_position_settings()
 
     def preview_memo_arrange_settings(self) -> None:
         if self._refreshing:

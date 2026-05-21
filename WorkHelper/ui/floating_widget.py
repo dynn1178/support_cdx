@@ -5,7 +5,7 @@ import webbrowser
 from pathlib import Path
 from typing import Callable
 
-from PyQt6.QtCore import QEventLoop, QEasingCurve, QPoint, QRect, QSize, QTimer, QVariantAnimation, Qt
+from PyQt6.QtCore import QEasingCurve, QPoint, QRect, QSize, QTimer, QVariantAnimation, Qt
 from PyQt6.QtGui import QColor, QCursor, QFontMetrics, QIcon, QPixmap, QRegion
 from PyQt6.QtWidgets import (
     QApplication,
@@ -512,6 +512,23 @@ class FloatingWidget(QFrame):
             self.show()
             self.raise_()
             self._show_location_hint_once()
+        else:
+            self._shown = False
+            self._hint.hide()
+            self.hide()
+
+    def preview_position_settings(self) -> None:
+        self._preview_pinned = True
+        self._settings = dict(self.main.settings)
+        self.animation.stop()
+        self.hide_timer.stop()
+        if bool(self._settings.get("floating_widget_enabled", True)):
+            self.clearMask()
+            self.setGeometry(self._visible_geometry())
+            self._shown = True
+            self._animating = False
+            self.show()
+            self.raise_()
         else:
             self._shown = False
             self._hint.hide()
@@ -1040,7 +1057,6 @@ class FloatingWidget(QFrame):
             self.scroll.viewport().repaint()
             self.panel.repaint()
             self.repaint()
-            QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
 
     def _category_order(self) -> list[tuple[str, str, str]]:
         enabled = self._settings.get("floating_widget_categories")
