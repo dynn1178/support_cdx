@@ -30,7 +30,7 @@ from ui.tab_phrase import PhraseTab
 from ui.tab_settings import SettingsTab
 from ui.tab_text_tools import TextToolsTab
 from ui.floating_widget import FloatingWidget
-from ui.common import apply_modern_dialog_style, ask_modern_question, bump_usage, fit_combo_to_contents, flash_taskbar, normalize_todo_groups, set_dialog_theme, show_modern_info, show_modern_warning
+from ui.common import apply_modern_dialog_style, ask_modern_question, bump_usage, dialog_palette, fit_combo_to_contents, flash_taskbar, normalize_todo_groups, set_dialog_theme, show_modern_info, show_modern_warning
 
 
 MINI_COPY_BUTTON_WIDTH = 64
@@ -38,6 +38,107 @@ MINI_COPY_BUTTON_HEIGHT = 26
 CTRL_ONLY_VKS = {0x11, 0xA2, 0xA3}
 ALT_ONLY_VKS = {0x12, 0xA4, 0xA5}
 KEYBOARD_VKS = list(range(0x08, 0xFF))
+
+# UPDATE_SHORTCUT_NOTICE:
+# 신규 기능 안내 팝업은 아래 ID/문구만 바꾸면 다시 노출됩니다.
+# 바로가기 버튼을 누른 사용자에게는 settings.json의 update_shortcut_notice_ack에 ID가 저장됩니다.
+UPDATE_SHORTCUT_NOTICE_ID = "sticky_memo_display_mode_20260521"
+UPDATE_SHORTCUT_NOTICE_TITLE = "업데이트 안내"
+UPDATE_SHORTCUT_NOTICE_MESSAGE = "스티커 메모를 플로팅/인덱스 형태 중 하나를 선택해서 볼 수 있어요"
+
+
+class UpdateShortcutNoticeDialog(QDialog):
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        colors = dialog_palette(parent, "#E11D48")
+        self.choice = ""
+        self._pulse_on = False
+        self.setWindowTitle(UPDATE_SHORTCUT_NOTICE_TITLE)
+        self.setModal(True)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 18, 20, 16)
+        layout.setSpacing(12)
+
+        badge = QLabel("NEW")
+        badge.setObjectName("updateShortcutBadge")
+        badge.setFixedWidth(54)
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title = QLabel(UPDATE_SHORTCUT_NOTICE_TITLE)
+        title.setObjectName("updateShortcutTitle")
+        title_row = QHBoxLayout()
+        title_row.setSpacing(8)
+        title_row.addWidget(badge)
+        title_row.addWidget(title, 1)
+        layout.addLayout(title_row)
+
+        message = QLabel(UPDATE_SHORTCUT_NOTICE_MESSAGE)
+        message.setWordWrap(True)
+        message.setObjectName("updateShortcutMessage")
+        layout.addWidget(message)
+
+        row = QHBoxLayout()
+        row.addStretch(1)
+        close_btn = QToolButton()
+        close_btn.setText("닫기")
+        close_btn.clicked.connect(lambda: self.done_with_choice("닫기"))
+        shortcut_btn = QToolButton()
+        shortcut_btn.setObjectName("primaryShortcutButton")
+        shortcut_btn.setText("바로가기")
+        shortcut_btn.clicked.connect(lambda: self.done_with_choice("바로가기"))
+        row.addWidget(close_btn)
+        row.addWidget(shortcut_btn)
+        layout.addLayout(row)
+
+        self._base_style = f"""
+            QDialog {{
+                background: {colors["panel"]};
+                border: 2px solid #F43F5E;
+                border-radius: 12px;
+            }}
+            QLabel {{ color: {colors["text"]}; }}
+            QLabel#updateShortcutBadge {{
+                background: #FFE4E6;
+                color: #BE123C;
+                border-radius: 9px;
+                padding: 3px 0;
+                font-size: 8pt;
+                font-weight: 900;
+            }}
+            QLabel#updateShortcutTitle {{
+                color: #BE123C;
+                font-size: 15pt;
+                font-weight: 900;
+            }}
+            QLabel#updateShortcutMessage {{ font-size: 10.5pt; font-weight: 700; }}
+            QToolButton {{
+                background: {colors["bg"]};
+                color: {colors["text"]};
+                border: 1px solid {colors["border"]};
+                border-radius: 7px;
+                padding: 7px 16px;
+                font-weight: 800;
+            }}
+            QToolButton#primaryShortcutButton {{
+                background: #E11D48;
+                color: white;
+                border: 0;
+            }}
+        """
+        self._pulse_style = self._base_style.replace("border: 2px solid #F43F5E;", "border: 2px solid #FDA4AF;")
+        self.setStyleSheet(self._base_style)
+        self.resize(430, 170)
+        self._pulse_timer = QTimer(self)
+        self._pulse_timer.timeout.connect(self._pulse)
+        self._pulse_timer.start(420)
+
+    def _pulse(self) -> None:
+        self._pulse_on = not self._pulse_on
+        self.setStyleSheet(self._pulse_style if self._pulse_on else self._base_style)
+
+    def done_with_choice(self, choice: str) -> None:
+        self.choice = choice
+        self.accept()
 
 
 class HotkeyEventFilter(QAbstractNativeEventFilter):
@@ -773,6 +874,7 @@ class MainWindow(QMainWindow):
         self.tip_timer.timeout.connect(self.rotate_home_tip)
         self.tip_timer.start(300_000)
         QTimer.singleShot(800, self._show_just_updated_notice)
+        QTimer.singleShot(1100, self.show_update_shortcut_notice)
         QTimer.singleShot(1500, self.check_update_on_startup)
         QTimer.singleShot(300, self.restore_open_stickers)
 
@@ -1164,6 +1266,23 @@ class MainWindow(QMainWindow):
             self._just_updated = True
             from ui.common import show_modern_info
             show_modern_info(self, "업데이트 완료!", f"v{version} 으로 업데이트 되었습니다. 🎉")
+
+    def show_update_shortcut_notice(self) -> None:
+        if self.settings.get("update_shortcut_notice_ack") == UPDATE_SHORTCUT_NOTICE_ID:
+            return
+        dialog = UpdateShortcutNoticeDialog(self)
+        dialog.exec()
+        if dialog.choice != "바로가기":
+            return
+        self.settings["update_shortcut_notice_ack"] = UPDATE_SHORTCUT_NOTICE_ID
+        config.save_settings(self.settings)
+        self.open_sticky_memo_index_setting()
+
+    def open_sticky_memo_index_setting(self) -> None:
+        self.set_tab(11)
+        settings_tab = self.tabs[11] if len(getattr(self, "tabs", [])) > 11 else None
+        if settings_tab is not None and hasattr(settings_tab, "focus_sticky_memo_index_mode"):
+            QTimer.singleShot(0, settings_tab.focus_sticky_memo_index_mode)
 
     def check_update_on_startup(self) -> None:
         if self._just_updated:

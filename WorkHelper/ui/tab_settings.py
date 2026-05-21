@@ -4,7 +4,7 @@ import re
 import webbrowser
 from datetime import datetime
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -394,6 +394,8 @@ class SettingsTab(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         content = QWidget()
+        self.widget_scroll = scroll
+        self.widget_content = content
         layout = QVBoxLayout(content)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(12)
@@ -421,6 +423,9 @@ class SettingsTab(QWidget):
         self.floating_widget_monitor = QComboBox()
         self.floating_widget_monitor.setMaximumWidth(self.FIELD_MAX_WIDTH)
         form.addRow("표시 모니터", self.floating_widget_monitor)
+
+        self.floating_widget_panel_position = self.widget_slider(0, 100, "%")
+        form.addRow("패널 위치", self.floating_widget_panel_position)
 
         self.floating_widget_panel_size = self.widget_slider(130, 280, " px")
         form.addRow("패널 사이즈", self.floating_widget_panel_size)
@@ -686,8 +691,6 @@ class SettingsTab(QWidget):
             self.floating_widget_monitor,
             self.floating_widget_theme,
             self.floating_widget_show_hover_text,
-            self.sticky_memo_arrange_monitor,
-            self.sticky_memo_arrange_corner,
         ]
         for control in controls:
             if isinstance(control, QCheckBox):
@@ -696,18 +699,24 @@ class SettingsTab(QWidget):
                 control.currentIndexChanged.connect(lambda _index: self.preview_widget_settings())
         for holder in [
             self.floating_widget_panel_size,
+            self.floating_widget_panel_position,
             self.floating_widget_panel_width,
             self.floating_widget_icon_size,
             self.floating_widget_speed,
             self.floating_widget_opacity,
         ]:
             holder.slider.valueChanged.connect(lambda _value: self.preview_widget_settings())
+        if hasattr(self, "sticky_memo_arrange_monitor"):
+            self.sticky_memo_arrange_monitor.currentIndexChanged.connect(lambda _index: self.preview_memo_arrange_settings())
+        if hasattr(self, "sticky_memo_arrange_corner"):
+            self.sticky_memo_arrange_corner.currentIndexChanged.connect(lambda _index: self.preview_memo_arrange_settings())
 
     def widget_settings_state(self) -> dict:
         return {
             "floating_widget_enabled": self.floating_widget_enabled.isChecked(),
             "floating_widget_edge": self.floating_widget_edge.currentData(),
             "floating_widget_monitor": int(self.floating_widget_monitor.currentData() or 1),
+            "floating_widget_panel_position": self.widget_slider_value(self.floating_widget_panel_position, 50),
             "floating_widget_panel_size": self.widget_slider_value(self.floating_widget_panel_size, 160),
             "floating_widget_panel_width": self.widget_slider_value(self.floating_widget_panel_width, 860),
             "floating_widget_icon_size": self.widget_slider_value(self.floating_widget_icon_size, 50),
@@ -729,6 +738,17 @@ class SettingsTab(QWidget):
         widget = getattr(self.main, "floating_widget", None)
         if widget is not None:
             widget.preview_settings()
+        memo_tab = self._get_memo_tab()
+        if memo_tab is not None:
+            memo_tab.arrange_compact_stickers()
+
+    def preview_memo_arrange_settings(self) -> None:
+        if self._refreshing:
+            return
+        if hasattr(self, "sticky_memo_arrange_monitor"):
+            self.main.settings["sticky_memo_arrange_monitor"] = int(self.sticky_memo_arrange_monitor.currentData() or 1)
+        if hasattr(self, "sticky_memo_arrange_corner"):
+            self.main.settings["sticky_memo_arrange_corner"] = self.sticky_memo_arrange_corner.currentData()
         memo_tab = self._get_memo_tab()
         if memo_tab is not None:
             memo_tab.arrange_compact_stickers()
@@ -781,6 +801,166 @@ class SettingsTab(QWidget):
         widget = getattr(self.main, "floating_widget", None)
         if widget is not None and getattr(widget, "_preview_pinned", False):
             widget.apply_settings()
+
+    def focus_sticky_memo_index_mode(self) -> None:
+        self.tabs.setCurrentWidget(self.widget_tab)
+        self._clear_update_shortcut_guides()
+        if hasattr(self, "memo_display_index"):
+            self.memo_display_index.setChecked(True)
+            self.memo_display_index.setFocus(Qt.FocusReason.OtherFocusReason)
+            scroll = getattr(self, "widget_scroll", None)
+            if scroll is not None:
+                for delay in (0, 120, 300, 600):
+                    QTimer.singleShot(delay, lambda margin=96: self._scroll_to_memo_index_mode(margin))
+            QTimer.singleShot(620, self.flash_sticky_memo_index_mode)
+            QTimer.singleShot(880, self.show_sticky_memo_index_hint)
+
+    def _scroll_to_memo_index_mode(self, margin: int = 80) -> None:
+        self._scroll_to_widget_target(getattr(self, "memo_display_index", None), margin)
+
+    def _scroll_to_floating_panel_position(self, margin: int = 80) -> None:
+        self._scroll_to_widget_target(getattr(self, "floating_widget_panel_position", None), margin)
+
+    def _scroll_to_widget_target(self, target: QWidget | None, margin: int = 80) -> None:
+        scroll = getattr(self, "widget_scroll", None)
+        content = getattr(self, "widget_content", None)
+        if scroll is None or content is None or target is None:
+            return
+        if scroll.widget() is not content:
+            content = scroll.widget()
+        if content is None:
+            return
+        content.adjustSize()
+        scroll.updateGeometry()
+        QApplication.processEvents()
+        bar = scroll.verticalScrollBar()
+        target_y = target.mapTo(content, target.rect().topLeft()).y()
+        desired = max(bar.minimum(), target_y - margin)
+        bar.setValue(min(bar.maximum(), desired))
+        scroll.ensureWidgetVisible(target, 32, margin)
+        scroll.viewport().update()
+
+    def flash_sticky_memo_index_mode(self) -> None:
+        self._show_update_shortcut_highlight(getattr(self, "memo_display_index", None))
+
+    def _clear_update_shortcut_guides(self) -> None:
+        seen = set()
+        for attr in ("_update_shortcut_highlight", "_memo_index_highlight", "_memo_index_hint"):
+            widget = getattr(self, attr, None)
+            if widget is not None and id(widget) not in seen:
+                seen.add(id(widget))
+                widget.hide()
+                widget.deleteLater()
+            setattr(self, attr, None)
+
+    def _show_update_shortcut_highlight(self, target: QWidget | None) -> None:
+        if target is None:
+            return
+        old = getattr(self, "_update_shortcut_highlight", None)
+        if old is not None:
+            old.hide()
+            old.deleteLater()
+        highlight = QWidget(self.widget_tab)
+        highlight.setObjectName("memoIndexHighlight")
+        highlight.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        highlight.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        highlight.setStyleSheet(
+            """
+            QWidget#memoIndexHighlight {
+                background: rgba(225, 29, 72, 22);
+                border: 2px solid rgba(225, 29, 72, 210);
+                border-radius: 8px;
+            }
+            """
+        )
+        pad = 5
+        pos = target.mapTo(self.widget_tab, target.rect().topLeft())
+        highlight.setGeometry(pos.x() - pad, pos.y() - pad, target.width() + pad * 2, target.height() + pad * 2)
+        highlight.show()
+        highlight.raise_()
+        self._update_shortcut_highlight = highlight
+        self._memo_index_highlight = highlight
+
+    def show_sticky_memo_index_hint(self) -> None:
+        target = getattr(self, "memo_display_index", None)
+        self._show_update_shortcut_bubble(
+            target,
+            "인덱스 형태를 선택하면 메모가 화면 가장자리 카드로 열립니다.",
+            "다음",
+            self.focus_floating_widget_panel_position,
+        )
+
+    def focus_floating_widget_panel_position(self) -> None:
+        old = getattr(self, "_memo_index_hint", None)
+        if old is not None:
+            old.hide()
+            old.deleteLater()
+            self._memo_index_hint = None
+        for delay in (0, 120, 300, 600):
+            QTimer.singleShot(delay, lambda margin=96: self._scroll_to_floating_panel_position(margin))
+        QTimer.singleShot(620, lambda: self._show_update_shortcut_highlight(getattr(self, "floating_widget_panel_position", None)))
+        QTimer.singleShot(880, self.show_floating_widget_panel_position_hint)
+
+    def show_floating_widget_panel_position_hint(self) -> None:
+        self._show_update_shortcut_bubble(
+            getattr(self, "floating_widget_panel_position", None),
+            "플로팅 위젯의 위치를 변경할 수 있어요.",
+            "x",
+            self._clear_update_shortcut_guides,
+        )
+
+    def _show_update_shortcut_bubble(self, target: QWidget | None, message: str, button_text: str, callback) -> None:
+        if target is None:
+            return
+        old = getattr(self, "_memo_index_hint", None)
+        if old is not None:
+            old.hide()
+            old.deleteLater()
+        hint = QWidget(self.widget_tab)
+        hint.setObjectName("memoIndexHintBubble")
+        hint.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        row = QHBoxLayout(hint)
+        row.setContentsMargins(10, 7, 8, 7)
+        row.setSpacing(8)
+        label = QLabel(message)
+        label.setWordWrap(True)
+        action = QPushButton(button_text)
+        action.setFixedHeight(24)
+        action.clicked.connect(callback)
+        row.addWidget(label, 1)
+        row.addWidget(action, 0, Qt.AlignmentFlag.AlignTop)
+        hint.setStyleSheet(
+            """
+            QWidget#memoIndexHintBubble {
+                background: #FFFFFF;
+                border: 1px solid #FB7185;
+                border-radius: 8px;
+            }
+            QWidget#memoIndexHintBubble QLabel {
+                color: #9F1239;
+                font-size: 9pt;
+                font-weight: 700;
+            }
+            QWidget#memoIndexHintBubble QPushButton {
+                background: #E11D48;
+                border: 0;
+                border-radius: 6px;
+                color: #FFFFFF;
+                font-size: 8pt;
+                font-weight: 800;
+                padding: 2px 9px;
+            }
+            """
+        )
+        hint.setFixedWidth(300)
+        hint.adjustSize()
+        pos = target.mapTo(self.widget_tab, target.rect().bottomLeft())
+        x = min(max(8, pos.x()), max(8, self.widget_tab.width() - hint.width() - 8))
+        y = min(max(8, pos.y() + 8), max(8, self.widget_tab.height() - hint.height() - 8))
+        hint.move(x, y)
+        hint.show()
+        hint.raise_()
+        self._memo_index_hint = hint
 
     def hideEvent(self, event) -> None:
         self.end_widget_preview()
@@ -879,6 +1059,7 @@ class SettingsTab(QWidget):
         edge_index = self.floating_widget_edge.findData(edge)
         self.floating_widget_edge.setCurrentIndex(edge_index if edge_index >= 0 else 0)
         self.refresh_widget_monitor_combo(int(settings.get("floating_widget_monitor", 1) or 1))
+        self.set_widget_slider_value(self.floating_widget_panel_position, int(settings.get("floating_widget_panel_position", 50) or 50))
         self.set_widget_slider_value(self.floating_widget_panel_size, int(settings.get("floating_widget_panel_size", 160) or 160))
         self.set_widget_slider_value(self.floating_widget_panel_width, int(settings.get("floating_widget_panel_width", 860) or 860))
         self.set_widget_slider_value(self.floating_widget_icon_size, int(settings.get("floating_widget_icon_size", 50) or 50))
@@ -940,6 +1121,7 @@ class SettingsTab(QWidget):
             "floating_widget_enabled": self.floating_widget_enabled.isChecked() if hasattr(self, "floating_widget_enabled") else True,
             "floating_widget_edge": self.floating_widget_edge.currentData() if hasattr(self, "floating_widget_edge") else "top",
             "floating_widget_monitor": self.floating_widget_monitor.currentData() if hasattr(self, "floating_widget_monitor") else 1,
+            "floating_widget_panel_position": self.widget_slider_value(self.floating_widget_panel_position, 50) if hasattr(self, "floating_widget_panel_position") else 50,
             "floating_widget_panel_size": self.widget_slider_value(self.floating_widget_panel_size, 160) if hasattr(self, "floating_widget_panel_size") else 160,
             "floating_widget_panel_width": self.widget_slider_value(self.floating_widget_panel_width, 860) if hasattr(self, "floating_widget_panel_width") else 860,
             "floating_widget_icon_size": self.widget_slider_value(self.floating_widget_icon_size, 50) if hasattr(self, "floating_widget_icon_size") else 50,
@@ -1024,6 +1206,7 @@ class SettingsTab(QWidget):
             "floating_widget_enabled": "플로팅 위젯",
             "floating_widget_edge": "위젯 사이드 영역",
             "floating_widget_monitor": "위젯 표시 모니터",
+            "floating_widget_panel_position": "위젯 패널 위치",
             "floating_widget_panel_size": "위젯 패널 사이즈",
             "floating_widget_panel_width": "위젯 패널 가로 너비",
             "floating_widget_icon_size": "위젯 아이콘 사이즈",
@@ -1068,6 +1251,7 @@ class SettingsTab(QWidget):
         settings["floating_widget_enabled"] = bool(snapshot.get("floating_widget_enabled", True))
         settings["floating_widget_edge"] = snapshot.get("floating_widget_edge", "top")
         settings["floating_widget_monitor"] = int(snapshot.get("floating_widget_monitor", 1) or 1)
+        settings["floating_widget_panel_position"] = int(snapshot.get("floating_widget_panel_position", 50) or 50)
         settings["floating_widget_panel_size"] = int(snapshot.get("floating_widget_panel_size", 160) or 160)
         settings["floating_widget_panel_width"] = int(snapshot.get("floating_widget_panel_width", 860) or 860)
         settings["floating_widget_icon_size"] = int(snapshot.get("floating_widget_icon_size", 50) or 50)
@@ -1108,6 +1292,7 @@ class SettingsTab(QWidget):
         edge_index = self.floating_widget_edge.findData(snapshot.get("floating_widget_edge", "top"))
         self.floating_widget_edge.setCurrentIndex(edge_index if edge_index >= 0 else 0)
         self.refresh_widget_monitor_combo(int(snapshot.get("floating_widget_monitor", 1) or 1))
+        self.set_widget_slider_value(self.floating_widget_panel_position, int(snapshot.get("floating_widget_panel_position", 50) or 50))
         self.set_widget_slider_value(self.floating_widget_panel_size, int(snapshot.get("floating_widget_panel_size", 160) or 160))
         self.set_widget_slider_value(self.floating_widget_panel_width, int(snapshot.get("floating_widget_panel_width", 860) or 860))
         self.set_widget_slider_value(self.floating_widget_icon_size, int(snapshot.get("floating_widget_icon_size", 50) or 50))
@@ -1192,6 +1377,7 @@ class SettingsTab(QWidget):
         settings["floating_widget_enabled"] = self.floating_widget_enabled.isChecked()
         settings["floating_widget_edge"] = self.floating_widget_edge.currentData()
         settings["floating_widget_monitor"] = int(self.floating_widget_monitor.currentData() or 1)
+        settings["floating_widget_panel_position"] = self.widget_slider_value(self.floating_widget_panel_position, 50)
         settings["floating_widget_panel_size"] = self.widget_slider_value(self.floating_widget_panel_size, 160)
         settings["floating_widget_panel_width"] = self.widget_slider_value(self.floating_widget_panel_width, 860)
         settings["floating_widget_icon_size"] = self.widget_slider_value(self.floating_widget_icon_size, 50)
@@ -1234,6 +1420,7 @@ class SettingsTab(QWidget):
             "floating_widget_enabled",
             "floating_widget_edge",
             "floating_widget_monitor",
+            "floating_widget_panel_position",
             "floating_widget_panel_size",
             "floating_widget_panel_width",
             "floating_widget_icon_size",
@@ -1279,6 +1466,9 @@ class SettingsTab(QWidget):
                 memo_tab = self._get_memo_tab()
                 if memo_tab is not None:
                     memo_tab.reopen_stickers_for_mode()
+                    if prev_display_mode == "index" and new_display_mode == "floating":
+                        memo_tab.collapse_all_stickers()
+                        memo_tab.arrange_compact_stickers()
             elif any(before.get(key) != current.get(key) for key in {
                 "sticky_memo_arrange_monitor",
                 "sticky_memo_arrange_corner",
@@ -1421,6 +1611,7 @@ class SettingsTab(QWidget):
             "floating_widget_enabled",
             "floating_widget_edge",
             "floating_widget_monitor",
+            "floating_widget_panel_position",
             "floating_widget_panel_size",
             "floating_widget_panel_width",
             "floating_widget_icon_size",

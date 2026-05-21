@@ -537,6 +537,13 @@ class FloatingWidget(QFrame):
     def _panel_width(self) -> int:
         return max(260, min(1400, int(self._settings.get("floating_widget_panel_width", 860) or 860)))
 
+    def _panel_position_percent(self) -> int:
+        return max(0, min(100, int(self._settings.get("floating_widget_panel_position", 50) or 0)))
+
+    def _panel_offset(self, available: int, extent: int) -> int:
+        span = max(0, available - extent)
+        return int(round(span * (self._panel_position_percent() / 100)))
+
     def _raw_icon_size(self) -> int:
         return int(self._settings.get("floating_widget_icon_size", 50) or 50)
 
@@ -724,14 +731,14 @@ class FloatingWidget(QFrame):
             available_height = max(260, area.height() - 80)
             width = min(size, max(40, area.width()))
             height = min(self._panel_width(), available_height)
-            y = area.top() + max(0, (area.height() - height) // 2)
+            y = area.top() + self._panel_offset(area.height(), height)
             x = area.left() if self._edge() == "left" else area.right() - width + 1
             return QRect(x, y, width, height)
         available_width = max(260, area.width() - 80)
         width = min(max(260, self._content_extent() + 40), available_width)
         width = min(self._panel_width(), available_width)
         height = min(size, max(40, area.height()))
-        x = area.left() + max(0, (area.width() - width) // 2)
+        x = area.left() + self._panel_offset(area.width(), width)
         y = area.top() if self._edge() == "top" else area.bottom() - height + 1
         return QRect(x, y, width, height)
 
@@ -1018,8 +1025,10 @@ class FloatingWidget(QFrame):
             self.scroll.viewport().update()
             self.items_layout.addStretch(1)
             if self.current_category:
-                for label, detail, callback, icon_text, icon in self._items_for_category(self.current_category):
-                    self._add_item(icon_text, label, detail, callback, icon)
+                for item_data in self._items_for_category(self.current_category):
+                    label, detail, callback, icon_text, icon, *rest = item_data
+                    enabled = bool(rest[0]) if rest else True
+                    self._add_item(icon_text, label, detail, callback, icon, enabled)
             else:
                 for key, label, icon_text in self._category_order():
                     self._add_item(icon_text, label, label, lambda checked=False, value=key: self._open_category(value))
@@ -1051,10 +1060,15 @@ class FloatingWidget(QFrame):
         tooltip: str,
         callback: Callable,
         icon: QIcon | None = None,
+        enabled: bool = True,
     ) -> None:
         rendered_icon = icon if self._raw_icon_size() >= 33 else None
         popup_enabled = bool(self._settings.get("floating_widget_show_hover_text", True))
         item = DockItem(icon_text, label, tooltip, callback, self._icon_size(), self._shape(), rendered_icon, popup_enabled, self._is_vertical(), self.content)
+        item.setEnabled(enabled)
+        if not enabled:
+            item.setProperty("dockState", "dim")
+            item.setCursor(Qt.CursorShape.ArrowCursor)
         self.items_layout.addWidget(item, 0, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
 
     def _open_category(self, key: str | None) -> None:
@@ -1070,7 +1084,7 @@ class FloatingWidget(QFrame):
         items = list(self.main.data.get(collection, []))
         return sorted(enumerate(items), key=lambda pair: (int(pair[1].get("sort_order", pair[0]) or 0), pair[0]))
 
-    def _items_for_category(self, key: str) -> list[tuple[str, str, Callable, str, QIcon | None]]:
+    def _items_for_category(self, key: str) -> list[tuple]:
         if key == "text":
             return [self._text_item(item, "📝") for _idx, item in self._ordered("phrases")]
         if key == "snippet":
@@ -1125,12 +1139,20 @@ class FloatingWidget(QFrame):
         return label, str(item.get("content", "")), lambda checked=False, value=item: self._toggle_memo_sticker(value), "🗒", None
 
     def _memo_control_items(self) -> list[tuple[str, str, Callable, str, QIcon | None]]:
+        controls_enabled = str(self._settings.get("sticky_memo_display_mode", "floating") or "floating") == "floating"
+        disabled_tooltip = "인덱스 형태에서는 사용할 수 없습니다"
+
+        def memo_action(action: str) -> Callable:
+            if not controls_enabled:
+                return lambda checked=False: None
+            return lambda checked=False: self._run_memo_sticker_action(action)
+
         return [
-            ("모두 펼치기", "열려있는 스티커 메모를 모두 펼칩니다", lambda checked=False: self._run_memo_sticker_action("expand_all_stickers"), "▣", None),
-            ("모두 접기", "열려있는 스티커 메모를 모두 접습니다", lambda checked=False: self._run_memo_sticker_action("collapse_all_stickers"), "▤", None),
-            ("정렬", "열려있는 스티커 메모를 우측 상단부터 정렬합니다", lambda checked=False: self._run_memo_sticker_action("arrange_compact_stickers"), "↘", None),
-            ("★ 열기/닫기", "즐겨찾기 메모 스티커를 열거나 닫습니다", lambda checked=False: self._run_memo_sticker_action("toggle_pinned_stickers"), "★", None),
-            ("열기/닫기", "현재 열린 스티커 메모를 닫고, 다시 누르면 방금 닫은 스티커만 복구합니다", lambda checked=False: self._run_memo_sticker_action("toggle_recent_stickers"), "↕", None),
+            ("모두 펼치기", disabled_tooltip if not controls_enabled else "열려있는 스티커 메모를 모두 펼칩니다", memo_action("expand_all_stickers"), "▣", None, controls_enabled),
+            ("모두 접기", disabled_tooltip if not controls_enabled else "열려있는 스티커 메모를 모두 접습니다", memo_action("collapse_all_stickers"), "▤", None, controls_enabled),
+            ("정렬", disabled_tooltip if not controls_enabled else "열려있는 스티커 메모를 우측 상단부터 정렬합니다", memo_action("arrange_compact_stickers"), "↘", None, controls_enabled),
+            ("★ 열기/닫기", "즐겨찾기 메모 스티커를 열거나 닫습니다", lambda checked=False: self._run_memo_sticker_action("toggle_pinned_stickers"), "★", None, True),
+            ("열기/닫기", "현재 열린 스티커 메모를 닫고, 다시 누르면 방금 닫은 스티커만 복구합니다", lambda checked=False: self._run_memo_sticker_action("toggle_recent_stickers"), "↕", None, True),
         ]
 
     def _emoji_items(self) -> list[str]:

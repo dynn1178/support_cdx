@@ -10,6 +10,7 @@ WM_HOTKEY = 0x0312
 MOD_ALT = 0x0001
 MOD_CONTROL = 0x0002
 MOD_SHIFT = 0x0004
+MOD_WIN = 0x0008
 MOD_NOREPEAT = 0x4000
 
 USER32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -35,17 +36,21 @@ class HotkeyManager:
         self.hwnd = int(hwnd)
 
     def _make_hotkey(self, modifiers: list[str], key: str) -> str:
-        return "+".join(sorted([m.lower() for m in modifiers]) + [key.lower()])
+        aliases = {"control": "ctrl", "windows": "win", "meta": "win", "super": "win"}
+        normalized = [aliases.get(str(modifier).lower(), str(modifier).lower()) for modifier in modifiers]
+        return "+".join(sorted(dict.fromkeys(normalized)) + [key.lower()])
 
     def _modifier_flags(self, modifiers: list[str]) -> int:
         flags = MOD_NOREPEAT
-        normalized = {m.lower() for m in modifiers}
+        normalized = {str(m).lower() for m in modifiers}
         if "ctrl" in normalized or "control" in normalized:
             flags |= MOD_CONTROL
         if "alt" in normalized:
             flags |= MOD_ALT
         if "shift" in normalized:
             flags |= MOD_SHIFT
+        if normalized & {"win", "windows", "meta", "super"}:
+            flags |= MOD_WIN
         return flags
 
     def _vk_code(self, key: str) -> int:

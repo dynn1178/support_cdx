@@ -84,6 +84,23 @@ def active_window_rect() -> QRect:
     return screen.geometry() if screen else QRect()
 
 
+def virtual_screen_geometry() -> QRect:
+    screen = QApplication.primaryScreen()
+    rect = screen.virtualGeometry() if screen else QRect()
+    for item in QApplication.screens():
+        rect = rect.united(item.geometry())
+    return rect
+
+
+def exec_capture_dialog(dialog: QDialog) -> QDialog.DialogCode:
+    return dialog.exec()
+
+
+def copy_pixmap_to_clipboard(pixmap: QPixmap) -> None:
+    if not pixmap.isNull():
+        QApplication.clipboard().setPixmap(pixmap)
+
+
 def _scaled_pixels(value: int, scale: float) -> int:
     return max(1, int(value * scale + 0.9999))
 
@@ -144,10 +161,7 @@ class ScreenCaptureDialog(QDialog):
         self.selection = QRect()
         self.rubber_band = QRubberBand(QRubberBand.Shape.Rectangle, self)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
-        virtual_rect = QApplication.primaryScreen().virtualGeometry()
-        for screen in QApplication.screens():
-            virtual_rect = virtual_rect.united(screen.geometry())
-        self.setGeometry(virtual_rect)
+        self.setGeometry(virtual_screen_geometry())
         self.setWindowOpacity(0.25)
         self.setCursor(Qt.CursorShape.CrossCursor)
 
@@ -181,9 +195,7 @@ class FixedSizeCaptureDialog(QDialog):
         )
         self.capture_button.clicked.connect(self.accept_capture)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
-        virtual_rect = QApplication.primaryScreen().virtualGeometry()
-        for screen in QApplication.screens():
-            virtual_rect = virtual_rect.united(screen.geometry())
+        virtual_rect = virtual_screen_geometry()
         self.setGeometry(virtual_rect)
         if self.initial_top_left is not None:
             self.initial_top_left = self.initial_top_left - virtual_rect.topLeft()
@@ -364,7 +376,7 @@ class ImageDialog(QDialog):
             QMessageBox.warning(self, "캡처 실패", "사용 가능한 화면이 없습니다.")
             return
         capture = ScreenCaptureDialog()
-        if capture.exec() != capture.DialogCode.Accepted or capture.selection.width() < 3 or capture.selection.height() < 3:
+        if exec_capture_dialog(capture) != capture.DialogCode.Accepted or capture.selection.width() < 3 or capture.selection.height() < 3:
             return
         rect = capture.selection
         pixmap = capture_screen_rect(rect)
@@ -376,6 +388,7 @@ class ImageDialog(QDialog):
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
+        copy_pixmap_to_clipboard(pixmap)
         target = next_capture_jpg_path(self.saved_image_dir())
         if not save_capture_jpg(pixmap, target):
             QMessageBox.warning(self, "캡처 실패", "스크린샷을 저장하지 못했습니다.")
@@ -1003,10 +1016,7 @@ class ImageTab(QWidget):
     def steel_cut_capture_rect(self) -> QRect:
         mode = self.main.settings.get("steel_cut_capture_mode", "region")
         if mode == "full":
-            rect = QApplication.primaryScreen().virtualGeometry()
-            for screen in QApplication.screens():
-                rect = rect.united(screen.geometry())
-            return rect
+            return virtual_screen_geometry()
         if mode == "window":
             return active_window_rect()
         if mode == "fixed":
@@ -1016,14 +1026,14 @@ class ImageTab(QWidget):
             raw_y = self.main.settings.get("steel_cut_fixed_y")
             initial = QPoint(int(raw_x), int(raw_y)) if raw_x is not None and raw_y is not None else None
             capture = FixedSizeCaptureDialog(QSize(width, height), initial)
-            if capture.exec() != capture.DialogCode.Accepted:
+            if exec_capture_dialog(capture) != capture.DialogCode.Accepted:
                 return QRect()
             self.main.settings["steel_cut_fixed_x"] = capture.selection.x()
             self.main.settings["steel_cut_fixed_y"] = capture.selection.y()
             config.save_settings(self.main.settings)
             return capture.selection
         capture = ScreenCaptureDialog()
-        if capture.exec() != capture.DialogCode.Accepted:
+        if exec_capture_dialog(capture) != capture.DialogCode.Accepted:
             return QRect()
         return capture.selection
 
@@ -1033,8 +1043,7 @@ class ImageTab(QWidget):
         if rect.width() < 3 or rect.height() < 3:
             return
         pixmap = self.capture_selection(rect)
-        if not pixmap.isNull():
-            QApplication.clipboard().setPixmap(pixmap)
+        copy_pixmap_to_clipboard(pixmap)
         target = next_capture_jpg_path(self.screenshot_dir())
         if not save_capture_jpg(pixmap, target):
             QMessageBox.warning(self, "스틸 컷 실패", "스크린샷을 저장하지 못했습니다.")

@@ -3,11 +3,11 @@ from __future__ import annotations
 import ctypes
 import sys
 
+from PyQt6.QtCore import qInstallMessageHandler
 from PyQt6.QtGui import QFont, QIcon
 from PyQt6.QtWidgets import QApplication
 
 from app import config
-from ui.main_window import MainWindow
 
 
 def enable_dpi_awareness() -> None:
@@ -31,13 +31,25 @@ def enable_dpi_awareness() -> None:
         pass
 
 
+def qt_message_handler(_mode, _context, message: str) -> None:
+    if (
+        "DirectWrite: CreateFontFaceFromHDC() failed" in message
+        and 'Family="Fixedsys"' in message
+    ):
+        return
+    sys.stderr.write(f"{message}\n")
+
+
 def main() -> int:
     enable_dpi_awareness()
     config.ensure_data_files()
-    app = QApplication(sys.argv)
+    qInstallMessageHandler(qt_message_handler)
     QFont.insertSubstitution("Fixedsys", "Consolas")
     QFont.insertSubstitution("Terminal", "Consolas")
+    app = QApplication(sys.argv)
     app.setFont(QFont("Malgun Gothic", 9))
+    from ui.main_window import MainWindow
+
     icon_path = config.APP_ICON_PATH if config.APP_ICON_PATH.exists() else config.BUNDLED_ICON_PATH
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))

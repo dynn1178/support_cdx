@@ -996,21 +996,24 @@ class HotkeyFields(QWidget):
         self.ctrl = QCheckBox("Ctrl")
         self.alt = QCheckBox("Alt")
         self.shift = QCheckBox("Shift")
+        self.win = QCheckBox("Win")
         self.key = QComboBox()
         self.key.addItems(HOTKEY_KEYS)
         layout.addWidget(self.ctrl)
         layout.addWidget(self.alt)
         layout.addWidget(self.shift)
+        layout.addWidget(self.win)
         layout.addWidget(self.key, 1)
         self.set_hotkey(hotkey)
 
     def set_hotkey(self, hotkey: dict[str, Any] | None) -> None:
         if not hotkey:
             return
-        modifiers = set(hotkey.get("modifiers", []))
+        modifiers = {str(modifier).lower() for modifier in hotkey.get("modifiers", [])}
         self.ctrl.setChecked("ctrl" in modifiers)
         self.alt.setChecked("alt" in modifiers)
         self.shift.setChecked("shift" in modifiers)
+        self.win.setChecked(bool(modifiers & {"win", "windows", "meta", "super"}))
         key = hotkey.get("key")
         if key:
             index = self.key.findText(str(key))
@@ -1025,6 +1028,8 @@ class HotkeyFields(QWidget):
             modifiers.append("alt")
         if self.shift.isChecked():
             modifiers.append("shift")
+        if self.win.isChecked():
+            modifiers.append("win")
         if not modifiers:
             return None
         return {"modifiers": modifiers, "key": self.key.currentText()}

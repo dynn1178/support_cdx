@@ -46,16 +46,21 @@ def short_preview(text: str, limit: int = 120) -> str:
 def normalize_hotkey(hotkey: dict | None) -> str:
     if not hotkey:
         return ""
-    modifiers = hotkey.get("modifiers", [])
+    aliases = {"ctrl": "Ctrl", "control": "Ctrl", "alt": "Alt", "shift": "Shift", "win": "Win", "windows": "Win", "meta": "Win", "super": "Win"}
+    order = {"Ctrl": 0, "Alt": 1, "Shift": 2, "Win": 3}
+    modifiers = [aliases.get(str(modifier).lower(), str(modifier).title()) for modifier in hotkey.get("modifiers", [])]
+    modifiers = sorted(dict.fromkeys(modifiers), key=lambda value: order.get(value, 99))
     key = hotkey.get("key", "")
-    return "+".join([m.title() for m in modifiers] + ([key] if key else []))
+    return "+".join(modifiers + ([key] if key else []))
 
 
 def display_hotkey(hotkey: dict | None) -> str:
     if not hotkey:
         return ""
-    aliases = {"ctrl": "Ctrl", "alt": "Alt", "shift": "Shift"}
+    aliases = {"ctrl": "Ctrl", "control": "Ctrl", "alt": "Alt", "shift": "Shift", "win": "Win", "windows": "Win", "meta": "Win", "super": "Win"}
+    order = {"Ctrl": 0, "Alt": 1, "Shift": 2, "Win": 3}
     modifiers = [aliases.get(str(modifier).lower(), str(modifier).title()) for modifier in hotkey.get("modifiers", [])]
+    modifiers = sorted(dict.fromkeys(modifiers), key=lambda value: order.get(value, 99))
     key = hotkey.get("key", "")
     return "+".join(modifiers + ([key] if key else []))
 
@@ -63,7 +68,8 @@ def display_hotkey(hotkey: dict | None) -> str:
 def hotkey_to_keyboard_string(hotkey: dict | None) -> str:
     if not hotkey:
         return ""
-    modifiers = [m.lower() for m in hotkey.get("modifiers", [])]
+    aliases = {"control": "ctrl", "windows": "win", "meta": "win", "super": "win"}
+    modifiers = [aliases.get(str(m).lower(), str(m).lower()) for m in hotkey.get("modifiers", [])]
     key = str(hotkey.get("key", "")).lower()
     return "+".join(sorted(modifiers) + ([key] if key else []))
 

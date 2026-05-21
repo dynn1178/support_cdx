@@ -47,6 +47,7 @@ from ui.common import (
     CARD_ACTION_ROW_MARGIN_X,
     CARD_ACTION_ROW_MARGIN_Y,
     CARD_ACTION_ROW_SPACING,
+    BOTTOM_ACTION_HEIGHT,
     CORNER_CONTROL_HEIGHT,
     CORNER_SEARCH_WIDTH,
     GRID_PANEL_MARGINS,
@@ -72,6 +73,18 @@ from ui.common import (
     show_card_status,
     show_modern_info,
     show_modern_warning,
+)
+
+
+MEMO_BOTTOM_ACTION_STYLE = (
+    "QPushButton {"
+    "background: #FFFFFF; border: 1px solid #D1D5DB; border-radius: 6px;"
+    "padding: 6px 12px; color: #1F2433; font-weight: 700;"
+    f"min-height: {BOTTOM_ACTION_HEIGHT - 8}px;"
+    "}"
+    "QPushButton:hover { background: #EEF4FF; border-color: #3B6CF5; }"
+    "QPushButton:pressed { background: #F8FAFC; }"
+    "QPushButton:disabled { background: #E5E7EB; color: #94A3B8; border: 1px solid #CBD5E1; }"
 )
 
 
@@ -657,6 +670,7 @@ class MemoIndexCard(QWidget):
         bg = memo.get("background", "노랑")
         self._color.setCurrentText(bg if bg in MEMO_COLORS else "노랑")
         self._color.setFixedWidth(58)
+        self._color.setVisible(False)
         self._color.currentTextChanged.connect(self._apply_color)
         self._color.currentTextChanged.connect(self.schedule_save)
 
@@ -664,6 +678,7 @@ class MemoIndexCard(QWidget):
         self._icon_pick_btn.setObjectName("memoIndexIconButton")
         self._icon_pick_btn.setFixedSize(34, 22)
         self._icon_pick_btn.setToolTip("아이콘 변경")
+        self._icon_pick_btn.setVisible(False)
         self._icon_pick_btn.clicked.connect(self._open_icon_picker)
 
         close_btn = QPushButton("×")
@@ -679,17 +694,19 @@ class MemoIndexCard(QWidget):
         self._always_on_top_chk = QCheckBox("항상 위")
         self._always_on_top_chk.setObjectName("memoIndexBottomControl")
         self._always_on_top_chk.setChecked(bool(memo.get("always_on_top", True)))
+        self._always_on_top_chk.setVisible(False)
         self._always_on_top_chk.toggled.connect(self._toggle_always_on_top)
 
         AV = Qt.AlignmentFlag.AlignVCenter
         ctrl_row = QHBoxLayout()
         ctrl_row.setContentsMargins(0, 0, 0, 0)
         ctrl_row.setSpacing(4)
-        ctrl_row.addStretch(1)
-        ctrl_row.addWidget(self._always_on_top_chk, 0, AV)
-        ctrl_row.addWidget(self._color, 0, AV)
         ctrl_row.addWidget(self._icon_pick_btn, 0, AV)
+        ctrl_row.addStretch(1)
+        ctrl_row.addWidget(self._color, 0, AV)
+        ctrl_row.addStretch(1)
         ctrl_row.addWidget(close_btn, 0, AV)
+        ctrl_row.addWidget(self._always_on_top_chk, 0, AV)
 
         el.addWidget(self._text, 1)
         el.addLayout(ctrl_row)
@@ -912,12 +929,15 @@ class MemoIndexCard(QWidget):
     def enterEvent(self, event) -> None:
         if not self._expanded:
             self._do_expand()
+        else:
+            self._set_hover_controls_visible(self._cursor_in_expanded_region())
         super().enterEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
         if not self._expanded:
             self._do_expand()
         else:
+            self._set_hover_controls_visible(self._cursor_in_expanded_region())
             global_y = int(event.globalPosition().y())
             previous_y = self._last_mouse_y
             self._last_mouse_y = global_y
@@ -958,6 +978,13 @@ class MemoIndexCard(QWidget):
             QTimer.singleShot(120, self._collapse_if_idle)
         super().leaveEvent(event)
 
+    def _set_hover_controls_visible(self, visible: bool) -> None:
+        if not getattr(self, "_expanded", False):
+            visible = False
+        for widget in (getattr(self, "_icon_pick_btn", None), getattr(self, "_color", None), getattr(self, "_always_on_top_chk", None)):
+            if widget is not None:
+                widget.setVisible(visible)
+
     def _collapse_if_idle(self) -> None:
         if self._expanded and not self._cursor_in_hover_regions():
             self._do_collapse()
@@ -977,6 +1004,17 @@ class MemoIndexCard(QWidget):
         if self.frameGeometry().adjusted(-8, -8, 8, 8).contains(pos):
             return True
         return any(region.adjusted(-8, -8, 8, 8).contains(pos) for region in self._hover_regions)
+
+    def _cursor_in_expanded_region(self) -> bool:
+        if not self._expanded:
+            return False
+        pos = QCursor.pos()
+        widget = QApplication.widgetAt(pos)
+        while widget is not None:
+            if widget is self:
+                return True
+            widget = widget.parentWidget()
+        return self.frameGeometry().adjusted(-4, -4, 4, 4).contains(pos)
 
     def _card_at_cursor_slot(self, pos: QPoint) -> "MemoIndexCard | None":
         for card in MemoIndexCard._all_cards:
@@ -999,6 +1037,7 @@ class MemoIndexCard(QWidget):
                 slot_card.raise_()
             return
         if self._cursor_in_hover_regions():
+            self._set_hover_controls_visible(self._cursor_in_expanded_region())
             global_y = pos.y()
             previous_y = self._last_mouse_y
             self._last_mouse_y = global_y
@@ -1050,6 +1089,7 @@ class MemoIndexCard(QWidget):
         self.setGeometry(end_rect)
         self._compact_face.hide()
         self._expanded_face.show()
+        self._set_hover_controls_visible(self._cursor_in_expanded_region())
         # Re-lock after face switch — overrides any layout-triggered resize
         self.setGeometry(end_rect)
         self.setUpdatesEnabled(True)
@@ -1071,6 +1111,7 @@ class MemoIndexCard(QWidget):
         )
 
         def _on_done() -> None:
+            self._set_hover_controls_visible(False)
             self._expanded_face.hide()
             self._compact_face.show()
             self.setMinimumSize(0, 0)
@@ -1160,11 +1201,7 @@ class MemoDialog(QDialog):
         self.background.setCurrentText(_bg_default if _bg_default in MEMO_COLORS else "노랑")
         form.addRow("제목", self.title)
         form.addRow("내용", self.content)
-        form.addRow("즐겨찾기", self.pinned)
-        form.addRow("스티커 옵션", self.always_on_top)
         form.addRow("배경색", self.background)
-        form.removeRow(self.pinned)
-        form.removeRow(self.always_on_top)
         form.addRow(self.open_as_sticker)
         form.addRow(self.pinned)
         form.addRow(self.always_on_top)
@@ -1422,6 +1459,7 @@ class MemoListTab(QWidget):
         close_all_btn.clicked.connect(self.toggle_recent_stickers)
         for button in (expand_btn, collapse_btn, arrange_btn, sticker_toggle_btn, close_all_btn, add_btn):
             button.setFixedHeight(30)
+            button.setStyleSheet(MEMO_BOTTOM_ACTION_STYLE)
         self.grid = GridPanel(columns=2)
         page = QWidget()
         page_layout = QVBoxLayout(page)
@@ -1444,10 +1482,8 @@ class MemoListTab(QWidget):
         for button in (getattr(self, "expand_btn", None), getattr(self, "collapse_btn", None), getattr(self, "arrange_btn", None)):
             if button is not None:
                 button.setEnabled(not is_index)
-                button.setStyleSheet(
-                    "QPushButton { padding: 1px 10px; font-size: 9pt; }"
-                    "QPushButton:disabled { color: #94A3B8; background: #E5E7EB; border: 1px solid #CBD5E1; }"
-                )
+                button.setFixedHeight(BOTTOM_ACTION_HEIGHT)
+                button.setStyleSheet(MEMO_BOTTOM_ACTION_STYLE)
 
     def refresh(self) -> None:
         cards = []

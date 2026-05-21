@@ -63,6 +63,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "floating_widget_enabled": True,
     "floating_widget_edge": "top",
     "floating_widget_monitor": 1,
+    "floating_widget_panel_position": 50,
     "floating_widget_panel_size": 160,
     "floating_widget_panel_width": 860,
     "floating_widget_icon_size": 50,
@@ -78,6 +79,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "sticky_memo_display_mode": "floating",
     "sticky_memo_index_side": "right",
     "sticky_memo_index_start_y": 0,
+    "update_shortcut_notice_ack": "",
 }
 
 
