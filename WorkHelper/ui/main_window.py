@@ -854,6 +854,10 @@ class MainWindow(QMainWindow):
         self.hotstring_expand_requested.connect(self.expand_hotstring)
         self._notified_schedule_ids: set[str] = set()
         self._quick_timers: list = []
+        self._screen_change_timer = QTimer(self)
+        self._screen_change_timer.setSingleShot(True)
+        self._screen_change_timer.timeout.connect(self.handle_screen_layout_changed)
+        self._watched_screens = set()
         self.setWindowTitle(config.APP_NAME)
         icon2_path = config.BASE_DIR / "icon2.png" if (config.BASE_DIR / "icon2.png").exists() else config.RESOURCE_DIR / "icon2.png"
         icon_path = icon2_path if icon2_path.exists() else config.APP_ICON_PATH if config.APP_ICON_PATH.exists() else config.BUNDLED_ICON_PATH
@@ -861,6 +865,7 @@ class MainWindow(QMainWindow):
             self.setWindowIcon(QIcon(str(icon_path)))
         self._build_ui()
         self.floating_widget = FloatingWidget(self)
+        self.setup_screen_layout_watchers()
         self.hotkeys.set_hwnd(int(self.winId()))
         self.apply_current_settings()
         self.refresh_all_tabs()
@@ -1081,6 +1086,59 @@ class MainWindow(QMainWindow):
         self._home_tip_index = (self._home_tip_index + 1) % len(self.HOME_TIPS)
         if self.stack.currentIndex() == 0:
             self.set_tab(0)
+
+    def setup_screen_layout_watchers(self) -> None:
+        self.app.screenAdded.connect(self.on_screen_added)
+        self.app.screenRemoved.connect(lambda _screen: self.queue_screen_layout_changed())
+        self.app.primaryScreenChanged.connect(lambda _screen: self.queue_screen_layout_changed())
+        for screen in QApplication.screens():
+            self.watch_screen_geometry(screen)
+
+    def on_screen_added(self, screen) -> None:
+        self.watch_screen_geometry(screen)
+        self.queue_screen_layout_changed()
+
+    def watch_screen_geometry(self, screen) -> None:
+        if screen is None:
+            return
+        key = id(screen)
+        if key in self._watched_screens:
+            return
+        self._watched_screens.add(key)
+        screen.geometryChanged.connect(lambda _rect, self=self: self.queue_screen_layout_changed())
+        screen.availableGeometryChanged.connect(lambda _rect, self=self: self.queue_screen_layout_changed())
+
+    def queue_screen_layout_changed(self) -> None:
+        self._screen_change_timer.start(350)
+
+    def handle_screen_layout_changed(self) -> None:
+        for screen in QApplication.screens():
+            self.watch_screen_geometry(screen)
+        self.clamp_monitor_settings()
+        settings_tab = self.tabs[11] if len(getattr(self, "tabs", [])) > 11 else None
+        if settings_tab is not None and hasattr(settings_tab, "refresh_widget_monitor_combo"):
+            settings_tab.refresh_widget_monitor_combo(int(self.settings.get("floating_widget_monitor", 1) or 1))
+        if getattr(self, "floating_widget", None) is not None:
+            self.floating_widget.apply_settings()
+        memo_tab = self.tabs[6] if len(getattr(self, "tabs", [])) > 6 else None
+        if memo_tab is not None and hasattr(memo_tab, "arrange_compact_stickers"):
+            memo_tab.arrange_compact_stickers()
+
+    def clamp_monitor_settings(self) -> None:
+        screens = QApplication.screens()
+        if not screens:
+            return
+        max_monitor = len(screens)
+        changed = False
+        for key in ("floating_widget_monitor", "sticky_memo_arrange_monitor"):
+            current = int(self.settings.get(key, 1) or 1)
+            clamped = max(1, min(max_monitor, current))
+            if clamped != current:
+                self.settings[key] = clamped
+                changed = True
+        if changed:
+            self.data["settings"] = self.settings
+            config.save_settings(self.settings)
 
     def apply_current_settings(self) -> None:
         settings = self.settings

@@ -9,8 +9,8 @@ from pathlib import Path
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from PyQt6.QtCore import QDate, QDateTime, QEasingCurve, QMimeData, QPoint, QPropertyAnimation, QRect, QSize, QTime, QTimer, Qt
-from PyQt6.QtGui import QCursor, QDrag, QTextCharFormat, QColor, QPainter, QPen, QPolygon
+from PyQt6.QtCore import QDate, QDateTime, QEasingCurve, QMimeData, QPoint, QPropertyAnimation, QRect, QRectF, QSize, QTime, QTimer, Qt
+from PyQt6.QtGui import QCursor, QDrag, QTextCharFormat, QColor, QPainter, QPainterPath, QPen, QPolygon, QRegion
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QButtonGroup,
@@ -629,6 +629,8 @@ class MemoIndexCard(QWidget):
         if memo.get("always_on_top", True):
             _flags |= Qt.WindowType.WindowStaysOnTopHint
         self.setWindowFlags(_flags)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setObjectName("memoIndexCard")
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -636,6 +638,7 @@ class MemoIndexCard(QWidget):
 
         # --- 접힌 면 (compact) ---
         self._compact_face = QWidget()
+        self._compact_face.setObjectName("memoIndexFace")
         cl = QVBoxLayout(self._compact_face)
         cl.setContentsMargins(2, 3, 2, 3)
         cl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -661,6 +664,7 @@ class MemoIndexCard(QWidget):
 
         # --- 펼쳐진 면 (expanded) ---
         self._expanded_face = QWidget()
+        self._expanded_face.setObjectName("memoIndexFace")
         el = QVBoxLayout(self._expanded_face)
         el.setContentsMargins(6, 5, 6, 5)
         el.setSpacing(2)
@@ -737,6 +741,7 @@ class MemoIndexCard(QWidget):
         self._compute_expanded_h()
         self.setMinimumSize(0, 0)
         self.resize(self.COMPACT_W, self.COMPACT_H)
+        self._apply_rounded_mask()
         memo["sticker_open"] = True
         MemoIndexCard._all_cards.append(self)
         MemoIndexCard._ensure_hover_manager()
@@ -864,7 +869,9 @@ class MemoIndexCard(QWidget):
     def _apply_color(self, *_args) -> None:
         color = MEMO_COLORS.get(self._color.currentText(), "#FFF9C4")
         self.setStyleSheet(f"""
-            QWidget {{ background: {color}; border: 1px solid #B8B08A; }}
+            QWidget#memoIndexCard {{ background: transparent; border: 0; }}
+            QWidget#memoIndexFace {{ background: {color}; border: 1px solid #B8B08A; border-radius: 8px; }}
+            QWidget#memoIndexFace QWidget {{ background: transparent; border: 0; }}
             QLabel {{ background: transparent; color: #2F2A14; font-size: 9pt; font-weight: bold; border: 0; }}
             QPushButton {{ background: transparent; border: 0; color: #2F2A14; font-weight: 900; font-size: 9pt; }}
             QPushButton:hover {{ background: rgba(47,42,20,15); border-radius: 4px; }}
@@ -876,6 +883,18 @@ class MemoIndexCard(QWidget):
             QCheckBox::indicator {{ width: 12px; height: 12px; }}
         """)
         self.memo["background"] = self._color.currentText()
+
+    def _apply_rounded_mask(self) -> None:
+        if self.width() <= 0 or self.height() <= 0:
+            return
+        radius = 8.0
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(0, 0, self.width(), self.height()), radius, radius)
+        self.setMask(QRegion(path.toFillPolygon().toPolygon()))
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._apply_rounded_mask()
 
     # ── 항상 위 토글 ────────────────────────────────────────────────
 
@@ -892,15 +911,17 @@ class MemoIndexCard(QWidget):
 
     def set_position(self, x: int, y: int) -> None:
         """정렬 시 이 카드의 compact 기준 위치를 설정한다."""
+        if self._expanded:
+            self._do_collapse()
         self._base_x = x
         self._base_y = y
         self.memo["index_x"] = x
         self.memo["index_y"] = y
-        if not self._expanded:
-            self._hover_regions = [QRect(x, y, self.COMPACT_W, self.COMPACT_H)]
-            self.move(x, y)
-            self.setMinimumSize(0, 0)
-            self.resize(self.COMPACT_W, self.COMPACT_H)
+        self._hover_regions = [QRect(x, y, self.COMPACT_W, self.COMPACT_H)]
+        self.move(x, y)
+        self.setMinimumSize(0, 0)
+        self.resize(self.COMPACT_W, self.COMPACT_H)
+        self._apply_rounded_mask()
 
     def _side(self) -> str:
         return str((getattr(self.main, "settings", {}) if self.main else {}).get("sticky_memo_index_side", "right") or "right")
