@@ -16,7 +16,7 @@ COLLECTION_META: dict[str, tuple[str, str, Callable[[dict], str], Callable[[dict
     "snippets": ("코드", "코드", lambda item: short_preview(item.get("text", ""), 30) or item.get("name", ""), lambda item: item.get("name", "")),
     "hotstrings": ("핫스트링", "자동", lambda item: short_preview(item.get("text", ""), 30) or item.get("trigger", ""), lambda item: item.get("trigger", "")),
     "title_templates": ("제목", "제목", lambda item: short_preview(item.get("template", ""), 30) or item.get("name", ""), lambda item: item.get("name", "")),
-    "launchers": ("바로가기", "링크", lambda item: item.get("url") or item.get("path", "") or item.get("name", ""), lambda item: item.get("name", "")),
+    "launchers": ("바로가기", "링크", lambda item: item.get("name") or item.get("url") or item.get("path", ""), lambda item: item.get("url") or item.get("path", "")),
     "images": ("이미지", "이미지", lambda item: item.get("path", "") or item.get("name", "이미지"), lambda item: item.get("name", "")),
     "macros": ("매크로", "매크로", lambda item: f"{len(item.get('actions', []))}개 액션", lambda item: item.get("name", "")),
     "memos": ("메모", "메모", lambda item: short_preview(item.get("content", ""), 30) or item.get("title", "메모"), lambda item: item.get("title", "")),
