@@ -739,8 +739,7 @@ class MemoIndexCard(QWidget):
         self._update_icon()
         self._apply_color()
         self._compute_expanded_h()
-        self.setMinimumSize(0, 0)
-        self.resize(self.COMPACT_W, self.COMPACT_H)
+        self.setFixedSize(self.COMPACT_W, self.COMPACT_H)
         self._apply_rounded_mask()
         memo["sticker_open"] = True
         MemoIndexCard._all_cards.append(self)
@@ -911,16 +910,28 @@ class MemoIndexCard(QWidget):
 
     def set_position(self, x: int, y: int) -> None:
         """정렬 시 이 카드의 compact 기준 위치를 설정한다."""
-        if self._expanded:
-            self._do_collapse()
+        self.reset_compact_geometry()
         self._base_x = x
         self._base_y = y
         self.memo["index_x"] = x
         self.memo["index_y"] = y
         self._hover_regions = [QRect(x, y, self.COMPACT_W, self.COMPACT_H)]
         self.move(x, y)
-        self.setMinimumSize(0, 0)
-        self.resize(self.COMPACT_W, self.COMPACT_H)
+        self.reset_compact_geometry()
+
+    def reset_compact_geometry(self) -> None:
+        """Return to the exact compact card size after screen/layout changes."""
+        self._anim.stop()
+        self._expanded = False
+        if MemoIndexCard._currently_expanded is self:
+            MemoIndexCard._currently_expanded = None
+        self._set_hover_controls_visible(False)
+        self._expanded_face.hide()
+        self._compact_face.show()
+        self.setFixedSize(self.COMPACT_W, self.COMPACT_H)
+        if self._base_x is not None and self._base_y is not None:
+            self.move(self._base_x, self._base_y)
+            self._hover_regions = [QRect(self._base_x, self._base_y, self.COMPACT_W, self.COMPACT_H)]
         self._apply_rounded_mask()
 
     def _side(self) -> str:
@@ -1105,9 +1116,11 @@ class MemoIndexCard(QWidget):
         self._anim_cb = None
         self._anim.stop()
         self.setMinimumSize(0, 0)
+        self.setMaximumSize(16777215, 16777215)
         # Switch directly to the final geometry while painting is paused.
         self.setUpdatesEnabled(False)
         self.setGeometry(end_rect)
+        self.setFixedSize(w, h)
         self._compact_face.hide()
         self._expanded_face.show()
         self._set_hover_controls_visible(self._cursor_in_expanded_region())
@@ -1135,15 +1148,13 @@ class MemoIndexCard(QWidget):
             self._set_hover_controls_visible(False)
             self._expanded_face.hide()
             self._compact_face.show()
-            self.setMinimumSize(0, 0)
-            self.resize(self.COMPACT_W, self.COMPACT_H)
+            self.setFixedSize(self.COMPACT_W, self.COMPACT_H)
             self.move(base_x, base_y)
             self._hover_regions = [QRect(base_x, base_y, self.COMPACT_W, self.COMPACT_H)]
             if MemoIndexCard._currently_expanded is self:
                 MemoIndexCard._currently_expanded = None
 
         self._anim.stop()
-        self.setMinimumSize(0, 0)
         _on_done()
 
     def _on_anim_done(self) -> None:
@@ -1787,6 +1798,8 @@ class MemoListTab(QWidget):
         card_x = area.right() - MemoIndexCard.COMPACT_W if side == "right" else area.left()
         y = start_y
         for card in cards:
+            if hasattr(card, "reset_compact_geometry"):
+                card.reset_compact_geometry()
             card.set_position(card_x, y)
             y += MemoIndexCard.COMPACT_H + MemoIndexCard.COMPACT_GAP
             card.raise_()

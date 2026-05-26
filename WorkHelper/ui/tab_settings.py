@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app import config
+from app.screen_utils import signature_for_monitor_index
 from app.theme import THEMES
 from app.update_checker import check_update_dialog
 from app.utils import display_hotkey, is_startup_enabled, resolve_image_path, set_startup_enabled
@@ -712,10 +713,16 @@ class SettingsTab(QWidget):
             self.sticky_memo_arrange_corner.currentIndexChanged.connect(lambda _index: self.preview_memo_arrange_settings())
 
     def widget_settings_state(self) -> dict:
+        floating_monitor = int(self.floating_widget_monitor.currentData() or 1)
+        sticky_monitor = int(self.sticky_memo_arrange_monitor.currentData() or 1) if hasattr(self, "sticky_memo_arrange_monitor") else 1
+        floating_signature = signature_for_monitor_index(floating_monitor) or self.main.settings.get("floating_widget_monitor_signature")
+        sticky_signature = signature_for_monitor_index(sticky_monitor) or self.main.settings.get("sticky_memo_arrange_monitor_signature")
         return {
             "floating_widget_enabled": self.floating_widget_enabled.isChecked(),
             "floating_widget_edge": self.floating_widget_edge.currentData(),
-            "floating_widget_monitor": int(self.floating_widget_monitor.currentData() or 1),
+            "floating_widget_monitor": floating_monitor,
+            "floating_widget_monitor_preferred": floating_monitor,
+            "floating_widget_monitor_signature": floating_signature,
             "floating_widget_panel_position": self.widget_slider_value(self.floating_widget_panel_position, 50),
             "floating_widget_panel_size": self.widget_slider_value(self.floating_widget_panel_size, 160),
             "floating_widget_panel_width": self.widget_slider_value(self.floating_widget_panel_width, 860),
@@ -725,7 +732,9 @@ class SettingsTab(QWidget):
             "floating_widget_theme": self.floating_widget_theme.currentData(),
             "floating_widget_show_hover_text": self.floating_widget_show_hover_text.isChecked(),
             "floating_widget_categories": self.widget_categories_value(),
-            "sticky_memo_arrange_monitor": int(self.sticky_memo_arrange_monitor.currentData() or 1) if hasattr(self, "sticky_memo_arrange_monitor") else 1,
+            "sticky_memo_arrange_monitor": sticky_monitor,
+            "sticky_memo_arrange_monitor_preferred": sticky_monitor,
+            "sticky_memo_arrange_monitor_signature": sticky_signature,
             "sticky_memo_arrange_corner": self.sticky_memo_arrange_corner.currentData() if hasattr(self, "sticky_memo_arrange_corner") else "top_right",
         }
 
@@ -756,7 +765,10 @@ class SettingsTab(QWidget):
         if self._refreshing:
             return
         if hasattr(self, "sticky_memo_arrange_monitor"):
-            self.main.settings["sticky_memo_arrange_monitor"] = int(self.sticky_memo_arrange_monitor.currentData() or 1)
+            sticky_monitor = int(self.sticky_memo_arrange_monitor.currentData() or 1)
+            self.main.settings["sticky_memo_arrange_monitor"] = sticky_monitor
+            self.main.settings["sticky_memo_arrange_monitor_preferred"] = sticky_monitor
+            self.main.settings["sticky_memo_arrange_monitor_signature"] = signature_for_monitor_index(sticky_monitor) or self.main.settings.get("sticky_memo_arrange_monitor_signature")
         if hasattr(self, "sticky_memo_arrange_corner"):
             self.main.settings["sticky_memo_arrange_corner"] = self.sticky_memo_arrange_corner.currentData()
         memo_tab = self._get_memo_tab()
@@ -785,11 +797,15 @@ class SettingsTab(QWidget):
                 self.floating_widget_monitor.addItem(f"{index}번 모니터 ({geo.width()}x{geo.height()}){primary}", index)
                 if hasattr(self, "sticky_memo_arrange_monitor"):
                     self.sticky_memo_arrange_monitor.addItem(f"{index}번 모니터 ({geo.width()}x{geo.height()}){primary}", index)
-        index = self.floating_widget_monitor.findData(max(1, min(self.floating_widget_monitor.count(), selected)))
+        if selected > self.floating_widget_monitor.count():
+            self.floating_widget_monitor.addItem(f"{selected}번 모니터 (현재 미연결)", selected)
+        index = self.floating_widget_monitor.findData(max(1, selected))
         self.floating_widget_monitor.setCurrentIndex(index if index >= 0 else 0)
         self.floating_widget_monitor.blockSignals(False)
         if hasattr(self, "sticky_memo_arrange_monitor"):
-            sticky_index = self.sticky_memo_arrange_monitor.findData(max(1, min(self.sticky_memo_arrange_monitor.count(), sticky_selected)))
+            if sticky_selected > self.sticky_memo_arrange_monitor.count():
+                self.sticky_memo_arrange_monitor.addItem(f"{sticky_selected}번 모니터 (현재 미연결)", sticky_selected)
+            sticky_index = self.sticky_memo_arrange_monitor.findData(max(1, sticky_selected))
             self.sticky_memo_arrange_monitor.setCurrentIndex(sticky_index if sticky_index >= 0 else 0)
             self.sticky_memo_arrange_monitor.blockSignals(False)
 
@@ -1131,6 +1147,8 @@ class SettingsTab(QWidget):
             "floating_widget_enabled": self.floating_widget_enabled.isChecked() if hasattr(self, "floating_widget_enabled") else True,
             "floating_widget_edge": self.floating_widget_edge.currentData() if hasattr(self, "floating_widget_edge") else "top",
             "floating_widget_monitor": self.floating_widget_monitor.currentData() if hasattr(self, "floating_widget_monitor") else 1,
+            "floating_widget_monitor_preferred": self.floating_widget_monitor.currentData() if hasattr(self, "floating_widget_monitor") else 1,
+            "floating_widget_monitor_signature": (signature_for_monitor_index(int(self.floating_widget_monitor.currentData() or 1)) or self.main.settings.get("floating_widget_monitor_signature")) if hasattr(self, "floating_widget_monitor") else None,
             "floating_widget_panel_position": self.widget_slider_value(self.floating_widget_panel_position, 50) if hasattr(self, "floating_widget_panel_position") else 50,
             "floating_widget_panel_size": self.widget_slider_value(self.floating_widget_panel_size, 160) if hasattr(self, "floating_widget_panel_size") else 160,
             "floating_widget_panel_width": self.widget_slider_value(self.floating_widget_panel_width, 860) if hasattr(self, "floating_widget_panel_width") else 860,
@@ -1141,6 +1159,8 @@ class SettingsTab(QWidget):
             "floating_widget_show_hover_text": self.floating_widget_show_hover_text.isChecked() if hasattr(self, "floating_widget_show_hover_text") else True,
             "floating_widget_categories": self.widget_categories_value() if hasattr(self, "floating_widget_category_checks") else [key for key, _label, _icon in CATEGORY_ORDER],
             "sticky_memo_arrange_monitor": int(self.sticky_memo_arrange_monitor.currentData() or 1) if hasattr(self, "sticky_memo_arrange_monitor") else 1,
+            "sticky_memo_arrange_monitor_preferred": int(self.sticky_memo_arrange_monitor.currentData() or 1) if hasattr(self, "sticky_memo_arrange_monitor") else 1,
+            "sticky_memo_arrange_monitor_signature": (signature_for_monitor_index(int(self.sticky_memo_arrange_monitor.currentData() or 1)) or self.main.settings.get("sticky_memo_arrange_monitor_signature")) if hasattr(self, "sticky_memo_arrange_monitor") else None,
             "sticky_memo_arrange_corner": self.sticky_memo_arrange_corner.currentData() if hasattr(self, "sticky_memo_arrange_corner") else "top_right",
             "sticky_memo_display_mode": "index" if (hasattr(self, "memo_display_index") and self.memo_display_index.isChecked()) else "floating",
             "sticky_memo_index_side": "left" if (hasattr(self, "memo_index_side_left") and self.memo_index_side_left.isChecked()) else "right",
@@ -1261,6 +1281,8 @@ class SettingsTab(QWidget):
         settings["floating_widget_enabled"] = bool(snapshot.get("floating_widget_enabled", True))
         settings["floating_widget_edge"] = snapshot.get("floating_widget_edge", "top")
         settings["floating_widget_monitor"] = int(snapshot.get("floating_widget_monitor", 1) or 1)
+        settings["floating_widget_monitor_preferred"] = int(snapshot.get("floating_widget_monitor_preferred", snapshot.get("floating_widget_monitor", 1)) or 1)
+        settings["floating_widget_monitor_signature"] = snapshot.get("floating_widget_monitor_signature")
         settings["floating_widget_panel_position"] = int(snapshot.get("floating_widget_panel_position", 50) or 50)
         settings["floating_widget_panel_size"] = int(snapshot.get("floating_widget_panel_size", 160) or 160)
         settings["floating_widget_panel_width"] = int(snapshot.get("floating_widget_panel_width", 860) or 860)
@@ -1272,6 +1294,8 @@ class SettingsTab(QWidget):
         settings["floating_widget_show_hover_text"] = bool(snapshot.get("floating_widget_show_hover_text", True))
         settings["floating_widget_categories"] = snapshot.get("floating_widget_categories") or [key for key, _label, _icon in CATEGORY_ORDER]
         settings["sticky_memo_arrange_monitor"] = int(snapshot.get("sticky_memo_arrange_monitor", 1) or 1)
+        settings["sticky_memo_arrange_monitor_preferred"] = int(snapshot.get("sticky_memo_arrange_monitor_preferred", snapshot.get("sticky_memo_arrange_monitor", 1)) or 1)
+        settings["sticky_memo_arrange_monitor_signature"] = snapshot.get("sticky_memo_arrange_monitor_signature")
         settings["sticky_memo_arrange_corner"] = snapshot.get("sticky_memo_arrange_corner", "top_right")
         settings.pop("floating_widget_color", None)
         settings.pop("floating_widget_item_spacing", None)
@@ -1386,7 +1410,10 @@ class SettingsTab(QWidget):
         settings["steel_cut_fixed_height"] = self.steel_cut_fixed_height.value()
         settings["floating_widget_enabled"] = self.floating_widget_enabled.isChecked()
         settings["floating_widget_edge"] = self.floating_widget_edge.currentData()
-        settings["floating_widget_monitor"] = int(self.floating_widget_monitor.currentData() or 1)
+        floating_monitor = int(self.floating_widget_monitor.currentData() or 1)
+        settings["floating_widget_monitor"] = floating_monitor
+        settings["floating_widget_monitor_preferred"] = floating_monitor
+        settings["floating_widget_monitor_signature"] = signature_for_monitor_index(floating_monitor) or settings.get("floating_widget_monitor_signature")
         settings["floating_widget_panel_position"] = self.widget_slider_value(self.floating_widget_panel_position, 50)
         settings["floating_widget_panel_size"] = self.widget_slider_value(self.floating_widget_panel_size, 160)
         settings["floating_widget_panel_width"] = self.widget_slider_value(self.floating_widget_panel_width, 860)
@@ -1397,7 +1424,10 @@ class SettingsTab(QWidget):
         settings["floating_widget_icon_shape"] = "square"
         settings["floating_widget_show_hover_text"] = self.floating_widget_show_hover_text.isChecked()
         settings["floating_widget_categories"] = self.widget_categories_value()
-        settings["sticky_memo_arrange_monitor"] = int(self.sticky_memo_arrange_monitor.currentData() or 1)
+        sticky_monitor = int(self.sticky_memo_arrange_monitor.currentData() or 1)
+        settings["sticky_memo_arrange_monitor"] = sticky_monitor
+        settings["sticky_memo_arrange_monitor_preferred"] = sticky_monitor
+        settings["sticky_memo_arrange_monitor_signature"] = signature_for_monitor_index(sticky_monitor) or settings.get("sticky_memo_arrange_monitor_signature")
         settings["sticky_memo_arrange_corner"] = self.sticky_memo_arrange_corner.currentData()
         settings["sticky_memo_display_mode"] = "index" if (hasattr(self, "memo_display_index") and self.memo_display_index.isChecked()) else "floating"
         settings["sticky_memo_index_side"] = "left" if (hasattr(self, "memo_index_side_left") and self.memo_index_side_left.isChecked()) else "right"
@@ -1430,6 +1460,8 @@ class SettingsTab(QWidget):
             "floating_widget_enabled",
             "floating_widget_edge",
             "floating_widget_monitor",
+            "floating_widget_monitor_preferred",
+            "floating_widget_monitor_signature",
             "floating_widget_panel_position",
             "floating_widget_panel_size",
             "floating_widget_panel_width",
@@ -1440,6 +1472,8 @@ class SettingsTab(QWidget):
             "floating_widget_show_hover_text",
             "floating_widget_categories",
             "sticky_memo_arrange_monitor",
+            "sticky_memo_arrange_monitor_preferred",
+            "sticky_memo_arrange_monitor_signature",
             "sticky_memo_arrange_corner",
             "sticky_memo_display_mode",
             "sticky_memo_index_side",
@@ -1621,6 +1655,7 @@ class SettingsTab(QWidget):
             "floating_widget_enabled",
             "floating_widget_edge",
             "floating_widget_monitor",
+            "floating_widget_monitor_preferred",
             "floating_widget_panel_position",
             "floating_widget_panel_size",
             "floating_widget_panel_width",
@@ -1632,6 +1667,7 @@ class SettingsTab(QWidget):
             "floating_widget_show_hover_text",
             "floating_widget_categories",
             "sticky_memo_arrange_monitor",
+            "sticky_memo_arrange_monitor_preferred",
             "sticky_memo_arrange_corner",
         ):
             value = config.DEFAULT_SETTINGS.get(key)

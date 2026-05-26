@@ -63,6 +63,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "floating_widget_enabled": True,
     "floating_widget_edge": "top",
     "floating_widget_monitor": 1,
+    "floating_widget_monitor_preferred": 1,
+    "floating_widget_monitor_signature": None,
     "floating_widget_panel_position": 50,
     "floating_widget_panel_size": 160,
     "floating_widget_panel_width": 860,
@@ -75,6 +77,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "floating_widget_hint_dismissed": False,
     "floating_widget_categories": ["text", "snippet", "date", "site", "file", "folder", "cheat", "memo", "emoji"],
     "sticky_memo_arrange_monitor": 1,
+    "sticky_memo_arrange_monitor_preferred": 1,
+    "sticky_memo_arrange_monitor_signature": None,
     "sticky_memo_arrange_corner": "top_right",
     "sticky_memo_display_mode": "floating",
     "sticky_memo_index_side": "right",
@@ -516,6 +520,10 @@ def load_settings() -> dict[str, Any]:
             settings["active_preset"] = value
         else:
             settings[key] = value
+    for monitor_key in ("floating_widget_monitor", "sticky_memo_arrange_monitor"):
+        preferred_key = f"{monitor_key}_preferred"
+        if preferred_key not in data:
+            settings[preferred_key] = settings.get(monitor_key, DEFAULT_SETTINGS.get(monitor_key, 1))
     settings.setdefault("window", copy.deepcopy(DEFAULT_SETTINGS["window"]))
     if not settings.get("steel_cut_hotkey"):
         settings["steel_cut_hotkey"] = copy.deepcopy(DEFAULT_SETTINGS["steel_cut_hotkey"])
