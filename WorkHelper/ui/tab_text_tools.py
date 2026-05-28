@@ -599,20 +599,6 @@ class TaggingReviewTab(QWidget):
             return "Boolean TYPE인데 문자열로 수집되었습니다."
         return ""
 
-    def sample_type_issue(self, definition: dict) -> str:
-        expected = self.normalize_type(definition.get("type", ""))
-        sample = definition.get("sample")
-        if sample in (None, "") or not expected:
-            return ""
-        actual = self.json_type(sample)
-        if expected == "number" and isinstance(sample, str):
-            try:
-                float(sample.replace(",", ""))
-                return ""
-            except ValueError:
-                pass
-        return "" if self.compatible(expected, actual) else f"SAMPLE 타입이 TYPE과 다릅니다. 예상 {expected}, 샘플 {actual}"
-
     def array_type_issues(self, flattened: dict[str, object]) -> list[dict]:
         rows = []
         for field, value in flattened.items():
@@ -674,18 +660,6 @@ class TaggingReviewTab(QWidget):
                     definition["field"],
                     expected_type=definition.get("type", ""),
                     message="정의서 TYPE이 표준 타입(String/Number/Boolean/Array/Object)이 아닙니다.",
-                    definition_field=definition.get("field", ""),
-                    definition_ko=definition.get("ko", ""),
-                    sample=definition.get("sample", ""),
-                ))
-            sample_issue = self.sample_type_issue(definition)
-            if sample_issue:
-                definition_warnings.append(self.row(
-                    "WARN",
-                    definition["field"],
-                    expected_type=definition.get("type", ""),
-                    value=definition.get("sample"),
-                    message=sample_issue,
                     definition_field=definition.get("field", ""),
                     definition_ko=definition.get("ko", ""),
                     sample=definition.get("sample", ""),
@@ -804,8 +778,6 @@ class TaggingReviewTab(QWidget):
                 return "정의서 중복"
             if "표준 타입" in message:
                 return "TYPE 확인"
-            if "SAMPLE" in message:
-                return "SAMPLE 타입 불일치"
             if "여러 타입" in message:
                 return "배열 타입 혼재"
             if "문자열 숫자" in message:
