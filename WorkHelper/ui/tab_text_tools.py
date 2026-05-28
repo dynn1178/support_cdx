@@ -456,6 +456,25 @@ class TaggingReviewTab(QWidget):
         raw = str(value or "").strip().upper()
         return self.TYPE_ALIASES.get(raw, raw.lower() if raw else "")
 
+    def normalize_compare_name(self, value: str) -> str:
+        return re.sub(r"[^0-9A-Za-z가-힣_]", "", str(value or "")).lower()
+
+    def normalize_compare_path(self, value: str) -> str:
+        cleaned = re.sub(r"\[\d+\]", "", str(value or ""))
+        parts = [self.normalize_compare_name(part) for part in cleaned.split(".")]
+        return ".".join(part for part in parts if part)
+
+    def normalized_field_index(self, flattened: dict[str, object]) -> dict[str, list[str]]:
+        index: dict[str, list[str]] = {}
+        for field in flattened:
+            normalized = self.normalize_compare_path(field)
+            if normalized:
+                index.setdefault(normalized, []).append(field)
+            basename = self.normalize_compare_name(self.field_basename(field))
+            if basename:
+                index.setdefault(basename, []).append(field)
+        return index
+
     def json_type(self, value) -> str:
         if value is None:
             return "null"
@@ -555,7 +574,12 @@ class TaggingReviewTab(QWidget):
     def find_value(self, flattened: dict[str, object], field: str):
         if field in flattened:
             return field, flattened[field]
-        matches = [key for key in flattened if self.field_basename(key) == field]
+        index = self.normalized_field_index(flattened)
+        normalized_path = self.normalize_compare_path(field)
+        matches = list(dict.fromkeys(index.get(normalized_path, [])))
+        if not matches:
+            normalized_name = self.normalize_compare_name(field)
+            matches = list(dict.fromkeys(index.get(normalized_name, [])))
         if len(matches) == 1:
             key = matches[0]
             return key, flattened[key]
@@ -626,9 +650,20 @@ class TaggingReviewTab(QWidget):
         if not self.definitions:
             QMessageBox.warning(self, "정의서 필요", "먼저 엑셀 태깅 정의서를 불러와 주세요.")
             return
-        definitions_by_field = {item["field"]: item for item in self.definitions}
+        definitions_by_field: dict[str, dict] = {}
+        definition_key_labels: dict[str, list[str]] = {}
+        for item in self.definitions:
+            key = self.normalize_compare_path(item["field"])
+            if not key:
+                continue
+            definition_key_labels.setdefault(key, []).append(item["field"])
+            definitions_by_field.setdefault(key, item)
         definition_fields = set(definitions_by_field)
-        duplicate_fields = sorted({field for field in definition_fields if [item["field"] for item in self.definitions].count(field) > 1})
+        duplicate_fields = sorted(
+            labels[0]
+            for labels in definition_key_labels.values()
+            if len(labels) > 1
+        )
         known_types = set(self.TYPE_ALIASES.values())
         definition_warnings = []
         for definition in self.definitions:
@@ -672,7 +707,8 @@ class TaggingReviewTab(QWidget):
                 rows.append(self.row("WARN", key, message="JSON 객체 안에 중복 키가 있습니다. 마지막 값만 검토에 사용됩니다."))
             flattened = self.flatten_json(data)
             actual_fields = set(flattened)
-            for field, definition in definitions_by_field.items():
+            for _definition_key, definition in definitions_by_field.items():
+                field = definition["field"]
                 actual_field, value = self.find_value(flattened, field)
                 if not actual_field:
                     rows.append(self.row(
@@ -709,10 +745,12 @@ class TaggingReviewTab(QWidget):
                     definition_ko=definition.get("ko", ""),
                     sample=definition.get("sample", ""),
                 ))
-            for field in sorted(actual_fields - definition_fields):
+            for field in sorted(actual_fields):
                 if re.search(r"\[\d+\]$", field):
                     continue
-                if self.field_basename(field) in definition_fields:
+                normalized_field = self.normalize_compare_path(field)
+                normalized_basename = self.normalize_compare_name(self.field_basename(field))
+                if normalized_field in definition_fields or normalized_basename in definition_fields:
                     continue
                 value = flattened[field]
                 if isinstance(value, (dict, list)):
@@ -738,22 +776,54 @@ class TaggingReviewTab(QWidget):
             "SAMPLE",
             "상위 경로",
             "필드명",
-            "전체 경로",
             "JSON TYPE",
             "JSON 값",
         ]
 
+    def export_message(self, row: dict) -> str:
+        status = str(row.get("status", "") or "").upper()
+        message = str(row.get("message", "") or "")
+        if status == "OK":
+            return ""
+        if status == "MISSING":
+            return "JSON 없음"
+        if status == "UNDEFINED":
+            return "정의서 없음"
+        if status == "TYPE_MISMATCH":
+            expected = self.normalize_type(row.get("expected_type", ""))
+            actual = str(row.get("actual_type", "") or "")
+            return f"타입 불일치: {expected}->{actual}" if expected or actual else "타입 불일치"
+        if status == "EMPTY":
+            return "빈 값"
+        if status == "ERROR":
+            return "JSON 오류"
+        if status == "WARN":
+            if "중복 키" in message:
+                return "JSON 키 중복"
+            if "중복 필드" in message:
+                return "정의서 중복"
+            if "표준 타입" in message:
+                return "TYPE 확인"
+            if "SAMPLE" in message:
+                return "SAMPLE 타입 불일치"
+            if "여러 타입" in message:
+                return "배열 타입 혼재"
+            if "문자열 숫자" in message:
+                return "문자열 숫자"
+            if "문자열로 수집" in message:
+                return "문자열 Boolean"
+        return message
+
     def result_values(self, row: dict) -> list:
         return [
             row.get("status", ""),
-            row.get("message", ""),
+            self.export_message(row),
             row.get("definition_ko", ""),
             row.get("definition_field", ""),
             row.get("expected_type", ""),
             row.get("sample", ""),
             row.get("parent", ""),
             row.get("field_name", ""),
-            row.get("field", ""),
             row.get("actual_type", ""),
             row.get("value", ""),
         ]
@@ -829,7 +899,7 @@ class TaggingReviewTab(QWidget):
                 ws.cell(row=1, column=idx).fill = group_fills["status"]
             for idx in range(base + 2, base + 6):
                 ws.cell(row=1, column=idx).fill = group_fills["definition"]
-            for idx in range(base + 6, base + 11):
+            for idx in range(base + 6, base + 10):
                 ws.cell(row=1, column=idx).fill = group_fills["json"]
         if Alignment is not None:
             for cell in ws[1]:
