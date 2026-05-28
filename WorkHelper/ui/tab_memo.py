@@ -10,7 +10,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PyQt6.QtCore import QDate, QDateTime, QEasingCurve, QMimeData, QPoint, QPropertyAnimation, QRect, QRectF, QSize, QTime, QTimer, Qt
-from PyQt6.QtGui import QCursor, QDrag, QTextCharFormat, QColor, QPainter, QPainterPath, QPen, QPolygon, QRegion
+from PyQt6.QtGui import QCursor, QDrag, QTextCharFormat, QColor, QPainter, QPen, QPolygon
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QButtonGroup,
@@ -592,6 +592,30 @@ class StickyMemoDialog(QDialog):
         super().closeEvent(event)
 
 
+class MemoIndexFace(QWidget):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._background = QColor("#FFF9C4")
+        self._border = QColor("#B8B08A")
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+
+    def set_colors(self, background: str, border: str = "#B8B08A") -> None:
+        bg = QColor(background)
+        bd = QColor(border)
+        self._background = bg if bg.isValid() else QColor("#FFF9C4")
+        self._border = bd if bd.isValid() else QColor("#B8B08A")
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(QPen(self._border, 1.0))
+        painter.setBrush(self._background)
+        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        painter.drawRoundedRect(rect, 8.0, 8.0)
+        super().paintEvent(event)
+
+
 class MemoIndexCard(QWidget):
     """인덱스 형태 메모 카드. 화면 좌/우 가장자리에 세로로 배열되며 마우스 오버 시 확대 표시됨."""
 
@@ -637,7 +661,7 @@ class MemoIndexCard(QWidget):
         outer.setSpacing(0)
 
         # --- 접힌 면 (compact) ---
-        self._compact_face = QWidget()
+        self._compact_face = MemoIndexFace()
         self._compact_face.setObjectName("memoIndexFace")
         cl = QVBoxLayout(self._compact_face)
         cl.setContentsMargins(2, 3, 2, 3)
@@ -663,7 +687,7 @@ class MemoIndexCard(QWidget):
         self._icon_timer.timeout.connect(self._do_icon_transition)
 
         # --- 펼쳐진 면 (expanded) ---
-        self._expanded_face = QWidget()
+        self._expanded_face = MemoIndexFace()
         self._expanded_face.setObjectName("memoIndexFace")
         el = QVBoxLayout(self._expanded_face)
         el.setContentsMargins(6, 5, 6, 5)
@@ -867,9 +891,11 @@ class MemoIndexCard(QWidget):
 
     def _apply_color(self, *_args) -> None:
         color = MEMO_COLORS.get(self._color.currentText(), "#FFF9C4")
+        self._compact_face.set_colors(color)
+        self._expanded_face.set_colors(color)
         self.setStyleSheet(f"""
             QWidget#memoIndexCard {{ background: transparent; border: 0; }}
-            QWidget#memoIndexFace {{ background: {color}; border: 1px solid #B8B08A; border-radius: 8px; }}
+            QWidget#memoIndexFace {{ background: transparent; border: 0; }}
             QWidget#memoIndexFace QWidget {{ background: transparent; border: 0; }}
             QLabel {{ background: transparent; color: #2F2A14; font-size: 9pt; font-weight: bold; border: 0; }}
             QPushButton {{ background: transparent; border: 0; color: #2F2A14; font-weight: 900; font-size: 9pt; }}
@@ -884,12 +910,7 @@ class MemoIndexCard(QWidget):
         self.memo["background"] = self._color.currentText()
 
     def _apply_rounded_mask(self) -> None:
-        if self.width() <= 0 or self.height() <= 0:
-            return
-        radius = 8.0
-        path = QPainterPath()
-        path.addRoundedRect(QRectF(0, 0, self.width(), self.height()), radius, radius)
-        self.setMask(QRegion(path.toFillPolygon().toPolygon()))
+        self.clearMask()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)

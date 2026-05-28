@@ -13,7 +13,7 @@ from PyQt6.QtGui import QCursor, QIcon, QKeyEvent, QPixmap
 from PyQt6.QtWidgets import QApplication, QCheckBox, QComboBox, QDateEdit, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QStackedWidget, QTabWidget, QTextEdit, QToolButton, QVBoxLayout, QWidget
 
 from app import config
-from app.screen_utils import restore_monitor_from_signature, signature_for_monitor_index
+from app.screen_utils import find_screen_index_by_signature, signature_for_monitor_index
 from app.date_tools import render_date_template
 from app.hotkey_manager import HotkeyManager, USER32, WM_HOTKEY
 from app.theme import apply_theme
@@ -1136,35 +1136,31 @@ class MainWindow(QMainWindow):
         ):
             current = int(self.settings.get(monitor_key, 1) or 1)
             preferred_key = f"{monitor_key}_preferred"
-            old_preferred = int(self.settings.get(preferred_key, current) or current)
-            if self.settings.get(signature_key) and old_preferred == current:
-                changed |= restore_monitor_from_signature(self.settings, monitor_key, signature_key)
-                current = int(self.settings.get(monitor_key, current) or current)
-                if current != old_preferred:
-                    self.settings[preferred_key] = current
-                    changed = True
-            preferred = int(self.settings.get(preferred_key, current) or current)
             if not self.settings.get(preferred_key):
                 self.settings[preferred_key] = current
                 changed = True
-            if preferred > len(screens):
+
+            saved_signature = self.settings.get(signature_key)
+            matched = find_screen_index_by_signature(saved_signature) if saved_signature else None
+            if matched is not None:
+                if current != matched:
+                    self.settings[monitor_key] = matched
+                    current = matched
+                    changed = True
+                if int(self.settings.get(preferred_key, current) or current) != matched:
+                    self.settings[preferred_key] = matched
+                    changed = True
+                signature = signature_for_monitor_index(matched)
+                if signature and signature != saved_signature:
+                    self.settings[signature_key] = signature
+                    changed = True
                 continue
-            if current != preferred:
-                self.settings[monitor_key] = preferred
-                current = preferred
-                changed = True
-            if 1 <= current <= len(screens):
+
+            if not saved_signature and 1 <= current <= len(screens):
                 signature = signature_for_monitor_index(current)
                 if signature:
                     self.settings[signature_key] = signature
                     changed = True
-        for monitor_key, signature_key in (
-            ("floating_widget_monitor", "floating_widget_monitor_signature"),
-            ("sticky_memo_arrange_monitor", "sticky_memo_arrange_monitor_signature"),
-        ):
-            preferred = int(self.settings.get(f"{monitor_key}_preferred", self.settings.get(monitor_key, 1)) or 1)
-            if preferred > len(screens):
-                changed |= restore_monitor_from_signature(self.settings, monitor_key, signature_key)
         if changed:
             self.data["settings"] = self.settings
             config.save_settings(self.settings)
