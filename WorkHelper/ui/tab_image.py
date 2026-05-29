@@ -98,7 +98,8 @@ def exec_capture_dialog(dialog: QDialog) -> QDialog.DialogCode:
 
 def copy_pixmap_to_clipboard(pixmap: QPixmap) -> None:
     if not pixmap.isNull():
-        QApplication.clipboard().setPixmap(pixmap)
+        QApplication.clipboard().setImage(pixmap.toImage())
+        QApplication.processEvents()
 
 
 def _scaled_pixels(value: int, scale: float) -> int:
@@ -640,8 +641,7 @@ class SteelCutViewerDialog(QDialog):
 
     def copy_to_clipboard(self) -> None:
         pixmap = self.canvas.composed_pixmap()
-        if not pixmap.isNull():
-            QApplication.clipboard().setPixmap(pixmap)
+        copy_pixmap_to_clipboard(pixmap)
 
     def _toggle_pin(self, checked: bool) -> None:
         flags = self.windowFlags()
@@ -790,8 +790,7 @@ class SteelCutViewerDialog(QDialog):
 
     def copy_to_clipboard(self) -> None:
         pixmap = self.canvas.composed_pixmap()
-        if not pixmap.isNull():
-            QApplication.clipboard().setPixmap(pixmap)
+        copy_pixmap_to_clipboard(pixmap)
 
     def clear_drawing(self) -> None:
         self.canvas.overlay.fill(Qt.GlobalColor.transparent)
