@@ -1317,7 +1317,12 @@ class MainWindow(QMainWindow):
             self.hotkeys.register(phrase_popup_hotkey.get("modifiers", []), phrase_popup_hotkey.get("key", ""), self.show_phrase_popup, "phrase_popup")
         steel_cut_hotkey = settings.get("steel_cut_hotkey")
         if steel_cut_hotkey:
-            self.hotkeys.register(steel_cut_hotkey.get("modifiers", []), steel_cut_hotkey.get("key", ""), self.tabs[4].capture_steel_cut, "steel_cut")
+            self.hotkeys.register(
+                steel_cut_hotkey.get("modifiers", []),
+                steel_cut_hotkey.get("key", ""),
+                lambda: QTimer.singleShot(0, self.tabs[4].capture_steel_cut),
+                "steel_cut",
+            )
         screen_draw_hotkey = settings.get("screen_draw_hotkey")
         if screen_draw_hotkey:
             self.hotkeys.register(screen_draw_hotkey.get("modifiers", []), screen_draw_hotkey.get("key", ""), self.tabs[10].start_screen_draw, "screen_draw")

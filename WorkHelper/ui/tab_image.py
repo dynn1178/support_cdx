@@ -10,8 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-from PyQt6.QtCore import QPoint, QRect, QSize, QTimer, Qt
-from PyQt6.QtGui import QBrush, QColor, QKeySequence, QPainter, QPen, QPixmap, QShortcut
+from PyQt6.QtCore import QEasingCurve, QObject, QPoint, QPropertyAnimation, QRect, QRunnable, QSize, QThreadPool, QTimer, Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QBrush, QColor, QCursor, QKeySequence, QPainter, QPen, QPixmap, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -100,6 +100,27 @@ def copy_pixmap_to_clipboard(pixmap: QPixmap) -> None:
     if not pixmap.isNull():
         QApplication.clipboard().setImage(pixmap.toImage())
         QApplication.processEvents()
+
+
+class SteelCutSaveSignals(QObject):
+    finished = pyqtSignal(str, bool)
+
+
+class SteelCutSaveWorker(QRunnable):
+    def __init__(self, image, path: Path) -> None:
+        super().__init__()
+        self.image = image
+        self.path = path
+        self.signals = SteelCutSaveSignals()
+
+    @pyqtSlot()
+    def run(self) -> None:
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            ok = True if self.path.exists() else self.image.save(str(self.path), "JPG", 95)
+        except Exception:
+            ok = False
+        self.signals.finished.emit(str(self.path), ok)
 
 
 def _scaled_pixels(value: int, scale: float) -> int:
@@ -480,9 +501,9 @@ class SteelCutViewerDialog(QDialog):
 
 
 class PaintCanvas(QWidget):
-    def __init__(self, image_path: str) -> None:
+    def __init__(self, image_path: str | None = None, pixmap: QPixmap | None = None) -> None:
         super().__init__()
-        self.base = QPixmap(image_path)
+        self.base = QPixmap(pixmap) if pixmap is not None and not pixmap.isNull() else QPixmap(image_path or "")
         self.overlay = QPixmap(self.base.size())
         self.overlay.fill(Qt.GlobalColor.transparent)
         self.tool = "pen"
@@ -654,9 +675,9 @@ class SteelCutViewerDialog(QDialog):
 
 
 class SteelCutViewerDialog(QDialog):
-    def __init__(self, image_path: str, title: str) -> None:
+    def __init__(self, image_path: str | None, title: str, pixmap: QPixmap | None = None) -> None:
         super().__init__()
-        self.image_path = image_path
+        self.image_path = image_path or ""
         self.setWindowTitle(title)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.setWindowFlag(Qt.WindowType.Window, True)
@@ -752,7 +773,7 @@ class SteelCutViewerDialog(QDialog):
         system.addWidget(save_btn)
         layout.addWidget(system_section)
 
-        self.canvas = PaintCanvas(image_path)
+        self.canvas = PaintCanvas(self.image_path, pixmap)
         self.canvas.setStyleSheet("border: 1px solid #D0D5DD; border-radius: 8px; background: #FFFFFF;")
         layout.addWidget(self.canvas, 1, Qt.AlignmentFlag.AlignCenter)
         if not self.canvas.base.isNull():
@@ -798,6 +819,9 @@ class SteelCutViewerDialog(QDialog):
         self.canvas.update()
 
     def save_current_image(self) -> None:
+        if not self.image_path:
+            QMessageBox.warning(self, "저장 실패", "이미지 저장이 아직 완료되지 않았습니다. 잠시 후 다시 시도해주세요.")
+            return
         pixmap = self.canvas.composed_pixmap() if self.save_with_drawing.isChecked() else self.canvas.base
         if pixmap.isNull() or not pixmap.save(self.image_path, "PNG"):
             QMessageBox.warning(self, "저장 실패", "스틸 컷 이미지를 저장하지 못했습니다.")
@@ -817,6 +841,9 @@ class SteelCutViewerDialog(QDialog):
         self.setWindowFlags(flags)
         self.show()
 
+    def set_image_path(self, image_path: str) -> None:
+        self.image_path = image_path
+
     def _on_width_changed(self, value: int) -> None:
         self.canvas.stroke_width = value
         self.width_spin.blockSignals(True)
@@ -827,10 +854,97 @@ class SteelCutViewerDialog(QDialog):
         self.width_slider.blockSignals(False)
 
 
+class SteelCutToast(QWidget):
+    clicked = pyqtSignal()
+
+    def __init__(self, pixmap: QPixmap, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.Tool
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedSize(320, 96)
+        self.setObjectName("steelCutToast")
+        self.setStyleSheet(
+            """
+            QWidget#steelCutToast {
+                background: #111827;
+                border: 1px solid #374151;
+                border-radius: 8px;
+            }
+            QLabel#toastTitle { color: #FFFFFF; font-size: 10pt; font-weight: 800; }
+            QLabel#toastBody { color: #CBD5E1; font-size: 9pt; }
+            QLabel#toastThumb { background: #FFFFFF; border-radius: 5px; }
+            """
+        )
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
+
+        thumb = QLabel()
+        thumb.setObjectName("toastThumb")
+        thumb.setFixedSize(86, 64)
+        thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        if not pixmap.isNull():
+            thumb.setPixmap(
+                pixmap.scaled(
+                    thumb.size(),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+        layout.addWidget(thumb)
+
+        text_box = QVBoxLayout()
+        text_box.setContentsMargins(0, 2, 0, 2)
+        title = QLabel("캡처가 클립보드에 복사됨")
+        title.setObjectName("toastTitle")
+        body = QLabel("클릭하면 큰 화면으로 봅니다.")
+        body.setObjectName("toastBody")
+        body.setWordWrap(True)
+        text_box.addWidget(title)
+        text_box.addWidget(body)
+        text_box.addStretch(1)
+        layout.addLayout(text_box, 1)
+
+        self._close_timer = QTimer(self)
+        self._close_timer.setSingleShot(True)
+        self._close_timer.timeout.connect(self.close)
+        self._close_timer.start(3000)
+
+    def show_slide(self) -> None:
+        screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
+        available = screen.availableGeometry() if screen else QRect(0, 0, 1280, 720)
+        end = QPoint(available.right() - self.width() - 16, available.bottom() - self.height() - 16)
+        start = QPoint(available.right() + 8, end.y())
+        self.move(start)
+        self.show()
+        self.raise_()
+        self._animation = QPropertyAnimation(self, b"pos", self)
+        self._animation.setDuration(180)
+        self._animation.setStartValue(start)
+        self._animation.setEndValue(end)
+        self._animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._animation.start()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+            self.close()
+            return
+        super().mousePressEvent(event)
+
+
 class ImageTab(QWidget):
     def __init__(self, main) -> None:
         super().__init__()
         self.main = main
+        self._steel_cut_toast: SteelCutToast | None = None
+        self._steel_cut_viewer: SteelCutViewerDialog | None = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.search = QLineEdit()
@@ -1042,8 +1156,16 @@ class ImageTab(QWidget):
         if rect.width() < 3 or rect.height() < 3:
             return
         pixmap = self.capture_selection(rect)
+        if pixmap.isNull():
+            return
         copy_pixmap_to_clipboard(pixmap)
         target = next_capture_jpg_path(self.screenshot_dir())
+        window_title = title or "창 제목 없음"
+        self.show_steel_cut_toast(pixmap, str(target), window_title)
+        worker = SteelCutSaveWorker(pixmap.toImage(), target)
+        worker.signals.finished.connect(lambda path, ok, value=window_title: self.finish_steel_cut_capture(path, ok, value))
+        QThreadPool.globalInstance().start(worker)
+        return
         if not save_capture_jpg(pixmap, target):
             QMessageBox.warning(self, "스틸 컷 실패", "스크린샷을 저장하지 못했습니다.")
             return
@@ -1063,6 +1185,46 @@ class ImageTab(QWidget):
         self.tabs.setCurrentIndex(0)
         self.refresh()
         self.view_steel_cut(value, copy_to_clipboard=False)
+
+    def show_steel_cut_toast(self, pixmap: QPixmap, image_path: str, title: str) -> None:
+        if self._steel_cut_toast is not None:
+            self._steel_cut_toast.close()
+        toast = SteelCutToast(pixmap, self)
+        self._steel_cut_toast = toast
+        toast.destroyed.connect(lambda _=None, dialog=toast: self.clear_steel_cut_toast(dialog))
+        toast.clicked.connect(lambda p=QPixmap(pixmap), path=image_path, value=title: self.open_steel_cut_viewer(path, value, p))
+        toast.show_slide()
+
+    def clear_steel_cut_toast(self, toast: SteelCutToast) -> None:
+        if self._steel_cut_toast is toast:
+            self._steel_cut_toast = None
+
+    def open_steel_cut_viewer(self, image_path: str, title: str, pixmap: QPixmap | None = None) -> None:
+        self._steel_cut_viewer = SteelCutViewerDialog(image_path, title, pixmap)
+        self._steel_cut_viewer.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self._steel_cut_viewer.show()
+        self._steel_cut_viewer.raise_()
+        self._steel_cut_viewer.activateWindow()
+
+    def finish_steel_cut_capture(self, image_path: str, ok: bool, title: str) -> None:
+        if not ok:
+            QMessageBox.warning(self, "스틸 컷 실패", "스크린샷을 저장하지 못했습니다.")
+            return
+        items = self.main.data.setdefault("steel_cuts", [])
+        value = {
+            "id": new_id("steel"),
+            "path": self.relative_asset_path(Path(image_path)),
+            "path_type": "relative",
+            "window_title": title,
+            "created_at": now_iso(),
+            "last_used_at": now_iso(),
+            "sort_order": len(items),
+            "usage_count": 0,
+        }
+        items.append(value)
+        self.main.save_data()
+        self.tabs.setCurrentIndex(0)
+        self.refresh()
 
     def view_image(self, item: dict) -> None:
         path = resolve_image_path(item.get("path", ""), config.BASE_DIR)
