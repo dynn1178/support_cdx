@@ -28,7 +28,13 @@ from PyQt6.QtWidgets import (
 from app.theme import THEMES
 from app.utils import now_iso
 
-HOTKEY_KEYS = [str(i) for i in range(1, 10)] + ["0"] + [";"] + [chr(i) for i in range(ord("A"), ord("Z") + 1)] + [f"F{i}" for i in range(1, 13)]
+HOTKEY_KEYS = (
+    [str(i) for i in range(1, 10)]
+    + ["0"]
+    + [chr(i) for i in range(ord("A"), ord("Z") + 1)]
+    + [f"F{i}" for i in range(1, 13)]
+    + [";", "'", "`", ",", ".", "/", "\\", "-", "=", "[", "]"]
+)
 DIALOG_THEME = "light"
 CARD_SIZE_A = 72
 CARD_SIZE_B = 108
@@ -539,6 +545,23 @@ def show_modern_info(parent: QWidget, title: str, message: str, accent: str | No
     ModernInfoDialog(parent, title, message, accent).exec()
 
 
+def show_topmost_modern_info(parent: QWidget, title: str, message: str, accent: str | None = None) -> None:
+    dialog = ModernInfoDialog(parent, title, message, accent)
+    dialog.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+    dialog.show()
+    dialog.raise_()
+    dialog.activateWindow()
+    try:
+        import ctypes
+
+        hwnd = int(dialog.winId())
+        ctypes.windll.user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
+        ctypes.windll.user32.BringWindowToTop(hwnd)
+    except Exception:
+        pass
+    dialog.exec()
+
+
 def show_modern_warning(parent: QWidget, title: str, message: str) -> None:
     colors = dialog_palette(parent)
     ModernInfoDialog(parent, title, message, colors.get("danger", "#D7263D")).exec()
@@ -999,6 +1022,8 @@ class HotkeyFields(QWidget):
         self.win = QCheckBox("Win")
         self.key = QComboBox()
         self.key.addItems(HOTKEY_KEYS)
+        fit_combo_to_contents(self.key, min_width=86, extra=56)
+        self.key.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Fixed)
         layout.addWidget(self.ctrl)
         layout.addWidget(self.alt)
         layout.addWidget(self.shift)

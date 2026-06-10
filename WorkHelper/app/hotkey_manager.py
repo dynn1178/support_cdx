@@ -63,6 +63,16 @@ class HotkeyManager:
                 return 0x70 + number - 1
         special = {
             ";": 0xBA,
+            "=": 0xBB,
+            ",": 0xBC,
+            "-": 0xBD,
+            ".": 0xBE,
+            "/": 0xBF,
+            "`": 0xC0,
+            "[": 0xDB,
+            "\\": 0xDC,
+            "]": 0xDD,
+            "'": 0xDE,
             "SPACE": 0x20,
             "TAB": 0x09,
             "ESC": 0x1B,

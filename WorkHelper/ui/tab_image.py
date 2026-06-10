@@ -6,7 +6,7 @@ import os
 import shutil
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -98,7 +98,11 @@ def exec_capture_dialog(dialog: QDialog) -> QDialog.DialogCode:
 
 def copy_pixmap_to_clipboard(pixmap: QPixmap) -> None:
     if not pixmap.isNull():
-        QApplication.clipboard().setImage(pixmap.toImage())
+        clipboard = QApplication.clipboard()
+        image = pixmap.toImage()
+        clipboard.clear()
+        clipboard.setImage(image)
+        clipboard.setPixmap(QPixmap.fromImage(image))
         QApplication.processEvents()
 
 
@@ -123,41 +127,49 @@ class SteelCutSaveWorker(QRunnable):
         self.signals.finished.emit(str(self.path), ok)
 
 
-def _scaled_pixels(value: int, scale: float) -> int:
-    return max(1, int(value * scale + 0.9999))
-
-
-def screen_capture_scale(rect: QRect) -> float:
-    scales = [
-        float(screen.devicePixelRatio())
-        for screen in QApplication.screens()
-        if rect.intersects(screen.geometry())
-    ]
-    if scales:
-        return max(scales)
-    screen = QApplication.primaryScreen()
-    return float(screen.devicePixelRatio()) if screen else 1.0
+def _screen_source_rect(screen, logical_rect: QRect, full_pixmap: QPixmap) -> QRect:
+    geometry = screen.geometry()
+    local = logical_rect.translated(-geometry.topLeft())
+    scale_x = full_pixmap.width() / max(1, geometry.width())
+    scale_y = full_pixmap.height() / max(1, geometry.height())
+    left = round(local.left() * scale_x)
+    top = round(local.top() * scale_y)
+    right = round((local.right() + 1) * scale_x)
+    bottom = round((local.bottom() + 1) * scale_y)
+    return QRect(left, top, max(1, right - left), max(1, bottom - top))
 
 
 def capture_screen_rect(rect: QRect) -> QPixmap:
-    """Capture a logical screen rect while preserving native high-DPI pixels."""
+    """Capture the selected logical rect exactly on mixed-DPI monitor setups."""
     if rect.width() < 1 or rect.height() < 1:
         return QPixmap()
-    scale = screen_capture_scale(rect)
-    pixmap = QPixmap(_scaled_pixels(rect.width(), scale), _scaled_pixels(rect.height(), scale))
-    pixmap.setDevicePixelRatio(scale)
-    pixmap.fill(Qt.GlobalColor.transparent)
-
-    painter = QPainter(pixmap)
+    captures: list[tuple[object, QRect, QPixmap, QRect]] = []
     for screen in QApplication.screens():
         intersected = rect.intersected(screen.geometry())
         if intersected.isEmpty():
             continue
-        local = intersected.translated(-screen.geometry().topLeft())
-        part = screen.grabWindow(0, local.x(), local.y(), local.width(), local.height())
-        if part.isNull():
+        full = screen.grabWindow(0)
+        if full.isNull():
             continue
-        painter.drawPixmap(intersected.topLeft() - rect.topLeft(), part)
+        source = _screen_source_rect(screen, intersected, full).intersected(full.rect())
+        if source.isEmpty():
+            continue
+        captures.append((screen, intersected, full, source))
+    if not captures:
+        return QPixmap()
+    if len(captures) == 1 and captures[0][1] == rect:
+        screen, _intersected, full, source = captures[0]
+        pixmap = full.copy(source)
+        pixmap.setDevicePixelRatio(float(screen.devicePixelRatio()))
+        return pixmap
+
+    pixmap = QPixmap(rect.size())
+    pixmap.setDevicePixelRatio(1.0)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    for _screen, intersected, full, source in captures:
+        target = intersected.translated(-rect.topLeft())
+        painter.drawPixmap(target, full, source)
     painter.end()
     return pixmap
 
@@ -858,13 +870,16 @@ class SteelCutToast(QWidget):
     clicked = pyqtSignal()
 
     def __init__(self, pixmap: QPixmap, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
+        super().__init__(None)
+        self._allow_close = False
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.Tool
             | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.WindowDoesNotAcceptFocus
         )
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFixedSize(320, 96)
         self.setObjectName("steelCutToast")
@@ -913,8 +928,24 @@ class SteelCutToast(QWidget):
 
         self._close_timer = QTimer(self)
         self._close_timer.setSingleShot(True)
-        self._close_timer.timeout.connect(self.close)
-        self._close_timer.start(3000)
+        self._close_timer.timeout.connect(self.dismiss)
+        app = QApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self.force_close)
+
+    def dismiss(self) -> None:
+        self._allow_close = True
+        self.close()
+
+    def force_close(self) -> None:
+        self._allow_close = True
+        self.close()
+
+    def closeEvent(self, event) -> None:
+        if self._allow_close:
+            super().closeEvent(event)
+            return
+        event.ignore()
 
     def show_slide(self) -> None:
         screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
@@ -924,6 +955,7 @@ class SteelCutToast(QWidget):
         self.move(start)
         self.show()
         self.raise_()
+        self._close_timer.start(3000)
         self._animation = QPropertyAnimation(self, b"pos", self)
         self._animation.setDuration(180)
         self._animation.setStartValue(start)
@@ -934,7 +966,7 @@ class SteelCutToast(QWidget):
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
-            self.close()
+            self.dismiss()
             return
         super().mousePressEvent(event)
 
@@ -1011,7 +1043,13 @@ class ImageTab(QWidget):
 
     def refresh_steel_cuts(self, q: str = "") -> None:
         source_items = self.main.data.setdefault("steel_cuts", [])
-        visible_items = sorted(source_items, key=lambda value: value.get("created_at", ""), reverse=True)[:30]
+        cutoff = datetime.now() - timedelta(days=3)
+        visible_items = [
+            item
+            for item in source_items
+            if self.is_recent_steel_cut(item, cutoff)
+        ]
+        visible_items = sorted(visible_items, key=lambda value: value.get("created_at", ""), reverse=True)[:30]
         cards = []
         for item in visible_items:
             haystack = f"{item.get('window_title', '')} {item.get('created_at', '')}".lower()
@@ -1019,6 +1057,13 @@ class ImageTab(QWidget):
                 continue
             cards.append(self.make_steel_cut_card(item))
         self.steel_cut_list.add_cards(cards, on_reorder=None)
+
+    def is_recent_steel_cut(self, item: dict, cutoff: datetime) -> bool:
+        try:
+            created = datetime.fromisoformat(str(item.get("created_at", "")))
+        except ValueError:
+            return True
+        return created >= cutoff
 
     def make_steel_cut_card(self, item: dict) -> QWidget:
         card = QWidget()
@@ -1188,7 +1233,7 @@ class ImageTab(QWidget):
 
     def show_steel_cut_toast(self, pixmap: QPixmap, image_path: str, title: str) -> None:
         if self._steel_cut_toast is not None:
-            self._steel_cut_toast.close()
+            self._steel_cut_toast.force_close()
         toast = SteelCutToast(pixmap, self)
         self._steel_cut_toast = toast
         toast.destroyed.connect(lambda _=None, dialog=toast: self.clear_steel_cut_toast(dialog))

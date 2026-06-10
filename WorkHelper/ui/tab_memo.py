@@ -72,6 +72,7 @@ from ui.common import (
     set_corner_button_policy,
     show_card_status,
     show_modern_info,
+    show_topmost_modern_info,
     show_modern_warning,
 )
 
@@ -3036,7 +3037,7 @@ class TodoListTab(QWidget):
         action = self._timer_action.currentText()
         if action == "알림":
             msg = self._timer_msg.text().strip() or "타이머가 완료되었습니다!"
-            show_modern_info(self.main, "타이머 완료", msg)
+            show_topmost_modern_info(self.main, "타이머 완료", msg)
         elif action == "컴퓨터 종료":
             if ask_modern_question(self.main, "컴퓨터 종료",
                                    "컴퓨터를 종료하시겠습니까?\n(60초 후 자동 종료)", yes_text="종료", no_text="취소"):
