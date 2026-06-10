@@ -191,7 +191,7 @@ def save_capture_jpg(pixmap: QPixmap, path: Path) -> bool:
 class ScreenCaptureDialog(QDialog):
     def __init__(self) -> None:
         super().__init__()
-        self.origin = None
+        self.origin: QPoint | None = None
         self.selection = QRect()
         self.rubber_band = QRubberBand(QRubberBand.Shape.Rectangle, self)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
@@ -199,17 +199,26 @@ class ScreenCaptureDialog(QDialog):
         self.setWindowOpacity(0.25)
         self.setCursor(Qt.CursorShape.CrossCursor)
 
+    def global_to_overlay(self, point: QPoint) -> QPoint:
+        return self.mapFromGlobal(point)
+
     def mousePressEvent(self, event) -> None:
-        self.origin = event.position().toPoint()
-        self.rubber_band.setGeometry(QRect(self.origin, self.origin))
+        self.origin = event.globalPosition().toPoint()
+        local_origin = self.global_to_overlay(self.origin)
+        self.rubber_band.setGeometry(QRect(local_origin, local_origin))
         self.rubber_band.show()
 
     def mouseMoveEvent(self, event) -> None:
         if self.origin is not None:
-            self.rubber_band.setGeometry(QRect(self.origin, event.position().toPoint()).normalized())
+            local_origin = self.global_to_overlay(self.origin)
+            local_current = self.global_to_overlay(event.globalPosition().toPoint())
+            self.rubber_band.setGeometry(QRect(local_origin, local_current).normalized())
 
     def mouseReleaseEvent(self, event) -> None:
-        self.selection = self.rubber_band.geometry().translated(self.geometry().topLeft())
+        if self.origin is not None:
+            self.selection = QRect(self.origin, event.globalPosition().toPoint()).normalized()
+        else:
+            self.selection = self.rubber_band.geometry().translated(self.geometry().topLeft())
         self.accept()
 
 
@@ -238,6 +247,9 @@ class FixedSizeCaptureDialog(QDialog):
         self.setCursor(Qt.CursorShape.ArrowCursor)
         self.rubber_band.setCursor(Qt.CursorShape.SizeAllCursor)
 
+    def global_to_overlay(self, point: QPoint) -> QPoint:
+        return self.mapFromGlobal(point)
+
     def showEvent(self, event) -> None:
         super().showEvent(event)
         center = self.rect().center()
@@ -247,15 +259,16 @@ class FixedSizeCaptureDialog(QDialog):
         self.position_capture_button()
 
     def mousePressEvent(self, event) -> None:
-        if not self.rubber_band.geometry().contains(event.position().toPoint()):
+        local_pos = self.global_to_overlay(event.globalPosition().toPoint())
+        if not self.rubber_band.geometry().contains(local_pos):
             self.drag_start = None
             return
-        self.drag_start = event.position().toPoint() - self.rubber_band.geometry().topLeft()
+        self.drag_start = local_pos - self.rubber_band.geometry().topLeft()
 
     def mouseMoveEvent(self, event) -> None:
         if self.drag_start is None:
             return
-        top_left = event.position().toPoint() - self.drag_start
+        top_left = self.global_to_overlay(event.globalPosition().toPoint()) - self.drag_start
         rect = QRect(top_left, self.box_size)
         bounds = self.rect()
         if rect.left() < bounds.left():
