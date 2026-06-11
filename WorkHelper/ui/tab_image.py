@@ -99,11 +99,8 @@ def exec_capture_dialog(dialog: QDialog) -> QDialog.DialogCode:
 def copy_pixmap_to_clipboard(pixmap: QPixmap) -> None:
     if not pixmap.isNull():
         clipboard = QApplication.clipboard()
-        image = pixmap.toImage()
         clipboard.clear()
-        clipboard.setImage(image)
-        clipboard.setPixmap(QPixmap.fromImage(image))
-        QApplication.processEvents()
+        clipboard.setImage(pixmap.toImage())
 
 
 class SteelCutSaveSignals(QObject):
@@ -881,6 +878,8 @@ class SteelCutViewerDialog(QDialog):
 
 class SteelCutToast(QWidget):
     clicked = pyqtSignal()
+    VISIBLE_MS = 5000
+    SLIDE_MS = 90
 
     def __init__(self, pixmap: QPixmap, parent: QWidget | None = None) -> None:
         super().__init__(None)
@@ -982,17 +981,18 @@ class SteelCutToast(QWidget):
         screen = QApplication.screenAt(anchor_point) or QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
         available = screen.availableGeometry() if screen else QRect(0, 0, 1280, 720)
         end = QPoint(available.right() - self.width() - 16, available.bottom() - self.height() - 16)
-        start = QPoint(available.right() + 8, end.y())
+        start = QPoint(end.x() + 56, end.y())
         self.move(start)
         self.show()
         self.raise_()
         self._force_topmost()
-        self._close_timer.start(3000)
+        QApplication.processEvents()
         self._animation = QPropertyAnimation(self, b"pos", self)
-        self._animation.setDuration(180)
+        self._animation.setDuration(self.SLIDE_MS)
         self._animation.setStartValue(start)
         self._animation.setEndValue(end)
         self._animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._animation.finished.connect(lambda: self._close_timer.start(self.VISIBLE_MS))
         self._animation.start()
         QTimer.singleShot(40, self._force_topmost)
 
