@@ -946,6 +946,23 @@ class SteelCutToast(QWidget):
         if app is not None:
             app.aboutToQuit.connect(self.force_close)
 
+    def _force_topmost(self) -> None:
+        if not sys.platform.startswith("win"):
+            return
+        try:
+            hwnd = int(self.winId())
+            ctypes.windll.user32.SetWindowPos(
+                ctypes.wintypes.HWND(hwnd),
+                ctypes.wintypes.HWND(-1),  # HWND_TOPMOST
+                0,
+                0,
+                0,
+                0,
+                0x0001 | 0x0002 | 0x0010 | 0x0040,  # NOSIZE | NOMOVE | NOACTIVATE | SHOWWINDOW
+            )
+        except Exception:
+            pass
+
     def dismiss(self) -> None:
         self._allow_close = True
         self.close()
@@ -960,14 +977,16 @@ class SteelCutToast(QWidget):
             return
         event.ignore()
 
-    def show_slide(self) -> None:
-        screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
+    def show_slide(self, anchor_rect: QRect | None = None) -> None:
+        anchor_point = anchor_rect.center() if anchor_rect is not None and not anchor_rect.isNull() else QCursor.pos()
+        screen = QApplication.screenAt(anchor_point) or QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
         available = screen.availableGeometry() if screen else QRect(0, 0, 1280, 720)
         end = QPoint(available.right() - self.width() - 16, available.bottom() - self.height() - 16)
         start = QPoint(available.right() + 8, end.y())
         self.move(start)
         self.show()
         self.raise_()
+        self._force_topmost()
         self._close_timer.start(3000)
         self._animation = QPropertyAnimation(self, b"pos", self)
         self._animation.setDuration(180)
@@ -975,6 +994,7 @@ class SteelCutToast(QWidget):
         self._animation.setEndValue(end)
         self._animation.setEasingCurve(QEasingCurve.Type.OutCubic)
         self._animation.start()
+        QTimer.singleShot(40, self._force_topmost)
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -1219,7 +1239,7 @@ class ImageTab(QWidget):
         copy_pixmap_to_clipboard(pixmap)
         target = next_capture_jpg_path(self.screenshot_dir())
         window_title = title or "창 제목 없음"
-        self.show_steel_cut_toast(pixmap, str(target), window_title)
+        self.show_steel_cut_toast(pixmap, str(target), window_title, rect)
         worker = SteelCutSaveWorker(pixmap.toImage(), target)
         worker.signals.finished.connect(lambda path, ok, value=window_title: self.finish_steel_cut_capture(path, ok, value))
         QThreadPool.globalInstance().start(worker)
@@ -1244,14 +1264,14 @@ class ImageTab(QWidget):
         self.refresh()
         self.view_steel_cut(value, copy_to_clipboard=False)
 
-    def show_steel_cut_toast(self, pixmap: QPixmap, image_path: str, title: str) -> None:
+    def show_steel_cut_toast(self, pixmap: QPixmap, image_path: str, title: str, anchor_rect: QRect | None = None) -> None:
         if self._steel_cut_toast is not None:
             self._steel_cut_toast.force_close()
         toast = SteelCutToast(pixmap, self)
         self._steel_cut_toast = toast
         toast.destroyed.connect(lambda _=None, dialog=toast: self.clear_steel_cut_toast(dialog))
         toast.clicked.connect(lambda p=QPixmap(pixmap), path=image_path, value=title: self.open_steel_cut_viewer(path, value, p))
-        toast.show_slide()
+        toast.show_slide(anchor_rect)
 
     def clear_steel_cut_toast(self, toast: SteelCutToast) -> None:
         if self._steel_cut_toast is toast:

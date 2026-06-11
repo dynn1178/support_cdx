@@ -359,6 +359,39 @@ class StickyMemoDialog(QDialog):
     def schedule_save(self, *_args) -> None:
         self.save_timer.start(400)
 
+    def reload_from_memo(self) -> None:
+        """Refresh visible fields after the backing memo was edited elsewhere."""
+        if self.save_timer.isActive():
+            self.save_timer.stop()
+        content = str(self.memo.get("content", ""))
+        if self.text.toPlainText() != content:
+            self.text.blockSignals(True)
+            self.text.setPlainText(content)
+            self.text.blockSignals(False)
+        background = self.memo.get("background", MEMO_COLOR_LIST[0])
+        if background in MEMO_COLORS and self.color.currentText() != background:
+            self.color.blockSignals(True)
+            self.color.setCurrentText(background)
+            self.color.blockSignals(False)
+            self.apply_color()
+        always_on_top = bool(self.memo.get("always_on_top", True))
+        if self.always_on_top.isChecked() != always_on_top:
+            self.always_on_top.blockSignals(True)
+            self.always_on_top.setChecked(always_on_top)
+            self.always_on_top.blockSignals(False)
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, always_on_top)
+            self.show()
+        if "opacity" in self.memo:
+            opacity = int(self.memo.get("opacity", 95) or 95)
+            if self.slider.value() != opacity:
+                self.slider.blockSignals(True)
+                self.slider.setValue(opacity)
+                self.slider.blockSignals(False)
+                self.setWindowOpacity(opacity / 100)
+        self.setWindowTitle(self.memo.get("title", "메모"))
+        self.icon_btn.setText(self._get_icon_text() or "🗒")
+        self.update_drag_bar_text()
+
     def first_line(self) -> str:
         for line in self.text.toPlainText().splitlines():
             line = line.strip()
@@ -928,6 +961,37 @@ class MemoIndexCard(QWidget):
         self.show()
         self.schedule_save()
 
+    def reload_from_memo(self) -> None:
+        """Refresh visible fields after the backing memo was edited elsewhere."""
+        if self.save_timer.isActive():
+            self.save_timer.stop()
+        content = str(self.memo.get("content", ""))
+        if self._text.toPlainText() != content:
+            self._text.blockSignals(True)
+            self._text.setPlainText(content)
+            self._text.blockSignals(False)
+            self._invalidate_expanded_height()
+            self._update_icon()
+        background = self.memo.get("background", MEMO_COLOR_LIST[0])
+        if background in MEMO_COLORS and self._color.currentText() != background:
+            self._color.blockSignals(True)
+            self._color.setCurrentText(background)
+            self._color.blockSignals(False)
+            self._apply_color()
+        always_on_top = bool(self.memo.get("always_on_top", True))
+        if self._always_on_top_chk.isChecked() != always_on_top:
+            self._always_on_top_chk.blockSignals(True)
+            self._always_on_top_chk.setChecked(always_on_top)
+            self._always_on_top_chk.blockSignals(False)
+            flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
+            if always_on_top:
+                flags |= Qt.WindowType.WindowStaysOnTopHint
+            self.setWindowFlags(flags)
+            self.show()
+        self._do_icon_transition()
+        if self._expanded:
+            self._do_expand()
+
     # ── 위치 지정 ──────────────────────────────────────────────────
 
     def set_position(self, x: int, y: int) -> None:
@@ -1040,10 +1104,20 @@ class MemoIndexCard(QWidget):
                 widget.setVisible(visible)
 
     def _collapse_if_idle(self) -> None:
-        if self._expanded and not self._cursor_in_hover_regions():
+        if self._expanded and not self._is_editing_active() and not self._cursor_in_hover_regions():
             self._do_collapse()
 
+    def _is_editing_active(self) -> bool:
+        focused = QApplication.focusWidget()
+        while focused is not None:
+            if focused is self:
+                return True
+            focused = focused.parentWidget()
+        return False
+
     def _cursor_in_hover_regions(self) -> bool:
+        if self._is_editing_active():
+            return True
         if self.underMouse():
             return True
         pos = QCursor.pos()
@@ -1082,6 +1156,9 @@ class MemoIndexCard(QWidget):
     def _watch_hover_state(self) -> None:
         if not self._expanded:
             self._hover_watch_timer.stop()
+            return
+        if self._is_editing_active():
+            self._set_hover_controls_visible(self._cursor_in_expanded_region())
             return
         pos = QCursor.pos()
         slot_card = self._card_at_cursor_slot(pos)
@@ -1828,6 +1905,11 @@ class MemoListTab(QWidget):
         if self.main is not None:
             config.save_template(self.main.template_index, self.main.data)
 
+    def _sync_open_sticker(self, memo: dict) -> None:
+        dialog = self.sticky_windows.get(self.memo_key(memo))
+        if dialog is not None and dialog.isVisible() and hasattr(dialog, "reload_from_memo"):
+            dialog.reload_from_memo()
+
     def edit_memo(self, memo: dict | None = None) -> None:
         dialog = MemoDialog(memo)
         while dialog.exec() == dialog.DialogCode.Accepted:
@@ -1838,13 +1920,18 @@ class MemoListTab(QWidget):
             open_sticker = bool(value.pop("_open_sticker_after_save", False))
             items = self.main.data.setdefault("memos", [])
             if memo in items:
-                items[items.index(memo)] = value
+                memo.clear()
+                memo.update(value)
+                saved_memo = memo
             else:
                 value["sort_order"] = len(items)
                 items.append(value)
+                saved_memo = value
             self.main.save_data()
+            self._sync_open_sticker(saved_memo)
+            self.refresh()
             if open_sticker:
-                self.show_sticker(value, track_usage=False, raise_window=True, toggle_existing=False)
+                self.show_sticker(saved_memo, track_usage=False, raise_window=True, toggle_existing=False)
             return
 
     def delete_memo(self, memo: dict) -> None:
