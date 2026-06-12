@@ -1,6 +1,45 @@
 from __future__ import annotations
 
+import ctypes
+import sys
+
+from PyQt6.QtCore import QRect
 from PyQt6.QtWidgets import QApplication
+
+
+def qt_virtual_screen_geometry() -> QRect:
+    screen = QApplication.primaryScreen()
+    rect = QRect(screen.virtualGeometry()) if screen else QRect()
+    for item in QApplication.screens():
+        rect = rect.united(item.geometry()) if not rect.isNull() else QRect(item.geometry())
+    return rect
+
+
+def win32_virtual_screen_geometry() -> QRect:
+    if not sys.platform.startswith("win"):
+        return QRect()
+    try:
+        user32 = ctypes.windll.user32
+        left = int(user32.GetSystemMetrics(76))  # SM_XVIRTUALSCREEN
+        top = int(user32.GetSystemMetrics(77))  # SM_YVIRTUALSCREEN
+        width = int(user32.GetSystemMetrics(78))  # SM_CXVIRTUALSCREEN
+        height = int(user32.GetSystemMetrics(79))  # SM_CYVIRTUALSCREEN
+    except Exception:
+        return QRect()
+    if width <= 0 or height <= 0:
+        return QRect()
+    return QRect(left, top, width, height)
+
+
+def virtual_screen_geometry() -> QRect:
+    """Return the full desktop bounds, including negative and stacked monitors."""
+    rect = qt_virtual_screen_geometry()
+    win_rect = win32_virtual_screen_geometry()
+    if rect.isNull():
+        return win_rect
+    if win_rect.isNull():
+        return rect
+    return rect.united(win_rect)
 
 
 def screen_signature(screen) -> dict:

@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from PyQt6.QtCore import QEasingCurve, QObject, QPoint, QPropertyAnimation, QRect, QRunnable, QSize, QThreadPool, QTimer, Qt, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QBrush, QColor, QCursor, QKeySequence, QPainter, QPen, QPixmap, QShortcut
+from PyQt6.QtGui import QBrush, QColor, QCursor, QImage, QKeySequence, QPainter, QPen, QPixmap, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -36,6 +36,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app import config
+from app.screen_utils import virtual_screen_geometry
 from app.utils import display_hotkey, new_id, now_iso, resolve_image_path
 from ui.common import (
     CARD_ACTION_ICON_SIZE,
@@ -84,23 +85,38 @@ def active_window_rect() -> QRect:
     return screen.geometry() if screen else QRect()
 
 
-def virtual_screen_geometry() -> QRect:
-    screen = QApplication.primaryScreen()
-    rect = screen.virtualGeometry() if screen else QRect()
-    for item in QApplication.screens():
-        rect = rect.united(item.geometry())
-    return rect
-
-
 def exec_capture_dialog(dialog: QDialog) -> QDialog.DialogCode:
     return dialog.exec()
 
 
 def copy_pixmap_to_clipboard(pixmap: QPixmap) -> None:
-    if not pixmap.isNull():
-        clipboard = QApplication.clipboard()
-        clipboard.clear()
-        clipboard.setImage(pixmap.toImage())
+    if pixmap.isNull():
+        return
+    image = pixmap.toImage().copy()
+    clipboard = QApplication.clipboard()
+    app = QApplication.instance()
+    if app is not None:
+        app._last_capture_clipboard_image = image
+
+    def image_is_current() -> bool:
+        current = clipboard.image()
+        return (
+            not current.isNull()
+            and current.size() == image.size()
+            and current.format() == image.format()
+        )
+
+    def set_image(force: bool = False) -> None:
+        mime = clipboard.mimeData()
+        if not force and mime is not None and mime.hasText() and not mime.hasImage():
+            return
+        if force or not image_is_current():
+            clipboard.setImage(image)
+            QApplication.processEvents()
+
+    set_image(force=True)
+    for delay in (35, 90, 180, 320):
+        QTimer.singleShot(delay, set_image)
 
 
 class SteelCutSaveSignals(QObject):
@@ -140,6 +156,9 @@ def capture_screen_rect(rect: QRect) -> QPixmap:
     """Capture the selected logical rect exactly on mixed-DPI monitor setups."""
     if rect.width() < 1 or rect.height() < 1:
         return QPixmap()
+    pillow_capture = capture_screen_rect_with_pillow(rect)
+    if not pillow_capture.isNull():
+        return pillow_capture
     captures: list[tuple[object, QRect, QPixmap, QRect]] = []
     for screen in QApplication.screens():
         intersected = rect.intersected(screen.geometry())
@@ -183,6 +202,25 @@ def next_capture_jpg_path(directory: Path) -> Path:
 
 def save_capture_jpg(pixmap: QPixmap, path: Path) -> bool:
     return pixmap.save(str(path), "JPG", 95)
+
+
+def capture_screen_rect_with_pillow(rect: QRect) -> QPixmap:
+    if not sys.platform.startswith("win") or rect.width() < 1 or rect.height() < 1:
+        return QPixmap()
+    try:
+        from PIL import ImageGrab
+    except Exception:
+        return QPixmap()
+    try:
+        image = ImageGrab.grab(
+            bbox=(rect.left(), rect.top(), rect.right() + 1, rect.bottom() + 1),
+            all_screens=True,
+        ).convert("RGBA")
+    except Exception:
+        return QPixmap()
+    data = image.tobytes("raw", "RGBA")
+    qimage = QImage(data, image.width, image.height, QImage.Format.Format_RGBA8888).copy()
+    return QPixmap.fromImage(qimage)
 
 
 class ScreenCaptureDialog(QDialog):

@@ -25,8 +25,10 @@ from PyQt6.QtWidgets import (
 )
 
 from app import config
+from app.screen_utils import virtual_screen_geometry
 from app.theme import THEMES
 from app.utils import new_id, now_iso
+from ui.tab_image import capture_screen_rect, copy_pixmap_to_clipboard
 from ui.common import ask_modern_question, bottom_action_bar, show_modern_info, show_modern_warning
 
 
@@ -332,9 +334,9 @@ class MouseHighlightOverlay(QWidget):
         self.follow_cursor()
 
     def follow_cursor(self) -> None:
-        screen = QApplication.primaryScreen()
-        if screen:
-            self.setGeometry(screen.virtualGeometry())
+        rect = virtual_screen_geometry()
+        if not rect.isNull():
+            self.setGeometry(rect)
         self.cursor_pos = QCursor.pos()
         self.update()
 
@@ -467,9 +469,7 @@ class ScreenDrawOverlay(QWidget):
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setCursor(Qt.CursorShape.CrossCursor)
-        rect = QApplication.primaryScreen().virtualGeometry()
-        for screen in QApplication.screens():
-            rect = rect.united(screen.geometry())
+        rect = virtual_screen_geometry()
         self.setGeometry(rect)
         self.canvas = QPixmap(rect.size())
         self.canvas.fill(Qt.GlobalColor.transparent)
@@ -540,10 +540,7 @@ class ScreenDrawOverlay(QWidget):
         self.apply_default_color_for_background()
 
     def virtual_screen_rect(self) -> QRect:
-        rect = QApplication.primaryScreen().virtualGeometry()
-        for screen in QApplication.screens():
-            rect = rect.united(screen.geometry())
-        return rect
+        return virtual_screen_geometry()
 
     def active_screen_rect(self) -> QRect:
         screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
@@ -622,13 +619,9 @@ class ScreenDrawOverlay(QWidget):
         snapshot = QPixmap(self.size())
         snapshot.fill(Qt.GlobalColor.transparent)
         painter = QPainter(snapshot)
-        origin = self.geometry().topLeft()
-        for screen in QApplication.screens():
-            geometry = screen.geometry()
-            if not geometry.intersects(self.geometry()):
-                continue
-            pixmap = screen.grabWindow(0, 0, 0, geometry.width(), geometry.height())
-            painter.drawPixmap(geometry.topLeft() - origin, pixmap)
+        pixmap = capture_screen_rect(self.geometry())
+        if not pixmap.isNull():
+            painter.drawPixmap(0, 0, pixmap)
         painter.end()
         if was_visible:
             self.show()
@@ -740,11 +733,7 @@ class ScreenDrawOverlay(QWidget):
             self.hide()
             QApplication.processEvents()
         global_top_left = self.geometry().topLeft() + crop.topLeft()
-        center = global_top_left + crop.center()
-        screen = QApplication.screenAt(center) or QApplication.primaryScreen()
-        screen_top_left = screen.geometry().topLeft()
-        local_top_left = global_top_left - screen_top_left
-        shot = screen.grabWindow(0, local_top_left.x(), local_top_left.y(), crop.width(), crop.height())
+        shot = capture_screen_rect(QRect(global_top_left, crop.size()))
         if was_visible:
             self.show()
             self.raise_()
@@ -795,7 +784,7 @@ class ScreenDrawOverlay(QWidget):
         if not pixmap.save(str(path), "PNG"):
             show_modern_warning(self, "저장 실패", "그리기 이미지를 저장하지 못했습니다.")
             return
-        QApplication.clipboard().setPixmap(pixmap)
+        copy_pixmap_to_clipboard(pixmap)
         images = self.main.data.setdefault("images", [])
         created_at = now_iso()
         images.append(
