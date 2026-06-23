@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QScrollArea,
     QScrollBar,
     QStackedLayout,
@@ -139,6 +140,30 @@ def css_color_to_qcolor(value: str) -> QColor:
                 pass
     color = QColor(raw)
     return color if color.isValid() else QColor(0, 0, 0, 70)
+
+
+CHOSUNG_JAMO = ["ㄱ", "ㄲ", "ㄴ", "ㄷ", "ㄸ", "ㄹ", "ㅁ", "ㅂ", "ㅃ", "ㅅ", "ㅆ", "ㅇ", "ㅈ", "ㅉ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ"]
+
+
+def _chosung_key(text: str) -> str:
+    """Map each Hangul syllable to its leading consonant; pass other chars through (lowercased)."""
+    chars = []
+    for ch in text:
+        code = ord(ch)
+        if 0xAC00 <= code <= 0xD7A3:
+            chars.append(CHOSUNG_JAMO[(code - 0xAC00) // 588])
+        else:
+            chars.append(ch.lower())
+    return "".join(chars)
+
+
+def search_matches(label: str, query: str) -> bool:
+    query = query.strip().lower()
+    if not query:
+        return True
+    if query in label.lower():
+        return True
+    return query in _chosung_key(label)
 
 
 class DockIconButton(QToolButton):
@@ -386,6 +411,7 @@ class FloatingWidget(QFrame):
         self._preview_pinned = False
         self._scroll_position = 0.0
         self._scroll_velocity = 0.0
+        self._search_query = ""
         self._hint = FloatingWidgetHint(self)
         self.setWindowTitle("6PM Floating Widget")
         self.setWindowFlag(Qt.WindowType.Tool, True)
@@ -419,7 +445,7 @@ class FloatingWidget(QFrame):
         self.side_back_button.setFixedSize(28, 44)
         self.side_back_button.clicked.connect(lambda checked=False: self._open_category(None))
         self.side_back_button.hide()
-        self.hover_text = QLabel(self.panel)
+        self.hover_text = QLabel(self.header)
         self.hover_text.setObjectName("floatingDockHoverText")
         self.hover_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.hover_text.setWordWrap(False)
@@ -443,6 +469,18 @@ class FloatingWidget(QFrame):
         self.items_layout.setContentsMargins(0, 0, 0, 0)
         self.items_layout.setSpacing(6)
         self.scroll.setWidget(self.content)
+        # Floats on top of the panel instead of living in panel_layout's flow, so it
+        # never pushes the centered header/back-button or the icon row out of place.
+        self.search_box = QLineEdit(self.panel)
+        self.search_box.setObjectName("floatingDockSearchBox")
+        self.search_box.setPlaceholderText("검색")
+        self.search_box.setClearButtonEnabled(True)
+        self.search_box.setFixedSize(96, 18)
+        self.search_box.textChanged.connect(self._on_search_text_changed)
+        self.search_box.hide()
+        self.search_debounce_timer = QTimer(self)
+        self.search_debounce_timer.setSingleShot(True)
+        self.search_debounce_timer.timeout.connect(self._apply_search_filter)
         self.panel_layout.addWidget(self.header, 0)
         self.panel_layout.addWidget(self.scroll, 1)
         self.root.addWidget(self.panel, 1)
@@ -480,6 +518,7 @@ class FloatingWidget(QFrame):
         self._apply_style()
         self._sync_edge_margins()
         self._sync_hover_row()
+        self._sync_search_box()
         if enabled:
             self._move_hidden()
             self.show()
@@ -495,6 +534,7 @@ class FloatingWidget(QFrame):
         self._apply_style()
         self._sync_edge_margins()
         self._sync_hover_row()
+        self._sync_search_box()
         self._show_location_hint_once()
 
     def preview_settings(self) -> None:
@@ -505,6 +545,7 @@ class FloatingWidget(QFrame):
         self._apply_style()
         self._sync_edge_margins()
         self._sync_hover_row()
+        self._sync_search_box()
         self.animation.stop()
         self.hide_timer.stop()
         if bool(self._settings.get("floating_widget_enabled", True)):
@@ -598,6 +639,23 @@ class FloatingWidget(QFrame):
             self.header.show()
         else:
             self.header.hide()
+
+    def _sync_search_box(self) -> None:
+        if self._is_vertical():
+            self.search_box.hide()
+            return
+        self.search_box.show()
+        self._position_search_box()
+
+    def _position_search_box(self) -> None:
+        if self._is_vertical():
+            return
+        margin_right = 24
+        margin_top = 8
+        x = self.panel.width() - margin_right - self.search_box.width()
+        y = margin_top + max(0, (self._hover_row_height() - self.search_box.height()) // 2)
+        self.search_box.move(x, y)
+        self.search_box.raise_()
 
     def _speed(self) -> int:
         return max(60, min(900, int(self._settings.get("floating_widget_speed", 80) or 80)))
@@ -718,6 +776,7 @@ class FloatingWidget(QFrame):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._position_side_back_button()
+        self._position_search_box()
 
     def _dock_items(self) -> list[DockItem]:
         return [child for child in self.content.findChildren(DockItem) if child.parent() is self.content]
@@ -874,6 +933,11 @@ class FloatingWidget(QFrame):
             return
         self.clear_hovered_item()
         self.current_category = None
+        if self._search_query:
+            self._search_query = ""
+            self.search_box.blockSignals(True)
+            self.search_box.clear()
+            self.search_box.blockSignals(False)
         self._rebuild()
         self.animation.stop()
         self.setGeometry(self._hidden_geometry())
@@ -945,6 +1009,19 @@ class FloatingWidget(QFrame):
             }}
             QWidget#floatingDockHeader {{
                 background: transparent;
+                border: 0;
+            }}
+            QLineEdit#floatingDockSearchBox {{
+                background: {theme["icon_bg"]};
+                color: {theme["text"]};
+                border: 0;
+                border-radius: 9px;
+                padding: 0 8px;
+                font-size: 7.5pt;
+                font-weight: 700;
+            }}
+            QLineEdit#floatingDockSearchBox:focus {{
+                background: {hover};
                 border: 0;
             }}
             QToolButton {{
@@ -1025,6 +1102,22 @@ class FloatingWidget(QFrame):
             return
         super().mouseReleaseEvent(event)
 
+    def _on_search_text_changed(self, text: str) -> None:
+        self._search_query = text
+        # _rebuild() recreates every DockItem (decoding favicon files from disk for
+        # site/launcher items in the process), so doing it on every keystroke causes
+        # visible stutter. Debounce it to once per short typing pause instead.
+        self.search_debounce_timer.start(120)
+
+    def _apply_search_filter(self) -> None:
+        self._rebuild()
+
+    def _all_items(self) -> list[tuple]:
+        items: list[tuple] = []
+        for key, _label, _icon in self._category_order():
+            items.extend(self._items_for_category(key))
+        return items
+
     def _rebuild(self) -> None:
         self._clear_hover_state_now()
         self._scroll_position = 0.0
@@ -1052,8 +1145,19 @@ class FloatingWidget(QFrame):
             self.scroll.setWidget(self.content)
             self.scroll.viewport().update()
             self.items_layout.addStretch(1)
+            query = self._search_query.strip()
             if self.current_category:
-                for item_data in self._items_for_category(self.current_category):
+                items = self._items_for_category(self.current_category)
+                if query:
+                    items = [item_data for item_data in items if search_matches(str(item_data[0]), query)]
+                for item_data in items:
+                    label, detail, callback, icon_text, icon, *rest = item_data
+                    enabled = bool(rest[0]) if rest else True
+                    self._add_item(icon_text, label, detail, callback, icon, enabled)
+            elif query:
+                for item_data in self._all_items():
+                    if not search_matches(str(item_data[0]), query):
+                        continue
                     label, detail, callback, icon_text, icon, *rest = item_data
                     enabled = bool(rest[0]) if rest else True
                     self._add_item(icon_text, label, detail, callback, icon, enabled)
