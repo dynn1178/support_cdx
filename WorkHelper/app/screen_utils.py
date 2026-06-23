@@ -8,8 +8,14 @@ from PyQt6.QtWidgets import QApplication
 
 
 def qt_virtual_screen_geometry() -> QRect:
-    screen = QApplication.primaryScreen()
-    rect = QRect(screen.virtualGeometry()) if screen else QRect()
+    """Union of currently connected screens only.
+
+    Seeding from primaryScreen().virtualGeometry() previously kept a
+    disconnected monitor's bounds alive (Qt's cached virtual-desktop value
+    can lag a screenRemoved event), which inflated the rect with a phantom
+    region and shifted/cropped screenshots after a monitor was unplugged.
+    """
+    rect = QRect()
     for item in QApplication.screens():
         rect = rect.united(item.geometry()) if not rect.isNull() else QRect(item.geometry())
     return rect
@@ -32,14 +38,20 @@ def win32_virtual_screen_geometry() -> QRect:
 
 
 def virtual_screen_geometry() -> QRect:
-    """Return the full desktop bounds, including negative and stacked monitors."""
+    """Return the full desktop bounds, including negative and stacked monitors.
+
+    Qt's per-screen geometry() is always in device-independent (logical) pixels,
+    matching QCursor.pos() and every widget geometry in this app. win32's
+    GetSystemMetrics(SM_*VIRTUALSCREEN) returns raw physical pixels instead, so
+    unioning the two on any monitor with DPI scaling != 100% inflates the rect
+    (e.g. a single 150%-scaled 1280x720 logical screen reports as 1920x1080),
+    which made capture overlays and the mouse highlight render oversized.
+    Only fall back to the win32 metrics when Qt reports no screens at all.
+    """
     rect = qt_virtual_screen_geometry()
-    win_rect = win32_virtual_screen_geometry()
-    if rect.isNull():
-        return win_rect
-    if win_rect.isNull():
+    if not rect.isNull():
         return rect
-    return rect.united(win_rect)
+    return win32_virtual_screen_geometry()
 
 
 def screen_signature(screen) -> dict:

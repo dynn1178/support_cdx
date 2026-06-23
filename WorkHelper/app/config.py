@@ -70,6 +70,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "floating_widget_panel_width": 860,
     "floating_widget_icon_size": 50,
     "floating_widget_speed": 80,
+    "floating_widget_show_delay": 1000,
     "floating_widget_opacity": 77,
     "floating_widget_theme": "dark",
     "floating_widget_icon_shape": "square",

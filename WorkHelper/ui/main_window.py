@@ -1116,6 +1116,7 @@ class MainWindow(QMainWindow):
         for screen in QApplication.screens():
             self.watch_screen_geometry(screen)
         self.restore_monitor_settings()
+        self._resync_geometry_after_dpi_change()
         settings_tab = self.tabs[11] if len(getattr(self, "tabs", [])) > 11 else None
         if settings_tab is not None and hasattr(settings_tab, "refresh_widget_monitor_combo"):
             settings_tab.refresh_widget_monitor_combo(int(self.settings.get("floating_widget_monitor", 1) or 1))
@@ -1124,6 +1125,12 @@ class MainWindow(QMainWindow):
         memo_tab = self.tabs[6] if len(getattr(self, "tabs", [])) > 6 else None
         if memo_tab is not None and hasattr(memo_tab, "arrange_compact_stickers"):
             memo_tab.arrange_compact_stickers()
+        # Monitor add/remove (e.g. unplugging down to a single screen) can make Windows
+        # silently drop RegisterHotKey bindings and, in rare cases, kill the modifier
+        # watcher thread. Re-arm both so Ctrl+Ctrl/Alt+Alt and the capture hotkeys keep
+        # working after the display configuration settles.
+        self.register_hotkeys()
+        self.start_modifier_double_tap_listener()
 
     def restore_monitor_settings(self) -> None:
         screens = QApplication.screens()
@@ -1179,6 +1186,25 @@ class MainWindow(QMainWindow):
             tabs[10].apply_theme()
         if tabs and len(tabs) > 11 and hasattr(tabs[11], "apply_theme"):
             tabs[11].apply_theme()
+
+    def changeEvent(self, event: QEvent) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.DevicePixelRatioChange:
+            QTimer.singleShot(0, self._resync_geometry_after_dpi_change)
+
+    def _resync_geometry_after_dpi_change(self) -> None:
+        # Switching monitors/resolution/DPI on Windows can leave this fixed-size
+        # window stuck rendered at the wrong physical size; only a real WM_MOVE
+        # round trip makes Windows recompute the frame for the new DPI (this is
+        # what manually dragging the window was already fixing). Replay that
+        # round trip programmatically instead of relying on the user to do it.
+        window = self.settings.get("window", {})
+        width = int(window.get("width", 900))
+        height = int(window.get("height", 580))
+        self.setFixedSize(width, height)
+        pos = self.pos()
+        self.move(pos.x() + 1, pos.y())
+        QTimer.singleShot(0, lambda pos=pos: self.move(pos))
 
     def apply_always_on_top(self, enabled: bool) -> None:
         if sys.platform.startswith("win"):
@@ -1393,33 +1419,40 @@ class MainWindow(QMainWindow):
             was_down = False
             alt_was_down = False
             while not self.ctrl_listener_stop.is_set():
-                ctrl_down = bool(USER32.GetAsyncKeyState(0x11) & 0x8000)
-                if ctrl_down and not was_down:
-                    self.clear_key_press_history(CTRL_ONLY_VKS)
-                if ctrl_down and self.has_disallowed_key_activity(CTRL_ONLY_VKS):
-                    self._ctrl_combo_used = True
-                if was_down and not ctrl_down:
-                    self.handle_ctrl_release()
-                was_down = ctrl_down
-                alt_down = bool(USER32.GetAsyncKeyState(0x12) & 0x8000)
-                if alt_down and not alt_was_down:
-                    self.clear_key_press_history(ALT_ONLY_VKS)
-                if alt_down and self.has_disallowed_key_activity(ALT_ONLY_VKS):
-                    self._alt_combo_used = True
-                if alt_was_down and not alt_down:
-                    self.handle_alt_release()
-                alt_was_down = alt_down
-                semicolon_down = bool(USER32.GetAsyncKeyState(0xBA) & 0x8000)
-                if (
-                    ctrl_down
-                    and semicolon_down
-                    and not self._phrase_semicolon_was_down
-                    and self.settings.get("hotkeys_enabled", True)
-                    and self.is_phrase_popup_ctrl_semicolon()
-                ):
-                    self._ctrl_combo_used = True
-                    self.phrase_popup_requested.emit()
-                self._phrase_semicolon_was_down = semicolon_down
+                try:
+                    ctrl_down = bool(USER32.GetAsyncKeyState(0x11) & 0x8000)
+                    if ctrl_down and not was_down:
+                        self.clear_key_press_history(CTRL_ONLY_VKS)
+                    if ctrl_down and self.has_disallowed_key_activity(CTRL_ONLY_VKS):
+                        self._ctrl_combo_used = True
+                    if was_down and not ctrl_down:
+                        self.handle_ctrl_release()
+                    was_down = ctrl_down
+                    alt_down = bool(USER32.GetAsyncKeyState(0x12) & 0x8000)
+                    if alt_down and not alt_was_down:
+                        self.clear_key_press_history(ALT_ONLY_VKS)
+                    if alt_down and self.has_disallowed_key_activity(ALT_ONLY_VKS):
+                        self._alt_combo_used = True
+                    if alt_was_down and not alt_down:
+                        self.handle_alt_release()
+                    alt_was_down = alt_down
+                    semicolon_down = bool(USER32.GetAsyncKeyState(0xBA) & 0x8000)
+                    if (
+                        ctrl_down
+                        and semicolon_down
+                        and not self._phrase_semicolon_was_down
+                        and self.settings.get("hotkeys_enabled", True)
+                        and self.is_phrase_popup_ctrl_semicolon()
+                    ):
+                        self._ctrl_combo_used = True
+                        self.phrase_popup_requested.emit()
+                    self._phrase_semicolon_was_down = semicolon_down
+                except Exception:
+                    # A transient failure (e.g. while the display layout is changing)
+                    # must not permanently kill Ctrl+Ctrl/Alt+Alt detection for the
+                    # rest of the session.
+                    was_down = False
+                    alt_was_down = False
                 time.sleep(0.02)
 
         self.ctrl_listener_thread = threading.Thread(target=watch_modifiers, daemon=True)

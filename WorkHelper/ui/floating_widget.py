@@ -463,6 +463,9 @@ class FloatingWidget(QFrame):
         self.hide_timer = QTimer(self)
         self.hide_timer.setSingleShot(True)
         self.hide_timer.timeout.connect(self._hide_panel)
+        self.show_timer = QTimer(self)
+        self.show_timer.setSingleShot(True)
+        self.show_timer.timeout.connect(self._show_panel)
         self.animation = QVariantAnimation(self)
         self.animation.valueChanged.connect(self._set_geometry_from_value)
         self.animation.finished.connect(self._finish_animation)
@@ -837,13 +840,21 @@ class FloatingWidget(QFrame):
         if near:
             if self.hide_timer.isActive():
                 self.hide_timer.stop()
-            self._show_panel()
+            if not self._shown and not self._animating and not self.show_timer.isActive():
+                delay = int(self._settings.get("floating_widget_show_delay", 0) or 0)
+                if delay <= 0:
+                    self._show_panel()
+                else:
+                    self.show_timer.start(delay)
         elif inside:
             if self.hide_timer.isActive():
                 self.hide_timer.stop()
-        elif self._shown and not self._preview_pinned:
-            if not self.hide_timer.isActive():
-                self.hide_timer.start(650)
+            self.show_timer.stop()
+        else:
+            self.show_timer.stop()
+            if self._shown and not self._preview_pinned:
+                if not self.hide_timer.isActive():
+                    self.hide_timer.start(650)
 
     def _show_panel(self) -> None:
         if self._shown or self._animating:

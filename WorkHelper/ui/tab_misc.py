@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import colorsys
 
-from PyQt6.QtCore import QPoint, QPointF, QRect, QTimer, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QCursor, QPainter, QPainterPath, QPen, QPixmap
+from PyQt6.QtCore import QPoint, QPointF, QRect, QSize, QTimer, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QCursor, QFont, QIcon, QImage, QPainter, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QColorDialog,
@@ -328,26 +328,50 @@ class MouseHighlightOverlay(QWidget):
         self.setWindowOpacity(1.0)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.cursor_pos = QCursor.pos()
+        self._last_dirty_rect: QRect | None = None
+        self._sync_geometry()
+        app = QApplication.instance()
+        if app is not None:
+            app.screenAdded.connect(self._sync_geometry)
+            app.screenRemoved.connect(self._sync_geometry)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.follow_cursor)
-        self.timer.start(24)
+        self.timer.start(16)
         self.follow_cursor()
 
-    def follow_cursor(self) -> None:
+    def _sync_geometry(self, *_args) -> None:
+        # 화면 구성은 거의 바뀌지 않으므로 모니터 추가/제거 시에만 다시 계산한다.
+        # 매 타이머 틱마다 virtual_screen_geometry()+setGeometry()를 반복 호출하면
+        # 불필요한 윈도우 재배치 비용이 쌓여 하이라이트가 버벅이는 원인이 된다.
         rect = virtual_screen_geometry()
-        if not rect.isNull():
+        if not rect.isNull() and rect != self.geometry():
             self.setGeometry(rect)
+
+    def _highlight_bounds(self) -> QRect:
+        size = max(4, int(self.settings.get("mouse_highlight_size", 50)))
+        center = self.mapFromGlobal(self.cursor_pos)
+        margin = 6  # 펜 두께 + 안티앨리어싱 여유
+        half = size // 2 + margin
+        return QRect(center.x() - half, center.y() - half, half * 2, half * 2)
+
+    def follow_cursor(self) -> None:
         self.cursor_pos = QCursor.pos()
-        self.update()
+        new_rect = self._highlight_bounds()
+        dirty = new_rect if self._last_dirty_rect is None else new_rect.united(self._last_dirty_rect)
+        self._last_dirty_rect = new_rect
+        self.update(dirty)
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+        painter.fillRect(event.rect(), Qt.GlobalColor.transparent)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         color = QColor(self.settings.get("mouse_highlight_color", "#FFDD33"))
         color.setAlpha(round(int(self.settings.get("mouse_highlight_opacity", 50)) * 2.55))
         shape = self.settings.get("mouse_highlight_shape", "원")
         size = max(4, int(self.settings.get("mouse_highlight_size", 50)))
-        center = self.cursor_pos - self.geometry().topLeft()
+        center = self.mapFromGlobal(self.cursor_pos)
         rect = QRect(center.x() - size // 2, center.y() - size // 2, size, size)
         if shape.startswith("채워진"):
             painter.setPen(Qt.PenStyle.NoPen)
@@ -474,6 +498,7 @@ class ScreenDrawOverlay(QWidget):
         self.canvas = QPixmap(rect.size())
         self.canvas.fill(Qt.GlobalColor.transparent)
         self.draw_bounds: QRect | None = None
+        self.undo_stack: list[tuple[QPixmap, QRect | None]] = []
         self.last_pos: QPoint | None = None
         self.last_mid: QPointF | None = None
         self.color = QColor("#FFDD33")
@@ -508,6 +533,7 @@ class ScreenDrawOverlay(QWidget):
         self.width_spin.setSuffix(" px")
         self.width_spin.setMinimumWidth(88)
         self.color_btn = QPushButton("색상")
+        undo_btn = QPushButton("되돌리기")
         clear_btn = QPushButton("초기화")
         save_btn = QPushButton("컨닝페이퍼 저장")
         close_btn = QPushButton("닫기")
@@ -523,6 +549,7 @@ class ScreenDrawOverlay(QWidget):
         row.addWidget(QLabel("굵기"))
         row.addWidget(self.width_spin)
         row.addWidget(self.color_btn)
+        row.addWidget(undo_btn)
         row.addWidget(clear_btn)
         row.addWidget(save_btn)
         row.addWidget(close_btn)
@@ -534,6 +561,7 @@ class ScreenDrawOverlay(QWidget):
         self.bg_combo.currentIndexChanged.connect(self.set_background_mode)
         self.width_spin.valueChanged.connect(self.set_stroke_width)
         self.color_btn.clicked.connect(self.pick_color)
+        undo_btn.clicked.connect(self.undo_last_stroke)
         clear_btn.clicked.connect(self.clear_canvas)
         save_btn.clicked.connect(self.save_to_cheat_sheet)
         close_btn.clicked.connect(self.hide)
@@ -572,6 +600,7 @@ class ScreenDrawOverlay(QWidget):
             return
         old_canvas = self.canvas
         old_geometry = self.geometry()
+        self.undo_stack.clear()
         self.setGeometry(rect)
         self.canvas = QPixmap(rect.size())
         self.canvas.fill(Qt.GlobalColor.transparent)
@@ -654,7 +683,20 @@ class ScreenDrawOverlay(QWidget):
         if self.width_spin.value() != self.stroke_width:
             self.width_spin.setValue(self.stroke_width)
 
+    def push_undo_snapshot(self) -> None:
+        bounds = QRect(self.draw_bounds) if self.draw_bounds is not None else None
+        self.undo_stack.append((self.canvas.copy(), bounds))
+        if len(self.undo_stack) > 15:
+            self.undo_stack.pop(0)
+
+    def undo_last_stroke(self) -> None:
+        if not self.undo_stack:
+            return
+        self.canvas, self.draw_bounds = self.undo_stack.pop()
+        self.update()
+
     def clear_canvas(self) -> None:
+        self.push_undo_snapshot()
         self.canvas.fill(Qt.GlobalColor.transparent)
         self.draw_bounds = None
         self.update()
@@ -681,6 +723,7 @@ class ScreenDrawOverlay(QWidget):
         if self.toolbar.geometry().contains(event.position().toPoint()):
             return
         if event.button() == Qt.MouseButton.LeftButton:
+            self.push_undo_snapshot()
             self.last_pos = event.position().toPoint()
             self.last_mid = QPointF(self.last_pos)
             self.draw_to(self.last_pos)
@@ -807,6 +850,12 @@ class ScreenDrawOverlay(QWidget):
         self.last_pos = None
         self.last_mid = None
 
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Z and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+            self.undo_last_stroke()
+            return
+        super().keyPressEvent(event)
+
     def wheelEvent(self, event) -> None:
         delta = event.angleDelta().y()
         if delta:
@@ -876,38 +925,132 @@ class ScreenDrawTab(QWidget):
 class EmojiTab(QWidget):
     CATEGORIES = {
         "사용 이력": [],
-        "얼굴": "😀 😃 😄 😁 😆 😅 😂 🤣 🥲 ☺️ 😊 😇 🙂 🙃 😉 😌 😍 🥰 😘 😗 😙 😚 😋 😛 😝 😜 🤪 🤨 🧐 🤓 😎 🥸 🤩 🥳 😏 😒 😞 😔 😟 😕 🙁 ☹️ 😣 😖 😫 😩 🥺 😢 😭 😤 😠 😡 🤬 🤯 😳 🥵 🥶 😱 😨 😰 😥 😓 🤗 🤔 🫣 🤭 🫢 🫡 🤫 🫠 🤥 😶 😐 😑 😬 🙄 😯 😦 😧 😮 😲 🥱 😴 🤤 😪 😮‍💨 😵 😵‍💫 🤐 🥴 🤢 🤮 🤧 😷 🤒 🤕".split(),
-        "사람": "👋 🤚 🖐 ✋ 🖖 👌 🤌 🤏 ✌️ 🤞 🫰 🤟 🤘 🤙 👈 👉 👆 🖕 👇 ☝️ 👍 👎 ✊ 👊 🤛 🤜 👏 🙌 🫶 👐 🤲 🤝 🙏 ✍️ 💅 🤳 💪 🦾 🦿 🦵 🦶 👂 🦻 👃 🧠 🫀 🫁 🦷 🦴 👀 👁 👅 👄 🫦 👶 🧒 👦 👧 🧑 👱 👨 🧔 👩 🧓 👴 👵".split(),
-        "동물/자연": "🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐻‍❄️ 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🙈 🙉 🙊 🐒 🐔 🐧 🐦 🐤 🦆 🦅 🦉 🦇 🐺 🐗 🐴 🦄 🐝 🪱 🐛 🦋 🐌 🐞 🐜 🪰 🪲 🪳 🦟 🦗 🕷 🦂 🐢 🐍 🦎 🦖 🦕 🐙 🦑 🦐 🦞 🦀 🪼 🐠 🐟 🐬 🐳 🐋 🦈 🐊 🐅 🐆 🦓 🦍 🦧 🐘 🦛 🦏 🐪 🦒 🦘 🦬 🌵 🎄 🌲 🌳 🌴 🪵 🌱 🌿 ☘️ 🍀 🎍 🪴 🌸 🌼 🌻 🌞 🌝 🌛 🌜 ⭐ 🌟 ✨ ⚡ 🔥 💧 🌊".split(),
-        "음식": "🍏 🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🫐 🍈 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🫒 🥑 🍆 🥔 🥕 🌽 🌶 🫑 🥒 🥬 🥦 🧄 🧅 🍄 🥜 🫘 🌰 🍞 🥐 🥖 🫓 🥨 🥯 🥞 🧇 🧀 🍖 🍗 🥩 🥓 🍔 🍟 🍕 🌭 🥪 🌮 🌯 🫔 🥙 🧆 🥚 🍳 🥘 🍲 🫕 🥣 🥗 🍿 🧈 🧂 🍱 🍘 🍙 🍚 🍛 🍜 🍝 🍠 🍢 🍣 🍤 🍥 🥮 🍡 🥟 🥠 🥡 🍦 🍧 🍨 🍩 🍪 🎂 🍰 🧁 🥧 🍫 🍬 🍭 🍮 🍯".split(),
-        "활동/물건": "⚽ 🏀 🏈 ⚾ 🥎 🎾 🏐 🏉 🥏 🎱 🪀 🏓 🏸 🏒 🏑 🥍 🏏 🪃 🥅 ⛳ 🪁 🏹 🎣 🤿 🥊 🥋 🎽 🛹 🛼 🛷 ⛸ 🥌 🎿 ⛷ 🏂 🪂 🏋️ 🤼 🤸 ⛹️ 🤺 🤾 🏌️ 🧘 🛀 🛌 🎮 🕹 🎲 ♟ 🎯 🎳 🎭 🎨 🧵 🪡 🧶 🪢 👓 🕶 🥽 🥼 🦺 👔 👕 👖 🧣 🧤 🧥 🧦 👗 👘 🥻 🩱 🩲 🩳 👙 👚 👛 👜 👝 🛍 🎒 🩴 👞 👟 🥾 🥿 👠 👡 🩰 👢 👑 👒 🎩 🎓 🧢 🪖 ⛑ 💄 💍 💼 📱 💻 ⌨️ 🖥 🖨 🖱 🕹 🗜 💽 💾 💿 📀 📼 📷 📸 📹 🎥 📽 🎞 📞 ☎️ 📟 📠 📺 📻 🎙 🎚 🎛 🧭 ⏱ ⏲ ⏰ 🕰 ⌛ ⏳ 📡 🔋 🪫 🔌 💡 🔦 🕯 🪔 🧯 🛢 💸 💵 💴 💶 💷 🪙 💰 💳 💎 ⚖️ 🪜 🧰 🪛 🔧 🔨 ⚒ 🛠 ⛏ 🪚 🔩 ⚙️ 🧱 ⛓ 🧲 🔫 💣 🧨 🪓 🔪 🗡 ⚔️ 🛡 🚬 ⚰️ 🪦 ⚱️ 🏺 🔮 📿 🧿 🪬 💈 ⚗️ 🔭 🔬 🕳 🩹 🩺 💊 💉 🩸 🧬 🦠 🧫 🧪 🌡 🧹 🪠 🧽 🧴 🛎 🔑 🗝 🚪 🪑 🛋 🛏 🪞 🪟 🧳 🛒 🎁 🎈 🎏 🎀 🪄 🪅 🎊 🎉".split(),
-        "기호": "❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💟 ☮️ ✝️ ☪️ 🕉 ☸️ ✡️ 🔯 🕎 ☯️ ☦️ 🛐 ⛎ ♈ ♉ ♊ ♋ ♌ ♍ ♎ ♏ ♐ ♑ ♒ ♓ 🆔 ⚛️ 🉑 ☢️ ☣️ 📴 📳 🈶 🈚 🈸 🈺 🈷️ ✴️ 🆚 💮 🉐 ㊙️ ㊗️ 🈴 🈵 🈹 🈲 🅰️ 🅱️ 🆎 🆑 🅾️ 🆘 ❌ ⭕ 🛑 ⛔ 📛 🚫 💯 💢 ♨️ 🚷 🚯 🚳 🚱 🔞 📵 🚭 ❗ ❕ ❓ ❔ ‼️ ⁉️ 🔅 🔆 〽️ ⚠️ 🚸 🔱 ⚜️ 🔰 ♻️ ✅ 🈯 💹 ❇️ ✳️ ❎ 🌐 💠 Ⓜ️ 🌀 💤 🏧 🚾 ♿ 🅿️ 🛗 🈳 🈂️ 🛂 🛃 🛄 🛅 🚹 🚺 🚼 ⚧ 🚻 🚮 🎦 📶 🈁 🔣 ℹ️ 🔤 🔡 🔠 🆖 🆗 🆙 🆒 🆕 🆓 0️⃣ 1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣ 6️⃣ 7️⃣ 8️⃣ 9️⃣ 🔟 🔢 #️⃣ *️⃣ ⏏️ ▶️ ⏸ ⏯ ⏹ ⏺ ⏭ ⏮ ⏩ ⏪ ⏫ ⏬ ◀️ 🔼 🔽 ➡️ ⬅️ ⬆️ ⬇️ ↗️ ↘️ ↙️ ↖️ ↕️ ↔️ ↪️ ↩️ ⤴️ ⤵️ 🔀 🔁 🔂 🔄 🔃 🎵 🎶 ➕ ➖ ➗ ✖️ 🟰 ♾ 💲 💱 ™️ ©️ ®️ 〰️ ➰ ➿ 🔚 🔙 🔛 🔝 🔜 ✔️ ☑️ 🔘 🔴 🟠 🟡 🟢 🔵 🟣 ⚫ ⚪ 🟤 🔺 🔻 🔸 🔹 🔶 🔷 🔳 🔲 ▪️ ▫️ ◾ ◽ ◼️ ◻️ 🟥 🟧 🟨 🟩 🟦 🟪 ⬛ ⬜ 🟫".split(),
-        "국기": "🇰🇷 🇺🇸 🇯🇵 🇨🇳 🇬🇧 🇫🇷 🇩🇪 🇨🇦 🇦🇺 🇮🇹 🇪🇸 🇧🇷 🇲🇽 🇮🇳 🇸🇬 🇹🇭 🇻🇳 🇵🇭 🇮🇩 🇲🇾 🇳🇿 🇹🇼 🇭🇰 🇪🇺 🇦🇷 🇦🇹 🇧🇪 🇨🇭 🇨🇱 🇨🇴 🇨🇿 🇩🇰 🇪🇬 🇫🇮 🇬🇷 🇭🇺 🇮🇪 🇮🇱 🇳🇱 🇳🇴 🇵🇱 🇵🇹 🇸🇦 🇸🇪 🇹🇷 🇺🇦 🇿🇦".split(),
+        "얼굴": "😀 😃 😄 😁 😆 😅 😂 🤣 🥲 ☺️ 😊 😇 🙂 🙃 😉 😌 😍 🥰 😘 😗 😙 😚 😋 😛 😝 😜 🤪 🤨 🧐 🤓 😎 🥸 🤩 🥳 😏 😒 😞 😔 😟 😕 🙁 ☹️ 😣 😖 😫 😩 🥺 😢 😭 😤 😠 😡 🤬 🤯 😳 🥵 🥶 😱 😨 😰 😥 😓 🤗 🤔 🫣 🤭 🫢 🫡 🤫 🫠 🤥 😶 😐 😑 😬 🙄 😯 😦 😧 😮 😲 🥱 😴 🤤 😪 😮‍💨 😵 😵‍💫 🤐 🥴 🤢 🤮 🤧 😷 🤒 🤕 🫥 🫤 🫨 😶‍🌫️ 🤑 🥹 😈 👿 💀 ☠️ 💩 🤡 👹 👺 👻 👽 👾 🤖 😺 😸 😹 😻 😼 😽 🙀 😿 😾".split(),
+        "사람": "👋 🤚 🖐 ✋ 🖖 👌 🤌 🤏 ✌️ 🤞 🫰 🤟 🤘 🤙 👈 👉 👆 🖕 👇 ☝️ 🫱 🫲 🫳 🫴 🫵 👍 👎 ✊ 👊 🤛 🤜 👏 🙌 🫶 👐 🤲 🤝 🙏 ✍️ 💅 🤳 💪 🦾 🦿 🦵 🦶 👂 🦻 👃 🧠 🫀 🫁 🦷 🦴 👀 👁 👅 👄 🫦 👶 🧒 👦 👧 🧑 👱 👨 🧔 👩 🧓 👴 👵 🧑‍⚕️ 🧑‍🎓 🧑‍🏫 🧑‍⚖️ 🧑‍🌾 🧑‍🍳 🧑‍🔧 🧑‍🏭 🧑‍💼 🧑‍🔬 🧑‍💻 🧑‍🎤 🧑‍🎨 🧑‍✈️ 🧑‍🚀 🧑‍🚒 👮 🕵️ 💂 🥷 👷 🤴 👸 🫅 👳 👲 🧕 🤵 👰 🤰 🫃 🫄 🤱 👼 🎅 🤶 🦸 🦹 🧙 🧚 🧛 🧜 🧝 🧞 🧟 🧌 💆 💇 🚶 🧍 🧎 🏃 💃 🕺 🕴 👯 🧖 🧗 🚣 🏊 🚴 🚵 🤹 👫 👬 👭 💏 💑 👪 🗣 👤 👥 🫂".split(),
+        "동물/자연": "🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐻‍❄️ 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🙈 🙉 🙊 🐒 🐔 🐧 🐦 🐤 🦆 🦅 🦉 🦇 🐺 🐗 🐴 🦄 🐝 🪱 🐛 🦋 🐌 🐞 🐜 🪰 🪲 🪳 🦟 🦗 🕷 🦂 🐢 🐍 🦎 🦖 🦕 🐙 🦑 🦐 🦞 🦀 🪼 🐠 🐟 🐬 🐳 🐋 🦈 🐊 🐅 🐆 🦓 🦍 🦧 🐘 🦛 🦏 🐪 🦒 🦘 🦬 🌵 🎄 🌲 🌳 🌴 🪵 🌱 🌿 ☘️ 🍀 🎍 🪴 🌸 🌼 🌻 🌞 🌝 🌛 🌜 ⭐ 🌟 ✨ ⚡ 🔥 💧 🌊 🐎 🦌 🐐 🐑 🐄 🐂 🐃 🐕 🐕‍🦺 🦮 🐩 🐈 🐈‍⬛ 🐁 🐀 🐇 🐿️ 🦫 🦔 🦨 🦥 🦦 🦡 🦃 🦚 🦜 🦢 🦩 🕊️ 🐓 🐣 🐥 🦭 🐡 🐉 🐲 🦝 🐾 🍂 🍁 🍃 🌷 💐 🥀 🌾".split(),
+        "음식": "🍏 🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🫐 🍈 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🫒 🥑 🍆 🥔 🥕 🌽 🌶 🫑 🥒 🥬 🥦 🧄 🧅 🍄 🥜 🫘 🌰 🍞 🥐 🥖 🫓 🥨 🥯 🥞 🧇 🧀 🍖 🍗 🥩 🥓 🍔 🍟 🍕 🌭 🥪 🌮 🌯 🫔 🥙 🧆 🥚 🍳 🥘 🍲 🫕 🥣 🥗 🍿 🧈 🧂 🍱 🍘 🍙 🍚 🍛 🍜 🍝 🍠 🍢 🍣 🍤 🍥 🥮 🍡 🥟 🥠 🥡 🍦 🍧 🍨 🍩 🍪 🎂 🍰 🧁 🥧 🍫 🍬 🍭 🍮 🍯 🦪 🍽️ 🍴 🥄 🍼 🥛 ☕ 🫖 🍵 🍶 🍾 🍷 🍸 🍹 🍺 🍻 🥂 🥃 🧉 🧊 🥤 🧋 🧃".split(),
+        "여행/장소": "🚗 🚕 🚙 🚌 🚎 🏎 🚓 🚑 🚒 🚐 🛻 🚚 🚛 🚜 🦯 🦽 🦼 🛴 🚲 🛵 🏍 🛺 🚨 🚔 🚍 🚘 🚖 🚡 🚠 🚟 🚃 🚋 🚞 🚝 🚄 🚅 🚈 🚂 🚆 🚇 🚊 🚉 ✈️ 🛫 🛬 🛩 💺 🛰 🚀 🛸 🚁 🛶 ⛵ 🚤 🛥 🛳 ⛴ 🚢 ⚓ 🪝 🛟 🚧 🚦 🚥 🚏 🗺 🗿 🗽 🗼 🏰 🏯 🏟 🎡 🎢 🎠 ⛲ ⛱ 🏖 🏝 🏜 🌋 ⛰ 🏔 🗻 🏕 ⛺ 🛖 🏠 🏡 🏘 🏚 🏗 🏭 🏢 🏬 🏣 🏤 🏥 🏦 🏨 🏪 🏫 🏩 💒 🏛 ⛪ 🕌 🕍 🛕 🕋 ⛩ 🛤 🛣 🗾 🎑 🏞 🌅 🌄 🌠 🎇 🎆 🌇 🌆 🏙 🌃 🌌 🌉 🌁 ☀️ 🌤 ⛅ 🌥 ☁️ 🌦 🌧 ⛈ 🌩 🌨 ❄️ ☃️ ⛄ 🌬 💨 🌪 🌫 🌈 ☂️ ☔ 🌙 🌚 🌕 🌖 🌗 🌘 🌑 🌒 🌓 🌔 🌍 🌎 🌏 🪐 💫 ☄️ ⛽ 🎪".split(),
+        "활동/물건": "⚽ 🏀 🏈 ⚾ 🥎 🎾 🏐 🏉 🥏 🎱 🪀 🏓 🏸 🏒 🏑 🥍 🏏 🪃 🥅 ⛳ 🪁 🏹 🎣 🤿 🥊 🥋 🎽 🛹 🛼 🛷 ⛸ 🥌 🎿 ⛷ 🏂 🪂 🏋️ 🤼 🤸 ⛹️ 🤺 🤾 🏌️ 🧘 🛀 🛌 🎮 🕹 🎲 ♟ 🎯 🎳 🎭 🎨 🧵 🪡 🧶 🪢 👓 🕶 🥽 🥼 🦺 👔 👕 👖 🧣 🧤 🧥 🧦 👗 👘 🥻 🩱 🩲 🩳 👙 👚 👛 👜 👝 🛍 🎒 🩴 👞 👟 🥾 🥿 👠 👡 🩰 👢 👑 👒 🎩 🎓 🧢 🪖 ⛑ 💄 💍 💼 📱 💻 ⌨️ 🖥 🖨 🖱 🕹 🗜 💽 💾 💿 📀 📼 📷 📸 📹 🎥 📽 🎞 📞 ☎️ 📟 📠 📺 📻 🎙 🎚 🎛 🧭 ⏱ ⏲ ⏰ 🕰 ⌛ ⏳ 🕐 🕑 🕒 🕓 🕔 🕕 🕖 🕗 🕘 🕙 🕚 🕛 🕜 🕝 🕞 🕟 🕠 🕡 🕢 🕣 🕤 🕥 🕦 🕧 📡 🔋 🪫 🔌 💡 🔦 🕯 🪔 🧯 🛢 💸 💵 💴 💶 💷 🪙 💰 💳 💎 ⚖️ 🪜 🧰 🪛 🔧 🔨 ⚒ 🛠 ⛏ 🪚 🔩 ⚙️ 🧱 ⛓ 🧲 🔫 💣 🧨 🪓 🔪 🗡 ⚔️ 🛡 🚬 ⚰️ 🪦 ⚱️ 🏺 🔮 📿 🧿 🪬 💈 ⚗️ 🔭 🔬 🕳 🩹 🩺 💊 💉 🩸 🧬 🦠 🧫 🧪 🌡 🧹 🪠 🧽 🧴 🛎 🔑 🗝 🚪 🪑 🛋 🛏 🪞 🪟 🧳 🛒 🎁 🎈 🎏 🎀 🪄 🪅 🎊 🎉 🎤 🎧 🎷 🎸 🎹 🎺 🎻 🪕 🥁 🔓 🔒 🔐 🔏".split(),
+        "사무용품": "✏️ ✒️ 🖋️ 🖊️ 🖌️ 🖍️ 📝 📄 📃 📜 📰 🗞️ 📑 🔖 🏷️ 📚 📖 📓 📔 📒 📕 📗 📘 📙 📋 📁 📂 🗂️ 🗒️ 🗓️ 📅 📆 📇 📈 📉 📊 📌 📍 📎 🖇️ 📏 📐 ✂️ 🗃️ 🗄️ 🗑️ 🖼️ ✉️ 📧 📩 📨 📤 📥 📦 📫 📪 📬 📭 📮 🗳️".split(),
+        "기호": "❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💟 ☮️ ✝️ ☪️ 🕉 ☸️ ✡️ 🔯 🕎 ☯️ ☦️ 🛐 ⛎ ♈ ♉ ♊ ♋ ♌ ♍ ♎ ♏ ♐ ♑ ♒ ♓ 🆔 ⚛️ 🉑 ☢️ ☣️ 📴 📳 🈶 🈚 🈸 🈺 🈷️ ✴️ 🆚 💮 🉐 ㊙️ ㊗️ 🈴 🈵 🈹 🈲 🅰️ 🅱️ 🆎 🆑 🅾️ 🆘 ❌ ⭕ 🛑 ⛔ 📛 🚫 💯 💢 💬 🗨️ 🗯️ 💭 ♨️ 🚷 🚯 🚳 🚱 🔞 📵 🚭 ❗ ❕ ❓ ❔ ‼️ ⁉️ 🔅 🔆 〽️ ⚠️ 🚸 🔱 ⚜️ 🔰 ♻️ ✅ 🈯 💹 ❇️ ✳️ ❎ 🌐 💠 Ⓜ️ 🌀 💤 🏧 🚾 ♿ 🅿️ 🛗 🈳 🈂️ 🛂 🛃 🛄 🛅 🚹 🚺 🚼 ⚧ 🚻 🚮 🎦 📶 🈁 🔣 ℹ️ 🔤 🔡 🔠 🆖 🆗 🆙 🆒 🆕 🆓 0️⃣ 1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣ 6️⃣ 7️⃣ 8️⃣ 9️⃣ 🔟 🔢 #️⃣ *️⃣ ⏏️ ▶️ ⏸ ⏯ ⏹ ⏺ ⏭ ⏮ ⏩ ⏪ ⏫ ⏬ ◀️ 🔼 🔽 ➡️ ⬅️ ⬆️ ⬇️ ↗️ ↘️ ↙️ ↖️ ↕️ ↔️ ↪️ ↩️ ⤴️ ⤵️ 🔀 🔁 🔂 🔄 🔃 🎵 🎶 ➕ ➖ ➗ ✖️ 🟰 ♾ 💲 💱 ™️ ©️ ®️ 〰️ ➰ ➿ 🔚 🔙 🔛 🔝 🔜 ✔️ ☑️ 🔘 🔴 🟠 🟡 🟢 🔵 🟣 ⚫ ⚪ 🟤 🔺 🔻 🔸 🔹 🔶 🔷 🔳 🔲 ▪️ ▫️ ◾ ◽ ◼️ ◻️ 🟥 🟧 🟨 🟩 🟦 🟪 ⬛ ⬜ 🟫".split(),
     }
     # 특수문자 카테고리는 '특수문자' 탭(SpecialCharTab)과 내용이 중복되므로 이모지 탭에서는 제외한다.
+
+    CELL_WIDTH = 44
+    USAGE_CELL_WIDTH = 50
+    ICON_MARGIN = 4
+    CELL_SPACING = 2
+    GRID_OVERHEAD = 40  # container + card margins outside the grid itself
 
     def __init__(self, main) -> None:
         super().__init__()
         self.main = main
+        self._icon_cache: dict[tuple[str, int], QIcon] = {}
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
         content = QWidget()
         layout = QVBoxLayout(content)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         container = QWidget()
         self.rows = QVBoxLayout(container)
         self.rows.setContentsMargins(6, 6, 6, 6)
         self.rows.setSpacing(8)
-        scroll.setWidget(container)
-        layout.addWidget(scroll, 1)
+        self.scroll.setWidget(container)
+        layout.addWidget(self.scroll, 1)
         clear = QPushButton("최근 이모지 초기화")
         clear.clicked.connect(self.clear_usage)
         root.addWidget(content, 1)
         root.addLayout(bottom_action_bar(clear))
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.timeout.connect(self.refresh)
+        self._last_columns = 0
         self.refresh()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        columns = self._columns_for_width(self.scroll.viewport().width())
+        if columns != self._last_columns:
+            self._resize_timer.start(120)
+
+    def _columns_for_width(self, available_width: int) -> int:
+        usable = available_width - self.GRID_OVERHEAD
+        if usable <= 0:
+            return 10
+        step = self.CELL_WIDTH + self.CELL_SPACING
+        return max(1, (usable + self.CELL_SPACING) // step)
+
+    @staticmethod
+    def _ink_bounds(image: QImage) -> QRect | None:
+        """Find the bounding box of non-transparent pixels in `image`.
+
+        Used instead of QFontMetrics because the metrics themselves are the
+        unreliable part here: Windows' color emoji glyphs render ink outside
+        the font's reported ascent/descent box, so trusting the metrics to
+        predict where the ink lands is what kept clipping it. Scanning the
+        actual rendered alpha channel is ground truth and can't be wrong.
+        """
+        rgba = image.convertToFormat(QImage.Format.Format_RGBA8888)
+        width, height = rgba.width(), rgba.height()
+        ptr = rgba.constBits()
+        ptr.setsize(rgba.sizeInBytes())
+        alpha = bytes(ptr)[3::4]
+        rows_with_ink = [y for y in range(height) if max(alpha[y * width:(y + 1) * width]) > 10]
+        if not rows_with_ink:
+            return None
+        top, bottom = rows_with_ink[0], rows_with_ink[-1]
+        cols_with_ink = [
+            x for x in range(width)
+            if max(alpha[y * width + x] for y in range(top, bottom + 1)) > 10
+        ]
+        left, right = cols_with_ink[0], cols_with_ink[-1]
+        return QRect(left, top, right - left + 1, bottom - top + 1)
+
+    def _emoji_icon(self, emoji: str, box_size: int) -> QIcon:
+        """Render `emoji` to a pixmap and use it as a button icon.
+
+        QPushButton's native text label positions glyphs using the font's
+        nominal ascent/descent metrics. Windows' color emoji font ships ink
+        that extends well beyond those metrics, so no matter how large the
+        button/font was made, the label painter kept cropping the glyph at
+        the same offset from its (metrics-based) baseline. Drawing into an
+        oversized offscreen canvas, then trimming to the actual rendered ink
+        and re-centering it in the final box, sidesteps the bad metrics
+        entirely and guarantees the glyph can never be clipped.
+        """
+        key = (emoji, box_size)
+        cached = self._icon_cache.get(key)
+        if cached is not None:
+            return cached
+        canvas_size = box_size * 2
+        canvas = QPixmap(canvas_size, canvas_size)
+        canvas.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(canvas)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        font = QFont()
+        font.setPointSize(max(8, round(box_size * 0.5)))
+        painter.setFont(font)
+        painter.drawText(canvas.rect(), Qt.AlignmentFlag.AlignCenter, emoji)
+        painter.end()
+
+        final = QPixmap(box_size, box_size)
+        final.fill(Qt.GlobalColor.transparent)
+        ink_rect = self._ink_bounds(canvas.toImage())
+        if ink_rect is not None:
+            trimmed = canvas.copy(ink_rect)
+            scaled = trimmed.scaled(
+                box_size, box_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+            )
+            target = QPainter(final)
+            target.drawPixmap((box_size - scaled.width()) // 2, (box_size - scaled.height()) // 2, scaled)
+            target.end()
+        icon = QIcon(final)
+        self._icon_cache[key] = icon
+        return icon
 
     def refresh(self) -> None:
         while self.rows.count():
@@ -935,15 +1078,26 @@ class EmojiTab(QWidget):
             grid.setContentsMargins(0, 0, 0, 0)
             is_usage = name == "사용 이력"
             grid.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-            grid.setHorizontalSpacing(4 if is_usage else 0)
-            grid.setVerticalSpacing(0)
+            grid.setHorizontalSpacing(4 if is_usage else self.CELL_SPACING)
+            grid.setVerticalSpacing(4)
+            columns = self._columns_for_width(self.scroll.viewport().width())
+            self._last_columns = columns
+            cell_size = self.USAGE_CELL_WIDTH if is_usage else self.CELL_WIDTH
+            icon_box = cell_size - self.ICON_MARGIN * 2
             for index, emoji in enumerate(emojis):
-                button = QPushButton(emoji)
+                button = QPushButton()
                 button.setFlat(True)
-                button.setFixedSize(26 if is_usage else 22, 24 if is_usage else 22)
-                button.setStyleSheet("QPushButton { border: 0; padding: 0; font-size: 13pt; background: transparent; } QPushButton:hover { background: rgba(59,108,245,35); }")
+                button.setFixedSize(cell_size, cell_size)
+                button.setIcon(self._emoji_icon(emoji, icon_box))
+                button.setIconSize(QSize(icon_box, icon_box))
+                button.setStyleSheet(
+                    f"QPushButton {{ border: 0; padding: 0; background: transparent;"
+                    f" min-width: {cell_size}px; max-width: {cell_size}px;"
+                    f" min-height: {cell_size}px; max-height: {cell_size}px; }}"
+                    f" QPushButton:hover {{ background: rgba(59,108,245,35); }}"
+                )
                 button.clicked.connect(lambda checked=False, value=emoji: self.copy_emoji(value))
-                row, col = (0, index) if is_usage else divmod(index, 28)
+                row, col = (0, index) if is_usage else divmod(index, columns)
                 grid.addWidget(button, row, col)
             box_layout.addWidget(grid_holder, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
             self.rows.addWidget(box)

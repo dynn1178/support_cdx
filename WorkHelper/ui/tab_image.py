@@ -73,12 +73,54 @@ def active_window_title() -> str:
         return ""
 
 
+class _MonitorInfoEx(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", ctypes.wintypes.DWORD),
+        ("rcMonitor", ctypes.wintypes.RECT),
+        ("rcWork", ctypes.wintypes.RECT),
+        ("dwFlags", ctypes.wintypes.DWORD),
+        ("szDevice", ctypes.c_wchar * 32),
+    ]
+
+
+def _physical_rect_to_logical(rect: QRect) -> QRect:
+    """Convert a GetWindowRect-style physical-pixel rect to Qt's logical coordinates.
+
+    GetWindowRect always reports physical pixels once the process is
+    per-monitor DPI aware, but the rest of the capture pipeline (screen
+    geometry, rubber-band selections) works in Qt's logical/scaled pixels.
+    Without this conversion, capturing the active window on any monitor
+    that isn't at 100% scaling grabs the wrong region.
+    """
+    try:
+        user32 = ctypes.windll.user32
+        win_rect = ctypes.wintypes.RECT(rect.left(), rect.top(), rect.right(), rect.bottom())
+        hmonitor = user32.MonitorFromRect(ctypes.byref(win_rect), 2)  # MONITOR_DEFAULTTONEAREST
+        info = _MonitorInfoEx()
+        info.cbSize = ctypes.sizeof(_MonitorInfoEx)
+        if not user32.GetMonitorInfoW(hmonitor, ctypes.byref(info)):
+            return rect
+        for screen in QApplication.screens():
+            if screen.name() != info.szDevice:
+                continue
+            dpr = float(screen.devicePixelRatio()) or 1.0
+            dx = rect.left() - info.rcMonitor.left
+            dy = rect.top() - info.rcMonitor.top
+            logical_left = screen.geometry().left() + round(dx / dpr)
+            logical_top = screen.geometry().top() + round(dy / dpr)
+            return QRect(logical_left, logical_top, round(rect.width() / dpr), round(rect.height() / dpr))
+    except Exception:
+        pass
+    return rect
+
+
 def active_window_rect() -> QRect:
     try:
         hwnd = ctypes.windll.user32.GetForegroundWindow()
         rect = ctypes.wintypes.RECT()
         if ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
-            return QRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top)
+            physical = QRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top)
+            return _physical_rect_to_logical(physical)
     except Exception:
         pass
     screen = QApplication.primaryScreen()
@@ -190,6 +232,31 @@ def capture_screen_rect(rect: QRect) -> QPixmap:
     return pixmap
 
 
+def crop_pixmap_dip(pixmap: QPixmap, local_rect: QRect) -> QPixmap:
+    """Crop `local_rect` (device-independent pixels) out of `pixmap`.
+
+    QPixmap.copy() takes its rectangle in the pixmap's raw device-pixel
+    buffer, not in the device-independent coordinates implied by its
+    devicePixelRatio(). A snapshot grabbed on a single non-100%-scaled
+    monitor (see capture_screen_rect()'s single-capture branch) keeps a raw
+    buffer larger than its DIP size, so a naive copy() with a DIP rect grabs
+    the wrong region. Scale the rect by the pixmap's own ratio first.
+    """
+    dpr = pixmap.devicePixelRatio() or 1.0
+    if abs(dpr - 1.0) < 0.001:
+        raw_rect = local_rect
+    else:
+        raw_rect = QRect(
+            round(local_rect.left() * dpr),
+            round(local_rect.top() * dpr),
+            round(local_rect.width() * dpr),
+            round(local_rect.height() * dpr),
+        )
+    cropped = pixmap.copy(raw_rect)
+    cropped.setDevicePixelRatio(dpr)
+    return cropped
+
+
 def next_capture_jpg_path(directory: Path) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -207,6 +274,15 @@ def save_capture_jpg(pixmap: QPixmap, path: Path) -> bool:
 def capture_screen_rect_with_pillow(rect: QRect) -> QPixmap:
     if not sys.platform.startswith("win") or rect.width() < 1 or rect.height() < 1:
         return QPixmap()
+    # ImageGrab's bbox is in physical pixels, but `rect` is in Qt's logical
+    # (DPI-scaled) coordinates. Those only line up when every monitor the
+    # selection touches is at 100% scaling; on a scaled monitor this grabs a
+    # smaller/shifted physical region than what was actually dragged. Skip
+    # the fast path there so capture_screen_rect() falls back to the
+    # per-screen grabWindow path below, which already scales correctly.
+    for screen in QApplication.screens():
+        if abs(screen.devicePixelRatio() - 1.0) > 0.001 and rect.intersects(screen.geometry()):
+            return QPixmap()
     try:
         from PIL import ImageGrab
     except Exception:
@@ -224,15 +300,26 @@ def capture_screen_rect_with_pillow(rect: QRect) -> QPixmap:
 
 
 class ScreenCaptureDialog(QDialog):
-    def __init__(self) -> None:
+    def __init__(self, snapshot: QPixmap | None = None, snapshot_rect: QRect | None = None) -> None:
         super().__init__()
         self.origin: QPoint | None = None
         self.selection = QRect()
+        self._snapshot = snapshot
+        self._snapshot_rect = snapshot_rect or virtual_screen_geometry()
         self.rubber_band = QRubberBand(QRubberBand.Shape.Rectangle, self)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
-        self.setGeometry(virtual_screen_geometry())
-        self.setWindowOpacity(0.25)
+        self.setGeometry(self._snapshot_rect)
+        if self._snapshot is None:
+            self.setWindowOpacity(0.25)
         self.setCursor(Qt.CursorShape.CrossCursor)
+
+    def paintEvent(self, event) -> None:
+        if self._snapshot is None:
+            return
+        painter = QPainter(self)
+        painter.drawPixmap(0, 0, self._snapshot)
+        painter.fillRect(self.rect(), QColor(0, 0, 0, 70))
+        painter.end()
 
     def global_to_overlay(self, point: QPoint) -> QPoint:
         return self.mapFromGlobal(point)
@@ -457,11 +544,13 @@ class ImageDialog(QDialog):
         if not screens:
             QMessageBox.warning(self, "캡처 실패", "사용 가능한 화면이 없습니다.")
             return
-        capture = ScreenCaptureDialog()
+        snapshot_rect = virtual_screen_geometry()
+        snapshot = capture_screen_rect(snapshot_rect)
+        capture = ScreenCaptureDialog(snapshot, snapshot_rect)
         if exec_capture_dialog(capture) != capture.DialogCode.Accepted or capture.selection.width() < 3 or capture.selection.height() < 3:
             return
         rect = capture.selection
-        pixmap = capture_screen_rect(rect)
+        pixmap = crop_pixmap_dip(snapshot, rect.translated(-snapshot_rect.topLeft()))
         percent = int(self.capture_scale.currentText().replace("%", ""))
         if percent != 100:
             pixmap = pixmap.scaled(
@@ -515,51 +604,6 @@ class ImageViewerDialog(QDialog):
         self.resize(scaled.width() + 24, scaled.height() + 24)
 
 
-class SteelCutViewerDialog(QDialog):
-    def __init__(self, image_path: str, title: str) -> None:
-        super().__init__()
-        self.setWindowTitle(title)
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
-
-        ctrl = QHBoxLayout()
-        opacity_label = QLabel("투명도")
-        self.opacity_slider = QSlider(Qt.Orientation.Horizontal)
-        self.opacity_slider.setRange(20, 100)
-        self.opacity_slider.setValue(100)
-        self.opacity_slider.setFixedWidth(120)
-        self.opacity_slider.valueChanged.connect(lambda v: self.setWindowOpacity(v / 100.0))
-        self.pin_check = QCheckBox("항상 위")
-        self.pin_check.setChecked(True)
-        self.pin_check.toggled.connect(self._toggle_pin)
-        ctrl.addWidget(opacity_label)
-        ctrl.addWidget(self.opacity_slider)
-        ctrl.addStretch(1)
-        ctrl.addWidget(self.pin_check)
-        layout.addLayout(ctrl)
-
-        self.image_label = QLabel()
-        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        pixmap = QPixmap(image_path)
-        if pixmap.isNull():
-            self.image_label.setText("이미지를 불러오지 못했습니다.")
-        else:
-            self.image_label.setPixmap(pixmap)
-            self.resize(pixmap.width() + 24, pixmap.height() + 64)
-        layout.addWidget(self.image_label)
-
-    def _toggle_pin(self, checked: bool) -> None:
-        flags = self.windowFlags()
-        if checked:
-            flags |= Qt.WindowType.WindowStaysOnTopHint
-        else:
-            flags &= ~Qt.WindowType.WindowStaysOnTopHint
-        self.setWindowFlags(flags)
-        self.show()
-
-
 class PaintCanvas(QWidget):
     def __init__(self, image_path: str | None = None, pixmap: QPixmap | None = None) -> None:
         super().__init__()
@@ -574,7 +618,20 @@ class PaintCanvas(QWidget):
         self.start_pos: QPoint | None = None
         self.last_pos: QPoint | None = None
         self.preview = QPixmap()
+        self.undo_stack: list[QPixmap] = []
         self.setFixedSize(self.base.size() if not self.base.isNull() else QSize(520, 320))
+
+    def push_undo_snapshot(self) -> None:
+        self.undo_stack.append(self.overlay.copy())
+        if len(self.undo_stack) > 20:
+            self.undo_stack.pop(0)
+
+    def undo(self) -> None:
+        if not self.undo_stack:
+            return
+        self.overlay = self.undo_stack.pop()
+        self.preview = QPixmap()
+        self.update()
 
     def composed_pixmap(self) -> QPixmap:
         if self.base.isNull():
@@ -601,6 +658,7 @@ class PaintCanvas(QWidget):
     def mousePressEvent(self, event) -> None:
         if self.base.isNull() or event.button() != Qt.MouseButton.LeftButton:
             return
+        self.push_undo_snapshot()
         self.start_pos = event.position().toPoint()
         self.last_pos = self.start_pos
         self.preview = QPixmap()
@@ -651,87 +709,6 @@ class PaintCanvas(QWidget):
         else:
             painter.drawRect(rect)
         painter.end()
-
-
-class SteelCutViewerDialog(QDialog):
-    def __init__(self, image_path: str, title: str) -> None:
-        super().__init__()
-        self.setWindowTitle(title)
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-        self.setWindowFlag(Qt.WindowType.Window, True)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
-
-        ctrl = QHBoxLayout()
-        self.opacity_slider = QSlider(Qt.Orientation.Horizontal)
-        self.opacity_slider.setRange(20, 100)
-        self.opacity_slider.setValue(100)
-        self.opacity_slider.setFixedWidth(120)
-        self.opacity_slider.valueChanged.connect(lambda v: self.setWindowOpacity(v / 100.0))
-        self.tool_combo = QComboBox()
-        self.tool_combo.addItem("펜", "pen")
-        self.tool_combo.addItem("선", "line")
-        self.tool_combo.addItem("사각형", "rect")
-        self.tool_combo.addItem("원", "ellipse")
-        self.color_btn = QPushButton("색상")
-        self.width_spin = QSpinBox()
-        self.width_spin.setRange(1, 40)
-        self.width_spin.setValue(4)
-        self.width_spin.setSuffix(" px")
-        self.fill_check = QCheckBox("채우기")
-        self.fill_opacity = QSlider(Qt.Orientation.Horizontal)
-        self.fill_opacity.setRange(0, 100)
-        self.fill_opacity.setValue(35)
-        self.fill_opacity.setFixedWidth(90)
-        copy_btn = QPushButton("복사")
-        self.pin_check = QCheckBox("항상 위")
-        self.pin_check.setChecked(True)
-        self.pin_check.toggled.connect(self._toggle_pin)
-        ctrl.addWidget(QLabel("창 투명도"))
-        ctrl.addWidget(self.opacity_slider)
-        ctrl.addWidget(self.tool_combo)
-        ctrl.addWidget(self.color_btn)
-        ctrl.addWidget(self.width_spin)
-        ctrl.addWidget(self.fill_check)
-        ctrl.addWidget(QLabel("채움 투명도"))
-        ctrl.addWidget(self.fill_opacity)
-        ctrl.addStretch(1)
-        ctrl.addWidget(copy_btn)
-        ctrl.addWidget(self.pin_check)
-        layout.addLayout(ctrl)
-
-        self.canvas = PaintCanvas(image_path)
-        layout.addWidget(self.canvas)
-        if not self.canvas.base.isNull():
-            self.resize(self.canvas.base.width() + 24, self.canvas.base.height() + 88)
-
-        self.tool_combo.currentIndexChanged.connect(lambda _=0: setattr(self.canvas, "tool", self.tool_combo.currentData()))
-        self.color_btn.clicked.connect(self.choose_color)
-        self.width_spin.valueChanged.connect(lambda value: setattr(self.canvas, "stroke_width", value))
-        self.fill_check.toggled.connect(lambda value: setattr(self.canvas, "fill_enabled", value))
-        self.fill_opacity.valueChanged.connect(lambda value: setattr(self.canvas, "fill_opacity", value))
-        copy_btn.clicked.connect(self.copy_to_clipboard)
-        QShortcut(QKeySequence(QKeySequence.StandardKey.Copy), self, activated=self.copy_to_clipboard)
-
-    def choose_color(self) -> None:
-        color = QColorDialog.getColor(self.canvas.stroke_color, self, "색상 선택")
-        if color.isValid():
-            self.canvas.stroke_color = color
-            self.color_btn.setStyleSheet(f"background:{color.name()}; color:white;")
-
-    def copy_to_clipboard(self) -> None:
-        pixmap = self.canvas.composed_pixmap()
-        copy_pixmap_to_clipboard(pixmap)
-
-    def _toggle_pin(self, checked: bool) -> None:
-        flags = self.windowFlags()
-        if checked:
-            flags |= Qt.WindowType.WindowStaysOnTopHint
-        else:
-            flags &= ~Qt.WindowType.WindowStaysOnTopHint
-        self.setWindowFlags(flags)
-        self.show()
 
 
 class SteelCutViewerDialog(QDialog):
@@ -816,6 +793,7 @@ class SteelCutViewerDialog(QDialog):
         self.opacity_slider.setValue(100)
         self.opacity_slider.setFixedWidth(130)
         copy_btn = QPushButton("복사")
+        undo_btn = QPushButton("되돌리기")
         reset_btn = QPushButton("초기화")
         self.save_with_drawing = QCheckBox("저장 시 그리기 포함")
         self.save_with_drawing.setChecked(True)
@@ -828,6 +806,7 @@ class SteelCutViewerDialog(QDialog):
         system.addStretch(1)
         system.addWidget(self.pin_check)
         system.addWidget(self.save_with_drawing)
+        system.addWidget(undo_btn)
         system.addWidget(reset_btn)
         system.addWidget(copy_btn)
         system.addWidget(save_btn)
@@ -848,9 +827,11 @@ class SteelCutViewerDialog(QDialog):
         self.fill_check.toggled.connect(lambda value: setattr(self.canvas, "fill_enabled", value))
         self.fill_opacity.valueChanged.connect(lambda value: setattr(self.canvas, "fill_opacity", value))
         copy_btn.clicked.connect(self.copy_to_clipboard)
+        undo_btn.clicked.connect(self.undo_drawing)
         reset_btn.clicked.connect(self.clear_drawing)
         save_btn.clicked.connect(self.save_current_image)
         QShortcut(QKeySequence(QKeySequence.StandardKey.Copy), self, activated=self.copy_to_clipboard)
+        QShortcut(QKeySequence(QKeySequence.StandardKey.Undo), self, activated=self.undo_drawing)
 
     def _section(self) -> QWidget:
         section = QWidget()
@@ -873,7 +854,11 @@ class SteelCutViewerDialog(QDialog):
         pixmap = self.canvas.composed_pixmap()
         copy_pixmap_to_clipboard(pixmap)
 
+    def undo_drawing(self) -> None:
+        self.canvas.undo()
+
     def clear_drawing(self) -> None:
+        self.canvas.push_undo_snapshot()
         self.canvas.overlay.fill(Qt.GlobalColor.transparent)
         self.canvas.preview = QPixmap()
         self.canvas.update()
@@ -1242,12 +1227,12 @@ class ImageTab(QWidget):
     def capture_selection(self, rect: QRect) -> QPixmap:
         return capture_screen_rect(rect)
 
-    def steel_cut_capture_rect(self) -> QRect:
+    def steel_cut_capture_rect(self) -> tuple[QRect, QPixmap | None]:
         mode = self.main.settings.get("steel_cut_capture_mode", "region")
         if mode == "full":
-            return virtual_screen_geometry()
+            return virtual_screen_geometry(), None
         if mode == "window":
-            return active_window_rect()
+            return active_window_rect(), None
         if mode == "fixed":
             width = int(self.main.settings.get("steel_cut_fixed_width", 800) or 800)
             height = int(self.main.settings.get("steel_cut_fixed_height", 450) or 450)
@@ -1256,22 +1241,28 @@ class ImageTab(QWidget):
             initial = QPoint(int(raw_x), int(raw_y)) if raw_x is not None and raw_y is not None else None
             capture = FixedSizeCaptureDialog(QSize(width, height), initial)
             if exec_capture_dialog(capture) != capture.DialogCode.Accepted:
-                return QRect()
+                return QRect(), None
             self.main.settings["steel_cut_fixed_x"] = capture.selection.x()
             self.main.settings["steel_cut_fixed_y"] = capture.selection.y()
             config.save_settings(self.main.settings)
-            return capture.selection
-        capture = ScreenCaptureDialog()
+            return capture.selection, None
+        # 드래그로 영역을 선택하는 동안 다른 창의 포커스가 바뀌어 열려있던 드롭다운/토글
+        # 메뉴가 닫히더라도, 단축키를 누른 시점의 화면을 미리 캡처해두면 그 상태가 보존된다.
+        snapshot_rect = virtual_screen_geometry()
+        snapshot = capture_screen_rect(snapshot_rect)
+        capture = ScreenCaptureDialog(snapshot, snapshot_rect)
         if exec_capture_dialog(capture) != capture.DialogCode.Accepted:
-            return QRect()
-        return capture.selection
+            return QRect(), None
+        local_rect = capture.selection.translated(-snapshot_rect.topLeft())
+        return capture.selection, crop_pixmap_dip(snapshot, local_rect)
 
     def capture_steel_cut(self) -> None:
         title = active_window_title()
-        rect = self.steel_cut_capture_rect()
+        rect, pixmap = self.steel_cut_capture_rect()
         if rect.width() < 3 or rect.height() < 3:
             return
-        pixmap = self.capture_selection(rect)
+        if pixmap is None:
+            pixmap = self.capture_selection(rect)
         if pixmap.isNull():
             return
         copy_pixmap_to_clipboard(pixmap)

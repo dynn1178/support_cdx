@@ -436,6 +436,8 @@ class SettingsTab(QWidget):
         form.addRow("아이콘 사이즈", self.floating_widget_icon_size)
         self.floating_widget_speed = self.widget_slider(60, 900, " ms")
         form.addRow("등장 속도", self.floating_widget_speed)
+        self.floating_widget_show_delay = self.widget_slider(0, 2000, " ms")
+        form.addRow("표시 딜레이", self.floating_widget_show_delay)
         self.floating_widget_opacity = self.widget_slider(20, 100, " %")
         form.addRow("투명도", self.floating_widget_opacity)
 
@@ -703,6 +705,7 @@ class SettingsTab(QWidget):
             self.floating_widget_panel_width,
             self.floating_widget_icon_size,
             self.floating_widget_speed,
+            self.floating_widget_show_delay,
             self.floating_widget_opacity,
         ]:
             holder.slider.valueChanged.connect(lambda _value: self.preview_widget_settings())
@@ -728,6 +731,7 @@ class SettingsTab(QWidget):
             "floating_widget_panel_width": self.widget_slider_value(self.floating_widget_panel_width, 860),
             "floating_widget_icon_size": self.widget_slider_value(self.floating_widget_icon_size, 50),
             "floating_widget_speed": self.widget_slider_value(self.floating_widget_speed, 80),
+            "floating_widget_show_delay": self.widget_slider_value(self.floating_widget_show_delay, 1000),
             "floating_widget_opacity": self.widget_slider_value(self.floating_widget_opacity, 77),
             "floating_widget_theme": self.floating_widget_theme.currentData(),
             "floating_widget_show_hover_text": self.floating_widget_show_hover_text.isChecked(),
@@ -1090,6 +1094,7 @@ class SettingsTab(QWidget):
         self.set_widget_slider_value(self.floating_widget_panel_width, int(settings.get("floating_widget_panel_width", 860) or 860))
         self.set_widget_slider_value(self.floating_widget_icon_size, int(settings.get("floating_widget_icon_size", 50) or 50))
         self.set_widget_slider_value(self.floating_widget_speed, int(settings.get("floating_widget_speed", 80) or 80))
+        self.set_widget_slider_value(self.floating_widget_show_delay, int(settings.get("floating_widget_show_delay", 1000) or 1000))
         self.set_widget_slider_value(self.floating_widget_opacity, int(settings.get("floating_widget_opacity", 77) or 77))
         widget_theme = str(settings.get("floating_widget_theme", "dark") or "dark")
         widget_theme_index = self.floating_widget_theme.findData(widget_theme)
