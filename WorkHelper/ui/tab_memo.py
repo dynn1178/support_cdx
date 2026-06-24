@@ -1937,8 +1937,14 @@ class MemoListTab(QWidget):
     def delete_memo(self, memo: dict) -> None:
         if not confirm_delete(self, "선택한 메모를 삭제할까요?"):
             return
+        key = self.memo_key(memo)
+        dialog = self.sticky_windows.get(key)
+        if dialog is not None and dialog.isVisible():
+            dialog.accept()
+        self.sticky_windows.pop(key, None)
         self.main.data.get("memos", []).remove(memo)
         self.main.save_data()
+        self.refresh()
 
 
 class ScheduleListTab(QWidget):

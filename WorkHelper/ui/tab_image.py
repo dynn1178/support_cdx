@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
-from PyQt6.QtCore import QEasingCurve, QObject, QPoint, QPropertyAnimation, QRect, QRunnable, QSize, QThreadPool, QTimer, Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QEasingCurve, QEventLoop, QObject, QPoint, QPropertyAnimation, QRect, QRunnable, QSize, QThreadPool, QTimer, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QBrush, QColor, QCursor, QImage, QKeySequence, QPainter, QPen, QPixmap, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
@@ -216,9 +216,14 @@ def capture_screen_rect(rect: QRect) -> QPixmap:
     if not captures:
         return QPixmap()
     if len(captures) == 1 and captures[0][1] == rect:
-        screen, _intersected, full, source = captures[0]
+        screen, intersected, full, source = captures[0]
         pixmap = full.copy(source)
-        pixmap.setDevicePixelRatio(float(screen.devicePixelRatio()))
+        # Measure DPR from the physical pixel buffer divided by the screen's
+        # logical width — not the selection width. Using intersected.width()
+        # (the selection rect) would give a wildly wrong ratio whenever the
+        # capture rect is smaller than the screen (e.g. window capture mode).
+        measured_dpr = full.width() / max(1, screen.geometry().width())
+        pixmap.setDevicePixelRatio(measured_dpr if measured_dpr > 0 else 1.0)
         return pixmap
 
     pixmap = QPixmap(rect.size())
@@ -294,54 +299,239 @@ def capture_screen_rect_with_pillow(rect: QRect) -> QPixmap:
         ).convert("RGBA")
     except Exception:
         return QPixmap()
+    # The 100%-scaling assumption above can still be wrong (e.g. a stale or
+    # rounded devicePixelRatio() reported by Qt). If the grabbed image isn't
+    # exactly the requested logical size, the bbox didn't line up with
+    # physical pixels 1:1, so discard it and let the caller fall back to the
+    # per-screen grabWindow path instead of returning a shifted/scaled image.
+    if image.width != rect.width() or image.height != rect.height():
+        return QPixmap()
     data = image.tobytes("raw", "RGBA")
     qimage = QImage(data, image.width, image.height, QImage.Format.Format_RGBA8888).copy()
     return QPixmap.fromImage(qimage)
 
+def _capture_per_screen_physical(screens: list) -> "list[QPixmap | None]":
+    """각 모니터를 물리 해상도 그대로 캡처한다 (오버레이 표시용).
 
-class ScreenCaptureDialog(QDialog):
-    def __init__(self, snapshot: QPixmap | None = None, snapshot_rect: QRect | None = None) -> None:
+    PIL ImageGrab.grab(all_screens=True)로 가상 화면 전체를 물리 픽셀 단위로
+    한 번만 캡처한 뒤, Win32 EnumDisplayMonitors로 얻은 물리 좌표를 사용해
+    각 모니터 영역을 크롭하고 해당 화면의 devicePixelRatio를 설정한다.
+    grabWindow(0)는 nativeSize=-1 처리 방식이 Qt 버전·플랫폼마다 달라
+    반환 픽스맵 크기와 DPR이 불일치할 수 있으므로 이 방법을 대신 사용한다.
+    """
+    if not sys.platform.startswith("win") or not screens:
+        return [None] * len(screens)
+    try:
+        from PIL import ImageGrab
+    except Exception:
+        return [None] * len(screens)
+    try:
+        user32 = ctypes.windll.user32
+        # 가상 화면 물리 원점 (SM_XVIRTUALSCREEN=76, SM_YVIRTUALSCREEN=77)
+        virt_left: int = user32.GetSystemMetrics(76)
+        virt_top: int = user32.GetSystemMetrics(77)
+
+        class _MONITORINFOEX(ctypes.Structure):
+            _fields_ = [
+                ("cbSize", ctypes.c_uint32),
+                ("rcMonitor", ctypes.wintypes.RECT),
+                ("rcWork", ctypes.wintypes.RECT),
+                ("dwFlags", ctypes.c_uint32),
+                ("szDevice", ctypes.c_wchar * 32),
+            ]
+
+        phys_by_name: dict[str, tuple[int, int, int, int]] = {}
+
+        _MonitorEnumProc = ctypes.WINFUNCTYPE(
+            ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p,
+            ctypes.POINTER(ctypes.wintypes.RECT), ctypes.c_void_p,
+        )
+
+        def _cb(hMon, _hdc, _lpRc, _dw):
+            info = _MONITORINFOEX()
+            info.cbSize = ctypes.sizeof(_MONITORINFOEX)
+            if user32.GetMonitorInfoW(hMon, ctypes.byref(info)):
+                name = info.szDevice.rstrip("\x00")
+                r = info.rcMonitor
+                phys_by_name[name] = (r.left, r.top, r.right - r.left, r.bottom - r.top)
+            return True
+
+        user32.EnumDisplayMonitors(None, None, _MonitorEnumProc(_cb), 0)
+
+        # 가상 화면 전체를 물리 해상도로 한 번 캡처
+        full_img = ImageGrab.grab(all_screens=True).convert("RGBA")
+
+        result: list[QPixmap | None] = []
+        for screen in screens:
+            phys = phys_by_name.get(screen.name())
+            if phys is None:
+                result.append(None)
+                continue
+            pl, pt, pw, ph = phys
+            # PIL 이미지 좌표 = 물리 좌표 - 가상 화면 원점
+            cl, ct = pl - virt_left, pt - virt_top
+            cropped = full_img.crop((cl, ct, cl + pw, ct + ph))
+            raw = cropped.tobytes("raw", "RGBA")
+            qimg = QImage(raw, pw, ph, QImage.Format.Format_RGBA8888).copy()
+            pix = QPixmap.fromImage(qimg)
+            pix.setDevicePixelRatio(screen.devicePixelRatio())
+            result.append(pix)
+
+        return result
+    except Exception:
+        return [None] * len(screens)
+
+
+class _ScreenCapturePanel(QDialog):
+    """단일 모니터를 덮는 캡처 오버레이 패널.
+
+    단일 대형 창으로 전체 가상 화면을 덮으면 Qt가 창 전체에 단일 DPR을 적용하여
+    150% 배율 모니터에서 콘텐츠가 67% 크기로 축소된다. 모니터별 독립 창을 쓰면
+    Qt가 각 창에 해당 모니터의 올바른 DPR을 자동으로 설정한다.
+    """
+
+    def __init__(self, screen, clip: QPixmap | None, coordinator: "ScreenCaptureDialog") -> None:
         super().__init__()
-        self.origin: QPoint | None = None
-        self.selection = QRect()
-        self._snapshot = snapshot
-        self._snapshot_rect = snapshot_rect or virtual_screen_geometry()
+        self._clip = clip
+        self._coordinator = coordinator
         self.rubber_band = QRubberBand(QRubberBand.Shape.Rectangle, self)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
-        self.setGeometry(self._snapshot_rect)
-        if self._snapshot is None:
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self.setGeometry(screen.geometry())
+        if clip is None:
             self.setWindowOpacity(0.25)
         self.setCursor(Qt.CursorShape.CrossCursor)
 
     def paintEvent(self, event) -> None:
-        if self._snapshot is None:
-            return
         painter = QPainter(self)
-        painter.drawPixmap(0, 0, self._snapshot)
+        if self._clip is not None:
+            # drawPixmap(rect, pixmap): 클립의 물리 픽셀을 패널 물리 영역에 1:1 매핑.
+            # drawPixmap(0, 0, pixmap)은 DI 크기로 그리기 때문에 패널 DPR과 클립 DPR이
+            # 다르면 내용이 잘리거나 왜곡된다. rect 형태는 DPR 불일치를 무시하고
+            # 항상 패널 전체를 올바르게 채운다.
+            painter.drawPixmap(self.rect(), self._clip)
         painter.fillRect(self.rect(), QColor(0, 0, 0, 70))
         painter.end()
 
-    def global_to_overlay(self, point: QPoint) -> QPoint:
-        return self.mapFromGlobal(point)
-
     def mousePressEvent(self, event) -> None:
-        self.origin = event.globalPosition().toPoint()
-        local_origin = self.global_to_overlay(self.origin)
-        self.rubber_band.setGeometry(QRect(local_origin, local_origin))
-        self.rubber_band.show()
+        # 클릭한 패널에 포커스를 넘겨 ESC 키 입력을 받을 수 있게 한다
+        self.activateWindow()
+        self._coordinator._panel_press(event.globalPosition().toPoint())
 
     def mouseMoveEvent(self, event) -> None:
-        if self.origin is not None:
-            local_origin = self.global_to_overlay(self.origin)
-            local_current = self.global_to_overlay(event.globalPosition().toPoint())
-            self.rubber_band.setGeometry(QRect(local_origin, local_current).normalized())
+        self._coordinator._panel_move(event.globalPosition().toPoint())
 
     def mouseReleaseEvent(self, event) -> None:
-        if self.origin is not None:
-            self.selection = QRect(self.origin, event.globalPosition().toPoint()).normalized()
+        self._coordinator._panel_release(event.globalPosition().toPoint())
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Escape:
+            self._coordinator._panel_escape()
         else:
-            self.selection = self.rubber_band.geometry().translated(self.geometry().topLeft())
-        self.accept()
+            super().keyPressEvent(event)
+
+
+class ScreenCaptureDialog(QDialog):
+    """모니터별 독립 패널(_ScreenCapturePanel)로 구성된 영역 선택 오버레이.
+
+    외부 인터페이스(exec, selection, DialogCode)는 QDialog와 동일하게 유지한다.
+    """
+
+    def __init__(self, snapshot: QPixmap | None = None, snapshot_rect: QRect | None = None) -> None:
+        super().__init__()
+        self.origin: QPoint | None = None
+        self._current: QPoint | None = None
+        self.selection = QRect()
+        self._snapshot = snapshot
+        self._snapshot_rect = snapshot_rect or virtual_screen_geometry()
+        self._panels: list[_ScreenCapturePanel] = []
+        self._loop: "QEventLoop | None" = None
+        self._accepted = False
+        # 이 QDialog 자체는 숨김 — 실제 화면 표시는 패널이 담당
+        self.setWindowFlags(Qt.WindowType.Tool)
+        self.resize(1, 1)
+        self.move(-32000, -32000)
+
+    def exec(self) -> "QDialog.DialogCode":  # type: ignore[override]
+        self._accepted = False
+        self._panels.clear()
+
+        # PIL + Win32 EnumDisplayMonitors로 각 모니터를 물리 해상도 그대로 캡처한다.
+        # grabWindow(0)는 Qt 버전에 따라 nativeSize=-1 처리 방식이 달라
+        # 반환 픽스맵의 크기·DPR이 불일치하여 왜곡이 발생한다.
+        # _capture_per_screen_physical은 Win32 물리 좌표를 직접 사용하므로 정확하다.
+        screens = QApplication.screens()
+        per_screen_grabs = _capture_per_screen_physical(screens)
+
+        for screen, grab in zip(screens, per_screen_grabs):
+            clip: QPixmap | None = grab if (grab is not None and not grab.isNull()) else None
+            if clip is None and self._snapshot is not None and not self._snapshot.isNull():
+                # 폴백: 합성 스냅샷에서 추출
+                local = screen.geometry().translated(-self._snapshot_rect.topLeft())
+                extracted = crop_pixmap_dip(self._snapshot, local)
+                if not extracted.isNull():
+                    clip = extracted
+            panel = _ScreenCapturePanel(screen, clip, self)
+            self._panels.append(panel)
+
+        for panel in self._panels:
+            panel.show()
+
+        # 커서가 위치한 패널에 키보드 포커스를 부여해 ESC 키가 즉시 동작하도록 한다
+        cursor_pos = QCursor.pos()
+        for panel in self._panels:
+            if panel.geometry().contains(cursor_pos):
+                panel.activateWindow()
+                break
+
+        self._loop = QEventLoop()
+        self._loop.exec()
+
+        for panel in self._panels:
+            panel.close()
+            panel.deleteLater()
+        self._panels.clear()
+
+        return QDialog.DialogCode.Accepted if self._accepted else QDialog.DialogCode.Rejected
+
+    def _panel_press(self, global_pos: QPoint) -> None:
+        self.origin = global_pos
+        self._current = global_pos
+        self._refresh_rubber_bands()
+
+    def _panel_move(self, global_pos: QPoint) -> None:
+        if self.origin is None:
+            return
+        self._current = global_pos
+        self._refresh_rubber_bands()
+
+    def _panel_release(self, global_pos: QPoint) -> None:
+        if self.origin is not None:
+            self.selection = QRect(self.origin, global_pos).normalized()
+        self._accepted = True
+        if self._loop is not None:
+            self._loop.quit()
+
+    def _panel_escape(self) -> None:
+        self._accepted = False
+        if self._loop is not None:
+            self._loop.quit()
+
+    def _refresh_rubber_bands(self) -> None:
+        if self.origin is None or self._current is None:
+            return
+        sel = QRect(self.origin, self._current).normalized()
+        for panel in self._panels:
+            intersected = sel.intersected(panel.geometry())
+            if intersected.isEmpty():
+                panel.rubber_band.hide()
+            else:
+                panel.rubber_band.setGeometry(intersected.translated(-panel.geometry().topLeft()))
+                panel.rubber_band.show()
 
 
 class FixedSizeCaptureDialog(QDialog):
@@ -830,8 +1020,14 @@ class SteelCutViewerDialog(QDialog):
         undo_btn.clicked.connect(self.undo_drawing)
         reset_btn.clicked.connect(self.clear_drawing)
         save_btn.clicked.connect(self.save_current_image)
-        QShortcut(QKeySequence(QKeySequence.StandardKey.Copy), self, activated=self.copy_to_clipboard)
-        QShortcut(QKeySequence(QKeySequence.StandardKey.Undo), self, activated=self.undo_drawing)
+        # WidgetWithChildrenShortcut: 캔버스·슬라이더 등 자식 위젯이 포커스를
+        # 가질 때도 단축키가 동작하도록 WindowShortcut 대신 사용
+        copy_sc = QShortcut(QKeySequence(QKeySequence.StandardKey.Copy), self)
+        copy_sc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        copy_sc.activated.connect(self.copy_to_clipboard)
+        undo_sc = QShortcut(QKeySequence(QKeySequence.StandardKey.Undo), self)
+        undo_sc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        undo_sc.activated.connect(self.undo_drawing)
 
     def _section(self) -> QWidget:
         section = QWidget()
@@ -1272,26 +1468,6 @@ class ImageTab(QWidget):
         worker = SteelCutSaveWorker(pixmap.toImage(), target)
         worker.signals.finished.connect(lambda path, ok, value=window_title: self.finish_steel_cut_capture(path, ok, value))
         QThreadPool.globalInstance().start(worker)
-        return
-        if not save_capture_jpg(pixmap, target):
-            QMessageBox.warning(self, "스틸 컷 실패", "스크린샷을 저장하지 못했습니다.")
-            return
-        items = self.main.data.setdefault("steel_cuts", [])
-        value = {
-            "id": new_id("steel"),
-            "path": self.relative_asset_path(target),
-            "path_type": "relative",
-            "window_title": title or "창 제목 없음",
-            "created_at": now_iso(),
-            "last_used_at": now_iso(),
-            "sort_order": len(items),
-            "usage_count": 0,
-        }
-        items.append(value)
-        self.main.save_data()
-        self.tabs.setCurrentIndex(0)
-        self.refresh()
-        self.view_steel_cut(value, copy_to_clipboard=False)
 
     def show_steel_cut_toast(self, pixmap: QPixmap, image_path: str, title: str, anchor_rect: QRect | None = None) -> None:
         if self._steel_cut_toast is not None:
@@ -1413,6 +1589,7 @@ class ImageTab(QWidget):
             items.remove(item)
         self.delete_steel_cut_file(item)
         self.main.save_data()
+        self.refresh()
 
     def clear_steel_cuts(self) -> None:
         items = self.main.data.get("steel_cuts", [])
@@ -1460,3 +1637,4 @@ class ImageTab(QWidget):
             return
         self.main.data.get("images", []).remove(item)
         self.main.save_data()
+        self.refresh()
