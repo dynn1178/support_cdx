@@ -74,7 +74,7 @@ class PopupNumberFilter(QAbstractNativeEventFilter):
             from ctypes import wintypes
 
             msg = wintypes.MSG.from_address(int(message))
-            if msg.message == WM_HOTKEY and 5201 <= int(msg.wParam) <= 5205:
+            if msg.message == WM_HOTKEY and 5201 <= int(msg.wParam) <= 5210:
                 self.popup.copy_by_number(int(msg.wParam) - 5200)
                 return True, 0
         except Exception:
@@ -133,7 +133,7 @@ class ClipboardMiniPopup(QDialog):
         layout.addWidget(scroll)
 
         footer = QHBoxLayout()
-        hint = QLabel("1~5번 단축키를 누르면 바로 복사됩니다.")
+        hint = QLabel("1~0 단축키로 클립보드에 저장됩니다. 붙여넣기는 Ctrl+V로 직접 하세요.")
         hint.setObjectName("mutedText")
         close_btn = QPushButton("닫기")
         close_btn.setFixedWidth(72)
@@ -142,7 +142,7 @@ class ClipboardMiniPopup(QDialog):
         footer.addWidget(close_btn)
         layout.addLayout(footer)
 
-        visible_rows = min(max(len(self.items), 1), 5)
+        visible_rows = min(max(len(self.items), 1), 10)
         self.setFixedHeight(58 + visible_rows * 36)
         self.start_number_hotkeys()
         QTimer.singleShot(0, self.activate_popup)
@@ -184,9 +184,10 @@ class ClipboardMiniPopup(QDialog):
             return
         app.installNativeEventFilter(self.number_filter)
         hwnd = int(self.winId())
-        for number in range(1, 6):
+        # 1~9는 그대로, 0은 10번째 항목 선택으로 매핑한다.
+        for number, key in enumerate("1234567890", start=1):
             hotkey_id = 5200 + number
-            if USER32.RegisterHotKey(hwnd, hotkey_id, 0, ord(str(number))):
+            if USER32.RegisterHotKey(hwnd, hotkey_id, 0, ord(key)):
                 self.registered_number_hotkeys.append(hotkey_id)
 
     def stop_number_hotkeys(self) -> None:
@@ -220,7 +221,7 @@ class ClipboardMiniPopup(QDialog):
         layout.setContentsMargins(6, 3, 6, 3)
         layout.setSpacing(6)
 
-        number = QLabel(str(index) if index <= 5 else "")
+        number = QLabel(str(index) if index <= 9 else ("0" if index == 10 else ""))
         number.setObjectName("kbd")
         number.setAlignment(Qt.AlignmentFlag.AlignCenter)
         number.setFixedWidth(24)
@@ -258,8 +259,8 @@ class ClipboardMiniPopup(QDialog):
             self.reject()
             return
         text = event.text()
-        if text in {"1", "2", "3", "4", "5"}:
-            self.copy_by_number(int(text))
+        if text in set("1234567890"):
+            self.copy_by_number(10 if text == "0" else int(text))
             return
         super().keyPressEvent(event)
 
@@ -267,10 +268,11 @@ class ClipboardMiniPopup(QDialog):
         if self._closing:
             return
         index = number - 1
-        if 0 <= index < min(len(self.items), 5):
+        if 0 <= index < min(len(self.items), 10):
             self.copy_and_close(self.items[index])
 
     def copy_and_close(self, item: dict) -> None:
+        """선택 항목을 클립보드에만 저장한다. 붙여넣기는 사용자가 Ctrl+V로 직접."""
         if self._closing:
             return
         self._closing = True
@@ -278,7 +280,7 @@ class ClipboardMiniPopup(QDialog):
         if is_image_item(item):
             copy_to_clipboard(item)
         else:
-            self.parent_tab.main.paste_text(item.get("text", ""))
+            QApplication.clipboard().setText(item.get("text", ""))
 
     def done(self, result: int) -> None:
         self.stop_number_hotkeys()

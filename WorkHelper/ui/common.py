@@ -915,6 +915,9 @@ class GridPanel(QScrollArea):
         self._drag_start = QPoint()
         self._dragging = False
         self._on_reorder: Callable[[int, int], None] | None = None
+        # 드래그한 카드를 다른 카드(그룹 폴더 등) 위에 놓았을 때 호출.
+        # True를 반환하면 드롭이 처리된 것으로 보고 재정렬은 하지 않는다.
+        self._on_drop: Callable[[int, int], bool] | None = None
         self.container = QWidget()
         self.container.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.grid = QGridLayout(self.container)
@@ -931,10 +934,16 @@ class GridPanel(QScrollArea):
             if widget:
                 widget.deleteLater()
 
-    def add_cards(self, cards: list[QWidget], on_reorder: Callable[[int, int], None] | None = None) -> None:
+    def add_cards(
+        self,
+        cards: list[QWidget],
+        on_reorder: Callable[[int, int], None] | None = None,
+        on_drop: Callable[[int, int], bool] | None = None,
+    ) -> None:
         self.clear()
         self._cards = cards
         self._on_reorder = on_reorder
+        self._on_drop = on_drop
         for i, card in enumerate(cards):
             card.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
             card.setMinimumWidth(0)
@@ -960,7 +969,7 @@ class GridPanel(QScrollArea):
         return None
 
     def eventFilter(self, watched, event) -> bool:
-        if not self._on_reorder or not isinstance(watched, QWidget):
+        if not (self._on_reorder or self._on_drop) or not isinstance(watched, QWidget):
             return super().eventFilter(watched, event)
         if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
             card = self._card_for_widget(watched)
@@ -987,8 +996,11 @@ class GridPanel(QScrollArea):
             was_dragging = self._dragging
             self._dragging = False
             if was_dragging and old_index >= 0 and new_index >= 0 and old_index != new_index:
-                self._on_reorder(old_index, new_index)
-                return True
+                if self._on_drop is not None and self._on_drop(old_index, new_index):
+                    return True
+                if self._on_reorder is not None:
+                    self._on_reorder(old_index, new_index)
+                    return True
         return super().eventFilter(watched, event)
 
     def _drop_index(self, global_pos: QPoint) -> int:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import threading
 import time
 import calendar
@@ -39,6 +40,49 @@ MINI_COPY_BUTTON_HEIGHT = 26
 CTRL_ONLY_VKS = {0x11, 0xA2, 0xA3}
 ALT_ONLY_VKS = {0x12, 0xA4, 0xA5}
 KEYBOARD_VKS = list(range(0x08, 0xFF))
+
+# --- SendInput 일괄 키 전송 (핫스트링 고속 확장용) ---------------------------
+# pyautogui는 키 하나마다 지연이 붙어 트리거가 길수록 확장이 느려진다.
+# SendInput으로 백스페이스 + Ctrl+V 전체를 한 번의 호출로 밀어 넣으면
+# OS 큐에 순서대로 즉시 들어가므로 체감상 즉시 치환된다.
+_INPUT_KEYBOARD = 1
+_KEYEVENTF_KEYUP = 0x0002
+
+
+class _KEYBDINPUT(ctypes.Structure):
+    _fields_ = [
+        ("wVk", ctypes.c_ushort),
+        ("wScan", ctypes.c_ushort),
+        ("dwFlags", ctypes.c_ulong),
+        ("time", ctypes.c_ulong),
+        ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+    ]
+
+
+class _INPUTUNION(ctypes.Union):
+    # MOUSEINPUT이 가장 크므로 그 크기(32바이트) 이상으로 패딩해 둔다.
+    _fields_ = [("ki", _KEYBDINPUT), ("padding", ctypes.c_ubyte * 32)]
+
+
+class _INPUT(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_ulong), ("union", _INPUTUNION)]
+
+
+def send_key_batch(events: list[tuple[int, bool]]) -> bool:
+    """(virtual-key, is_keyup) 목록을 SendInput 한 번으로 일괄 전송한다."""
+    if not events:
+        return True
+    try:
+        array = (_INPUT * len(events))()
+        for index, (vk, is_up) in enumerate(events):
+            array[index].type = _INPUT_KEYBOARD
+            array[index].union.ki.wVk = vk
+            array[index].union.ki.wScan = USER32.MapVirtualKeyW(vk, 0)
+            array[index].union.ki.dwFlags = _KEYEVENTF_KEYUP if is_up else 0
+        sent = USER32.SendInput(len(events), array, ctypes.sizeof(_INPUT))
+        return int(sent) == len(events)
+    except Exception:
+        return False
 
 # UPDATE_SHORTCUT_NOTICE:
 # 신규 기능 안내 팝업은 아래 ID/문구만 바꾸면 다시 노출됩니다.
@@ -1071,6 +1115,16 @@ class MainWindow(QMainWindow):
             first, second = subtitle.split("\n", 1)
             subtitle = f'<p style="margin:0 0 6px 0">{first}</p><p style="margin:0">{second}</p>'
         self.screen_subtitle.setText(subtitle)
+        self.update_group_breadcrumb()
+
+    def update_group_breadcrumb(self) -> None:
+        """현재 탭이 자체 브레드크럼(탭 줄 아래 경로 표시)을 갱신하도록 위임한다."""
+        if not hasattr(self, "stack"):
+            return
+        index = self.stack.currentIndex()
+        tab = self.tabs[index] if 0 <= index < len(self.tabs) else None
+        if tab is not None and hasattr(tab, "refresh_breadcrumb"):
+            tab.refresh_breadcrumb()
 
     def rotate_home_tip(self) -> None:
         self.next_home_tip()
@@ -1310,48 +1364,63 @@ class MainWindow(QMainWindow):
         if conflict:
             show_modern_warning(self, "단축키 충돌", conflict)
             return
+        failed: list[str] = []
+
+        def register(label: str, hotkey: dict, callback, item_id: str) -> None:
+            # RegisterHotKey는 다른 프로그램이 이미 선점한 조합이면 실패한다.
+            # 조용히 넘어가면 사용자는 단축키가 등록된 줄 알기 때문에 모아서 알린다.
+            if not self.hotkeys.register(hotkey.get("modifiers", []), hotkey.get("key", ""), callback, item_id):
+                failed.append(f"- {label}: {normalize_hotkey(hotkey)}")
+
         for item in self.data.get("phrases", []) + self.data.get("snippets", []):
             hotkey = item.get("hotkey")
             if hotkey:
-                self.hotkeys.register(hotkey.get("modifiers", []), hotkey.get("key", ""), lambda value=item: self.paste_text_item(value), item.get("id", ""))
+                register(item.get("name", "상용구"), hotkey, lambda value=item: self.paste_text_item(value), item.get("id", ""))
         for item in self.data.get("title_templates", []):
             hotkey = item.get("hotkey")
             if hotkey:
-                self.hotkeys.register(hotkey.get("modifiers", []), hotkey.get("key", ""), lambda value=item: self.copy_title_template(value), item.get("id", ""))
+                register(item.get("name", "제목 템플릿"), hotkey, lambda value=item: self.copy_title_template(value), item.get("id", ""))
         for item in self.data.get("launchers", []):
             hotkey = item.get("hotkey")
             if hotkey:
-                self.hotkeys.register(hotkey.get("modifiers", []), hotkey.get("key", ""), lambda value=item: self.tabs[2].open_launcher(value), item.get("id", ""))
+                register(item.get("name", "런처"), hotkey, lambda value=item: self.tabs[2].open_launcher(value), item.get("id", ""))
         for item in self.data.get("images", []):
             hotkey = item.get("hotkey")
             if hotkey:
-                self.hotkeys.register(hotkey.get("modifiers", []), hotkey.get("key", ""), lambda value=item: self.tabs[4].view_image(value), item.get("id", ""))
+                register(item.get("name", "이미지"), hotkey, lambda value=item: self.tabs[4].view_image(value), item.get("id", ""))
         for item in self.data.get("macros", []):
             hotkey = item.get("hotkey")
             if hotkey:
-                self.hotkeys.register(hotkey.get("modifiers", []), hotkey.get("key", ""), lambda value=item: self.tabs[7].play_macro(value), item.get("id", ""))
+                register(item.get("name", "매크로"), hotkey, lambda value=item: self.tabs[7].play_macro(value), item.get("id", ""))
         settings = self.settings
         popup_hotkey = settings.get("clipboard_popup_hotkey")
         if popup_hotkey and not settings.get("clipboard_popup_double_ctrl", True):
-            self.hotkeys.register(popup_hotkey.get("modifiers", []), popup_hotkey.get("key", ""), self.show_clipboard_popup, "clipboard_popup")
+            register("클립보드 미니팝업", popup_hotkey, self.show_clipboard_popup, "clipboard_popup")
             self.CLIPBOARD_POPUP_HOTKEY_LABEL = normalize_hotkey(popup_hotkey)
         quick_memo_hotkey = settings.get("quick_memo_hotkey")
         if quick_memo_hotkey and not settings.get("quick_memo_double_alt", True):
-            self.hotkeys.register(quick_memo_hotkey.get("modifiers", []), quick_memo_hotkey.get("key", ""), self.show_quick_memo_popup, "quick_memo")
+            register("빠른 메모", quick_memo_hotkey, self.show_quick_memo_popup, "quick_memo")
         phrase_popup_hotkey = settings.get("phrase_popup_hotkey")
         if phrase_popup_hotkey:
-            self.hotkeys.register(phrase_popup_hotkey.get("modifiers", []), phrase_popup_hotkey.get("key", ""), self.show_phrase_popup, "phrase_popup")
+            register("상용구 미니팝업", phrase_popup_hotkey, self.show_phrase_popup, "phrase_popup")
         steel_cut_hotkey = settings.get("steel_cut_hotkey")
         if steel_cut_hotkey:
-            self.hotkeys.register(
-                steel_cut_hotkey.get("modifiers", []),
-                steel_cut_hotkey.get("key", ""),
+            register(
+                "캡처 단축키",
+                steel_cut_hotkey,
                 lambda: QTimer.singleShot(0, self.tabs[4].capture_steel_cut),
                 "steel_cut",
             )
         screen_draw_hotkey = settings.get("screen_draw_hotkey")
         if screen_draw_hotkey:
-            self.hotkeys.register(screen_draw_hotkey.get("modifiers", []), screen_draw_hotkey.get("key", ""), self.tabs[10].start_screen_draw, "screen_draw")
+            register("화면 그리기", screen_draw_hotkey, self.tabs[10].start_screen_draw, "screen_draw")
+        if failed:
+            show_modern_warning(
+                self,
+                "단축키 등록 실패",
+                "다른 프로그램이 이미 사용 중이어서 등록하지 못한 단축키가 있습니다.\n"
+                "해당 항목의 단축키를 다른 조합으로 변경해 주세요.\n\n" + "\n".join(failed),
+            )
         self.update_hotkey_status()
         self.update_hotkey_toggle_button()
 
@@ -1668,13 +1737,29 @@ class MainWindow(QMainWindow):
 
         def worker() -> None:
             try:
-                import pyautogui
+                # 트리거 마지막 글자와 함께 눌려 있을 수 있는 Shift 등
+                # 물리 modifier가 떨어질 때까지만 아주 짧게 대기한다.
+                # (Ctrl+V 합성 입력과 섞여 오동작하는 것을 방지)
+                deadline = time.monotonic() + 0.25
+                while time.monotonic() < deadline and any(
+                    USER32.GetAsyncKeyState(vk) & 0x8000 for vk in (0x10, 0x11, 0x12)
+                ):
+                    time.sleep(0.005)
+                VK_BACK, VK_CONTROL, VK_V = 0x08, 0x11, 0x56
+                events: list[tuple[int, bool]] = []
+                for _ in range(len(trigger)):
+                    events.append((VK_BACK, False))
+                    events.append((VK_BACK, True))
+                events += [(VK_CONTROL, False), (VK_V, False), (VK_V, True), (VK_CONTROL, True)]
+                # 백스페이스 + Ctrl+V를 한 번의 SendInput으로 일괄 전송 → 즉시 치환
+                if not send_key_batch(events):
+                    # SendInput이 막힌 환경(UIPI 등)에서는 기존 방식으로 폴백
+                    import pyautogui
 
-                pyautogui.PAUSE = 0.01
-                time.sleep(0.10)
-                pyautogui.press("backspace", presses=len(trigger), interval=0.02)
-                time.sleep(0.04)
-                pyautogui.hotkey("ctrl", "v")
+                    pyautogui.PAUSE = 0.01
+                    pyautogui.press("backspace", presses=len(trigger), interval=0.02)
+                    time.sleep(0.04)
+                    pyautogui.hotkey("ctrl", "v")
             except Exception:
                 pass
             finally:

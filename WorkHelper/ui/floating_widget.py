@@ -24,6 +24,17 @@ from PyQt6.QtWidgets import (
 from app import config
 from app.date_tools import render_date_template
 from ui.common import bump_usage, show_modern_warning
+from ui.groups import (
+    GROUP_SCOPE_CHEAT,
+    GROUP_SCOPE_FILE,
+    GROUP_SCOPE_MEMO,
+    GROUP_SCOPE_SITE,
+    group_by_id,
+    group_icon,
+    group_id,
+    groups_in,
+    item_group_id,
+)
 from ui.tab_launcher import launcher_display_emoji, launcher_favicon_pixmap, launcher_icon_mode
 
 
@@ -403,6 +414,7 @@ class FloatingWidget(QFrame):
         super().__init__(None)
         self.main = main
         self.current_category: str | None = None
+        self.current_group = ""  # 카테고리 안에서 들어와 있는 그룹(폴더) id
         self._shown = False
         self._animating = False
         self._settings: dict = {}
@@ -437,13 +449,13 @@ class FloatingWidget(QFrame):
         self.back_button.setObjectName("floatingDockBackButton")
         self.back_button.setText("‹ 이전")
         self.back_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.back_button.clicked.connect(lambda checked=False: self._open_category(None))
+        self.back_button.clicked.connect(lambda checked=False: self.go_back())
         self.side_back_button = QToolButton(self.panel)
         self.side_back_button.setObjectName("floatingDockSideBackButton")
         self.side_back_button.setText("<")
         self.side_back_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.side_back_button.setFixedSize(28, 44)
-        self.side_back_button.clicked.connect(lambda checked=False: self._open_category(None))
+        self.side_back_button.clicked.connect(lambda checked=False: self.go_back())
         self.side_back_button.hide()
         self.hover_text = QLabel(self.header)
         self.hover_text.setObjectName("floatingDockHoverText")
@@ -514,6 +526,7 @@ class FloatingWidget(QFrame):
         self._settings = dict(self.main.settings)
         enabled = bool(self._settings.get("floating_widget_enabled", True))
         self.current_category = None
+        self.current_group = ""
         self._rebuild()
         self._apply_style()
         self._sync_edge_margins()
@@ -541,6 +554,7 @@ class FloatingWidget(QFrame):
         self._preview_pinned = True
         self._settings = dict(self.main.settings)
         self.current_category = None
+        self.current_group = ""
         self._rebuild()
         self._apply_style()
         self._sync_edge_margins()
@@ -675,6 +689,11 @@ class FloatingWidget(QFrame):
         return max(0, min(len(screens) - 1, value - 1))
 
     def go_back(self) -> None:
+        # 그룹(폴더) 안에 있으면 상위 그룹으로, 최상위 그룹이면 분류 목록으로.
+        if self.current_group:
+            parent = group_by_id(self.main.data, self.current_group)
+            self._open_group(str(parent.get("parent_id") or "") if parent else "")
+            return
         if self.current_category:
             self._open_category(None)
 
@@ -933,6 +952,7 @@ class FloatingWidget(QFrame):
             return
         self.clear_hovered_item()
         self.current_category = None
+        self.current_group = ""
         if self._search_query:
             self._search_query = ""
             self.search_box.blockSignals(True)
@@ -1203,13 +1223,58 @@ class FloatingWidget(QFrame):
         self.items_layout.addWidget(item, 0, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
 
     def _open_category(self, key: str | None) -> None:
-        if self.current_category == key:
+        if self.current_category == key and not self.current_group:
             return
         self.current_category = key
+        self.current_group = ""
         self._rebuild()
         self._apply_style()
         if self._shown:
             self.setGeometry(self._visible_geometry())
+
+    def _open_group(self, gid: str) -> None:
+        self.current_group = gid
+        self._rebuild()
+        self._apply_style()
+        if self._shown:
+            self.setGeometry(self._visible_geometry())
+
+    def _scope_for_category(self, key: str | None) -> str | None:
+        if key == "site":
+            return GROUP_SCOPE_SITE
+        if key in {"file", "folder"}:
+            return GROUP_SCOPE_FILE
+        if key == "cheat":
+            return GROUP_SCOPE_CHEAT
+        if key == "memo":
+            return GROUP_SCOPE_MEMO
+        return None
+
+    def _group_entries(self, key: str) -> list[tuple]:
+        scope = self._scope_for_category(key)
+        if scope is None:
+            return []
+        entries: list[tuple] = []
+        for group in groups_in(self.main.data, scope, self.current_group):
+            gid = group_id(group)
+            label = str(group.get("name") or "그룹")
+            icon_text = group_icon(group)
+            entries.append((
+                label,
+                f"{icon_text} {label} 그룹 열기",
+                lambda checked=False, value=gid: self._open_group(value),
+                icon_text,
+                None,
+            ))
+        return entries
+
+    def _in_current_group(self, key: str, item: dict) -> bool:
+        if self._scope_for_category(key) is None:
+            return True
+        # 검색 중에는 그룹과 무관하게 전체 항목에서 찾는다.
+        if self._search_query.strip():
+            return True
+        return item_group_id(item) == self.current_group
 
     def _ordered(self, collection: str) -> list[tuple[int, dict]]:
         items = list(self.main.data.get(collection, []))
@@ -1223,11 +1288,27 @@ class FloatingWidget(QFrame):
         if key == "date":
             return [self._title_item(item) for _idx, item in self._ordered("title_templates")]
         if key in {"site", "file", "folder"}:
-            return [self._launcher_item(item) for _idx, item in self._ordered("launchers") if self._launcher_type(item) == key]
+            return self._group_entries(key) + [
+                self._launcher_item(item)
+                for _idx, item in self._ordered("launchers")
+                if self._launcher_type(item) == key and self._in_current_group(key, item)
+            ]
         if key == "cheat":
-            return [self._cheat_item(item) for _idx, item in self._ordered("images")]
+            return self._group_entries(key) + [
+                self._cheat_item(item)
+                for _idx, item in self._ordered("images")
+                if self._in_current_group(key, item)
+            ]
         if key == "memo":
-            return self._memo_control_items() + [self._memo_item(item) for _idx, item in self._ordered("memos")]
+            return (
+                self._memo_control_items()
+                + self._group_entries(key)
+                + [
+                    self._memo_item(item)
+                    for _idx, item in self._ordered("memos")
+                    if self._in_current_group(key, item)
+                ]
+            )
         if key == "emoji":
             return [(emoji, emoji, lambda checked=False, value=emoji: self._copy_emoji(value), emoji, None) for emoji in self._emoji_items()]
         return []

@@ -33,6 +33,25 @@ from PyQt6.QtWidgets import (
 from app import config
 from app.utils import display_hotkey, new_id, now_iso, resolve_image_path, short_preview
 from ui.common import CARD_ACTION_ICON_SIZE, CARD_ACTION_OVERLAY_MARGIN, CARD_ACTION_ROW_MARGIN_X, CARD_ACTION_ROW_MARGIN_Y, CARD_ACTION_ROW_SPACING, CARD_CONTENT_TOP_MARGIN, ElidedLabel, ElidedMultilineLabel, GridPanel, HotkeyFields, SortControls, add_favorite_badge_to_card, apply_manual_reorder, apply_modern_dialog_style, ask_modern_question, bottom_action_bar, bump_usage, confirm_delete, confirm_shift_digit_hotkey, dialog_palette, make_card, make_hotkey_caps, make_icon_button, remove_favorite_badge_from_card, set_card_action_widget, show_modern_warning
+from ui.groups import (
+    GROUP_SCOPE_FILE,
+    GROUP_SCOPE_SITE,
+    GroupDialog,
+    count_group_contents,
+    create_group,
+    delete_group,
+    group_by_id,
+    group_id,
+    groups_in,
+    item_group_id,
+    make_back_card,
+    make_breadcrumb_label,
+    make_group_card,
+    show_move_to_group_menu,
+    toggle_group_favorite,
+    update_breadcrumb_label,
+    valid_group_id,
+)
 
 
 TYPE_ALIASES = {"사이트": "site", "파일": "file", "폴더": "folder", "site": "site", "file": "file", "folder": "folder"}
@@ -363,18 +382,35 @@ class LauncherTab(QWidget):
         super().__init__()
         self.main = main
         self.status_labels: dict[str, QLabel] = {}
+        self.site_group_id = ""
+        self.file_group_id = ""
         self._favicon_done.connect(self._on_favicon_ready)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.tabs = QTabWidget()
         self.site_list = GridPanel(columns=3)
         self.file_list = GridPanel(columns=2)
+        # 탭(메뉴 줄) 아래에 그룹 경로(브레드크럼)를 표시하도록 페이지로 감싼다.
+        self.site_breadcrumb = make_breadcrumb_label(lambda gid: self.enter_group(GROUP_SCOPE_SITE, gid))
+        site_page = QWidget()
+        site_page_layout = QVBoxLayout(site_page)
+        site_page_layout.setContentsMargins(0, 0, 0, 0)
+        site_page_layout.setSpacing(0)
+        site_page_layout.addWidget(self.site_breadcrumb)
+        site_page_layout.addWidget(self.site_list, 1)
+        self.file_breadcrumb = make_breadcrumb_label(lambda gid: self.enter_group(GROUP_SCOPE_FILE, gid))
+        file_page = QWidget()
+        file_page_layout = QVBoxLayout(file_page)
+        file_page_layout.setContentsMargins(0, 0, 0, 0)
+        file_page_layout.setSpacing(0)
+        file_page_layout.addWidget(self.file_breadcrumb)
+        file_page_layout.addWidget(self.file_list, 1)
         self.quick_search_page = QWidget()
         self._quick_search_page_layout = QVBoxLayout(self.quick_search_page)
         self._quick_search_page_layout.setContentsMargins(0, 0, 0, 0)
         self._quick_search_content = None
-        self.tabs.addTab(self.site_list, "사이트")
-        self.tabs.addTab(self.file_list, "파일/폴더")
+        self.tabs.addTab(site_page, "사이트")
+        self.tabs.addTab(file_page, "파일/폴더")
         self.tabs.addTab(self.quick_search_page, "바로검색")
         self.sort_controls = SortControls(self.refresh)
         self.search = QLineEdit()
@@ -395,8 +431,11 @@ class LauncherTab(QWidget):
         self.add_site_btn.clicked.connect(lambda: self.edit_launcher(launcher_type_value="site"))
         self.add_file_btn = QPushButton("+ 파일/폴더 등록")
         self.add_file_btn.clicked.connect(lambda: self.edit_launcher(launcher_type_value="file"))
+        self.add_group_btn = QPushButton("+ 그룹 생성")
+        self.add_group_btn.clicked.connect(self.create_group_clicked)
         row = QHBoxLayout()
         row.addStretch(1)
+        row.addWidget(self.add_group_btn)
         row.addWidget(self.add_site_btn)
         row.addWidget(self.add_file_btn)
         layout.addLayout(row)
@@ -412,6 +451,100 @@ class LauncherTab(QWidget):
         self.sort_controls.setVisible(not is_quick_search)
         self.add_site_btn.setVisible(idx == 0)
         self.add_file_btn.setVisible(idx == 1)
+        self.add_group_btn.setVisible(idx in (0, 1))
+        if hasattr(self.main, "update_group_breadcrumb"):
+            self.main.update_group_breadcrumb()
+
+    # --- 그룹(폴더) -----------------------------------------------------
+
+    def _scope_for_tab(self, idx: int | None = None) -> str:
+        index = self.tabs.currentIndex() if idx is None else idx
+        return GROUP_SCOPE_SITE if index == 0 else GROUP_SCOPE_FILE
+
+    def _group_id_for_scope(self, scope: str) -> str:
+        return self.site_group_id if scope == GROUP_SCOPE_SITE else self.file_group_id
+
+    def _set_group_id(self, scope: str, gid: str) -> None:
+        if scope == GROUP_SCOPE_SITE:
+            self.site_group_id = gid
+        else:
+            self.file_group_id = gid
+
+    def refresh_breadcrumb(self) -> None:
+        update_breadcrumb_label(self.site_breadcrumb, self.main.data, self.site_group_id)
+        update_breadcrumb_label(self.file_breadcrumb, self.main.data, self.file_group_id)
+
+    def enter_group(self, scope: str, gid: str) -> None:
+        self._set_group_id(scope, gid)
+        self.refresh()
+        if hasattr(self.main, "update_group_breadcrumb"):
+            self.main.update_group_breadcrumb()
+
+    def go_back_group(self, scope: str) -> None:
+        current = group_by_id(self.main.data, self._group_id_for_scope(scope))
+        parent = str(current.get("parent_id") or "") if current else ""
+        self.enter_group(scope, parent)
+
+    def create_group_clicked(self) -> None:
+        scope = self._scope_for_tab()
+        dialog = GroupDialog()
+        while dialog.exec() == dialog.DialogCode.Accepted:
+            value = dialog.value()
+            if not value.get("name"):
+                show_modern_warning(dialog, "입력 확인", "그룹명을 입력해주세요.")
+                continue
+            create_group(self.main.data, scope, self._group_id_for_scope(scope), value["name"], value["icon"])
+            self.main.save_data()
+            return
+
+    def edit_group(self, group: dict) -> None:
+        dialog = GroupDialog(group)
+        while dialog.exec() == dialog.DialogCode.Accepted:
+            value = dialog.value()
+            if not value.get("name"):
+                show_modern_warning(dialog, "입력 확인", "그룹명을 입력해주세요.")
+                continue
+            group["name"] = value["name"]
+            group["icon"] = value["icon"]
+            self.main.save_data()
+            if hasattr(self.main, "update_group_breadcrumb"):
+                self.main.update_group_breadcrumb()
+            return
+
+    def delete_group_clicked(self, group: dict) -> None:
+        if not confirm_delete(self, "선택한 그룹을 삭제할까요?\n그룹 안의 항목과 하위 그룹은 상위 경로로 이동합니다."):
+            return
+        delete_group(self.main.data, group, [self.main.data.get("launchers", [])])
+        self.main.save_data()
+        if hasattr(self.main, "update_group_breadcrumb"):
+            self.main.update_group_breadcrumb()
+
+    def toggle_group_favorite_clicked(self, group: dict, card: QWidget, button) -> None:
+        toggle_group_favorite(group, card, button)
+        QTimer.singleShot(0, self.main.save_data)
+        QTimer.singleShot(600, self.refresh)
+
+    def move_item_to_group(self, item: dict, scope: str) -> None:
+        def done() -> None:
+            self.main.save_data()
+
+        show_move_to_group_menu(self, self.main.data, scope, item, done)
+
+    def _make_launcher_group_card(self, group: dict, scope: str) -> QWidget:
+        items = [
+            item for item in self.main.data.get("launchers", [])
+            if (launcher_type(item.get("type")) == "site") == (scope == GROUP_SCOPE_SITE)
+        ]
+        subtitle = count_group_contents(self.main.data, scope, group_id(group), items)
+        return make_group_card(
+            group,
+            subtitle,
+            on_open=lambda s=scope, g=group: self.enter_group(s, group_id(g)),
+            on_favorite=self.toggle_group_favorite_clicked,
+            on_edit=self.edit_group,
+            on_delete=self.delete_group_clicked,
+            card_height=LAUNCHER_CARD_HEIGHT,
+        )
 
     def build_quick_search_tab(self) -> None:
         if self._quick_search_content is not None:
@@ -554,35 +687,87 @@ class LauncherTab(QWidget):
 
     def refresh(self) -> None:
         self.status_labels = {}
+        data = self.main.data
+        self.site_group_id = valid_group_id(data, GROUP_SCOPE_SITE, self.site_group_id)
+        self.file_group_id = valid_group_id(data, GROUP_SCOPE_FILE, self.file_group_id)
         site_cards = []
         file_cards = []
-        source_items = self.main.data.get("launchers", [])
+        source_items = data.get("launchers", [])
         items = self.sort_controls.sort_items(
             source_items,
             lambda value: value.get("name") or value.get("description") or value.get("url") or value.get("path", ""),
         )
         items = sorted(items, key=lambda value: 0 if value.get("favorite") else 1)
         q = self.search.text().strip().lower()
+        searching = bool(q)
+        site_meta: list[tuple[str, object]] = []
+        file_meta: list[tuple[str, object]] = []
+        site_offset = 0
+        file_offset = 0
+        if not searching:
+            # 그룹(폴더) 카드: 뒤로가기 → 하위 그룹 순으로 목록 앞에 배치한다.
+            if self.site_group_id:
+                current = group_by_id(data, self.site_group_id)
+                site_cards.append(make_back_card(lambda: self.go_back_group(GROUP_SCOPE_SITE), LAUNCHER_CARD_HEIGHT))
+                site_meta.append(("target", str(current.get("parent_id") or "") if current else ""))
+            for group in groups_in(data, GROUP_SCOPE_SITE, self.site_group_id):
+                site_cards.append(self._make_launcher_group_card(group, GROUP_SCOPE_SITE))
+                site_meta.append(("target", group_id(group)))
+            if self.file_group_id:
+                current = group_by_id(data, self.file_group_id)
+                file_cards.append(make_back_card(lambda: self.go_back_group(GROUP_SCOPE_FILE), LAUNCHER_CARD_HEIGHT))
+                file_meta.append(("target", str(current.get("parent_id") or "") if current else ""))
+            for group in groups_in(data, GROUP_SCOPE_FILE, self.file_group_id):
+                file_cards.append(self._make_launcher_group_card(group, GROUP_SCOPE_FILE))
+                file_meta.append(("target", group_id(group)))
+            site_offset = len(site_cards)
+            file_offset = len(file_cards)
         site_items = []
         file_items = []
         for item in items:
             if q and q not in (item.get("name", "") + " " + item.get("url", "") + " " + item.get("path", "")).lower():
                 continue
             item_type = launcher_type(item.get("type"))
+            if not searching:
+                # 검색 중이 아니면 현재 그룹에 속한 항목만 보여준다.
+                current = self.site_group_id if item_type == "site" else self.file_group_id
+                if item_group_id(item) != current:
+                    continue
             if item_type == "site":
                 card = self.make_site_card(item)
                 site_items.append(item)
                 site_cards.append(card)
+                site_meta.append(("item", item))
             else:
                 card = make_card(item.get("name", "(이름 없음)"), short_preview(item.get("path", "")), display_hotkey(item.get("hotkey")), compact=True, card_height=LAUNCHER_CARD_HEIGHT)
                 self.decorate_launcher_card_icon(card, item)
                 self.add_launcher_actions(card, item)
                 file_items.append(item)
                 file_cards.append(card)
-        site_callback = (lambda old, new: self.reorder_items(source_items, site_items, old, new)) if self.sort_controls.is_manual() else None
-        file_callback = (lambda old, new: self.reorder_items(source_items, file_items, old, new)) if self.sort_controls.is_manual() else None
-        self.site_list.add_cards(site_cards, on_reorder=site_callback)
-        self.file_list.add_cards(file_cards, on_reorder=file_callback)
+                file_meta.append(("item", item))
+        site_callback = (lambda old, new, off=site_offset: self.reorder_items(source_items, site_items, old - off, new - off)) if self.sort_controls.is_manual() else None
+        file_callback = (lambda old, new, off=file_offset: self.reorder_items(source_items, file_items, old - off, new - off)) if self.sort_controls.is_manual() else None
+        site_drop = self._make_drop_handler(site_meta) if not searching else None
+        file_drop = self._make_drop_handler(file_meta) if not searching else None
+        self.site_list.add_cards(site_cards, on_reorder=site_callback, on_drop=site_drop)
+        self.file_list.add_cards(file_cards, on_reorder=file_callback, on_drop=file_drop)
+        self.refresh_breadcrumb()
+
+    def _make_drop_handler(self, meta: list[tuple[str, object]]):
+        """항목 카드를 그룹/뒤로가기 카드 위에 드롭하면 해당 그룹으로 이동."""
+
+        def handle(old_index: int, new_index: int) -> bool:
+            if not (0 <= old_index < len(meta) and 0 <= new_index < len(meta)):
+                return False
+            src_kind, src_value = meta[old_index]
+            dst_kind, dst_value = meta[new_index]
+            if src_kind != "item" or dst_kind != "target":
+                return False
+            src_value["group_id"] = dst_value
+            self.main.save_data()
+            return True
+
+        return handle
 
     def reorder_items(self, source: list[dict], visible: list[dict], old: int, new: int) -> None:
         apply_manual_reorder(source, visible, old, new)
@@ -685,6 +870,7 @@ class LauncherTab(QWidget):
         self.style_launcher_favorite_button(pin_btn, item)
         actions_layout.addWidget(pin_btn)
         actions_layout.addWidget(make_icon_button("open", "열기", lambda checked=False, value=item: self.open_launcher(value), size=_sz))
+        actions_layout.addWidget(make_icon_button("📂", "그룹으로 이동", lambda checked=False, value=item: self.move_item_to_group(value, GROUP_SCOPE_SITE), size=_sz))
         actions_layout.addWidget(make_icon_button("edit", "수정", lambda checked=False, value=item: self.edit_launcher(value), size=_sz))
         actions_layout.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=item: self.delete_launcher(value), True, size=_sz))
         actions.hide()
@@ -733,6 +919,7 @@ class LauncherTab(QWidget):
         self.style_launcher_favorite_button(pin_btn, item)
         row.addWidget(pin_btn)
         row.addWidget(make_icon_button("open", "열기", lambda checked=False, value=item: self.open_launcher(value), size=_sz))
+        row.addWidget(make_icon_button("📂", "그룹으로 이동", lambda checked=False, value=item: self.move_item_to_group(value, GROUP_SCOPE_FILE), size=_sz))
         row.addWidget(make_icon_button("edit", "수정", lambda checked=False, value=item: self.edit_launcher(value), size=_sz))
         row.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=item: self.delete_launcher(value), True, size=_sz))
         set_card_action_widget(card, action_page)
@@ -836,6 +1023,8 @@ class LauncherTab(QWidget):
                 value["created_at"] = now_iso()
                 value["sort_order"] = len(self.main.data.setdefault("launchers", []))
                 value["usage_count"] = 0
+                # 새 항목은 현재 열려 있는 그룹(폴더)에 등록한다.
+                value["group_id"] = self.site_group_id if value.get("type") == "site" else self.file_group_id
             self.ensure_launcher_favicon(value, item)
             items = self.main.data.setdefault("launchers", [])
             if item in items:

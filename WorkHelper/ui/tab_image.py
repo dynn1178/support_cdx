@@ -10,12 +10,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
-from PyQt6.QtCore import QEasingCurve, QEventLoop, QObject, QPoint, QPropertyAnimation, QRect, QRunnable, QSize, QThreadPool, QTimer, Qt, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QBrush, QColor, QCursor, QImage, QKeySequence, QPainter, QPen, QPixmap, QShortcut
+from PyQt6.QtCore import QEventLoop, QObject, QPoint, QRect, QRunnable, QSize, QThreadPool, QTimer, Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QColor, QCursor, QImage, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
-    QCheckBox,
-    QColorDialog,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -28,8 +26,6 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QRubberBand,
     QSizePolicy,
-    QSlider,
-    QSpinBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -38,6 +34,7 @@ from PyQt6.QtWidgets import (
 from app import config
 from app.screen_utils import virtual_screen_geometry
 from app.utils import display_hotkey, new_id, now_iso, resolve_image_path
+from ui.snip import PinnedImageWindow, SnipEditorWindow, SnipOverlay
 from ui.common import (
     CARD_ACTION_ICON_SIZE,
     CARD_ACTION_ROW_MARGIN_X,
@@ -57,6 +54,25 @@ from ui.common import (
     make_icon_button,
     set_card_action_widget,
     show_modern_info,
+    show_modern_warning,
+)
+from ui.groups import (
+    GROUP_SCOPE_CHEAT,
+    GroupDialog,
+    count_group_contents,
+    create_group,
+    delete_group,
+    group_by_id,
+    group_id,
+    groups_in,
+    item_group_id,
+    make_back_card,
+    make_breadcrumb_label,
+    make_group_card,
+    show_move_to_group_menu,
+    toggle_group_favorite,
+    update_breadcrumb_label,
+    valid_group_id,
 )
 
 STEEL_CUT_CARD_HEIGHT = 82
@@ -166,17 +182,19 @@ class SteelCutSaveSignals(QObject):
 
 
 class SteelCutSaveWorker(QRunnable):
-    def __init__(self, image, path: Path) -> None:
+    def __init__(self, image, path: Path, image_format: str = "JPG", quality: int = 95) -> None:
         super().__init__()
         self.image = image
         self.path = path
+        self.image_format = image_format
+        self.quality = quality
         self.signals = SteelCutSaveSignals()
 
     @pyqtSlot()
     def run(self) -> None:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            ok = True if self.path.exists() else self.image.save(str(self.path), "JPG", 95)
+            ok = True if self.path.exists() else self.image.save(str(self.path), self.image_format, self.quality)
         except Exception:
             ok = False
         self.signals.finished.emit(str(self.path), ok)
@@ -262,14 +280,18 @@ def crop_pixmap_dip(pixmap: QPixmap, local_rect: QRect) -> QPixmap:
     return cropped
 
 
-def next_capture_jpg_path(directory: Path) -> Path:
+def next_capture_path(directory: Path, suffix: str = ".jpg") -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     for number in range(1, 1000):
-        path = directory / f"{stamp}_{number:03d}.jpg"
+        path = directory / f"{stamp}_{number:03d}{suffix}"
         if not path.exists():
             return path
-    return directory / f"{stamp}_{new_id('capture')}.jpg"
+    return directory / f"{stamp}_{new_id('capture')}{suffix}"
+
+
+def next_capture_jpg_path(directory: Path) -> Path:
+    return next_capture_path(directory, ".jpg")
 
 
 def save_capture_jpg(pixmap: QPixmap, path: Path) -> bool:
@@ -534,84 +556,6 @@ class ScreenCaptureDialog(QDialog):
                 panel.rubber_band.show()
 
 
-class FixedSizeCaptureDialog(QDialog):
-    def __init__(self, size: QSize, initial_top_left: QPoint | None = None) -> None:
-        super().__init__()
-        self.selection = QRect()
-        self.drag_start: QPoint | None = None
-        self.box_size = QSize(max(10, size.width()), max(10, size.height()))
-        self.initial_top_left = initial_top_left
-        self.rubber_band = QRubberBand(QRubberBand.Shape.Rectangle, self)
-        self.rubber_band.setStyleSheet("border: 4px solid #2563EB; background: rgba(37, 99, 235, 48);")
-        self.capture_button = QPushButton("이 영역 캡처", self)
-        self.capture_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.capture_button.setStyleSheet(
-            "QPushButton { background:#2563EB; color:white; border:0; border-radius:8px; padding:7px 14px; font-weight:800; }"
-        )
-        self.capture_button.clicked.connect(self.accept_capture)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
-        virtual_rect = virtual_screen_geometry()
-        self.setGeometry(virtual_rect)
-        if self.initial_top_left is not None:
-            self.initial_top_left = self.initial_top_left - virtual_rect.topLeft()
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setStyleSheet("QDialog { background: rgba(15, 23, 42, 58); }")
-        self.setCursor(Qt.CursorShape.ArrowCursor)
-        self.rubber_band.setCursor(Qt.CursorShape.SizeAllCursor)
-
-    def global_to_overlay(self, point: QPoint) -> QPoint:
-        return self.mapFromGlobal(point)
-
-    def showEvent(self, event) -> None:
-        super().showEvent(event)
-        center = self.rect().center()
-        top_left = self.initial_top_left if hasattr(self, "initial_top_left") and self.initial_top_left is not None else QPoint(center.x() - self.box_size.width() // 2, center.y() - self.box_size.height() // 2)
-        self.rubber_band.setGeometry(QRect(top_left, self.box_size).intersected(self.rect()))
-        self.rubber_band.show()
-        self.position_capture_button()
-
-    def mousePressEvent(self, event) -> None:
-        local_pos = self.global_to_overlay(event.globalPosition().toPoint())
-        if not self.rubber_band.geometry().contains(local_pos):
-            self.drag_start = None
-            return
-        self.drag_start = local_pos - self.rubber_band.geometry().topLeft()
-
-    def mouseMoveEvent(self, event) -> None:
-        if self.drag_start is None:
-            return
-        top_left = self.global_to_overlay(event.globalPosition().toPoint()) - self.drag_start
-        rect = QRect(top_left, self.box_size)
-        bounds = self.rect()
-        if rect.left() < bounds.left():
-            rect.moveLeft(bounds.left())
-        if rect.top() < bounds.top():
-            rect.moveTop(bounds.top())
-        if rect.right() > bounds.right():
-            rect.moveRight(bounds.right())
-        if rect.bottom() > bounds.bottom():
-            rect.moveBottom(bounds.bottom())
-        self.rubber_band.setGeometry(rect)
-        self.position_capture_button()
-
-    def mouseReleaseEvent(self, event) -> None:
-        self.drag_start = None
-
-    def position_capture_button(self) -> None:
-        self.capture_button.adjustSize()
-        band = self.rubber_band.geometry()
-        x = min(max(band.right() - self.capture_button.width(), 8), self.width() - self.capture_button.width() - 8)
-        y = band.bottom() + 10
-        if y + self.capture_button.height() > self.height() - 8:
-            y = max(8, band.top() - self.capture_button.height() - 10)
-        self.capture_button.move(x, y)
-        self.capture_button.show()
-
-    def accept_capture(self) -> None:
-        self.selection = self.rubber_band.geometry().translated(self.geometry().topLeft())
-        self.accept()
-
-
 class ImageDialog(QDialog):
     def __init__(self, item: dict | None = None) -> None:
         super().__init__()
@@ -771,464 +715,13 @@ class ImageDialog(QDialog):
         return data
 
 
-class ImageViewerDialog(QDialog):
-    def __init__(self, image_path: str, title: str, scale: int = 100, stay_on_top: bool = False) -> None:
-        super().__init__()
-        self.setWindowTitle(title)
-        if stay_on_top:
-            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-        layout = QVBoxLayout(self)
-        self.label = QLabel()
-        self.original = QPixmap(image_path)
-        if self.original.isNull():
-            self.label.setText("이미지를 불러오지 못했습니다.")
-        else:
-            self.apply_scale(scale)
-        layout.addWidget(self.label)
-
-    def apply_scale(self, scale: int) -> None:
-        width = max(1, self.original.width() * scale // 100)
-        height = max(1, self.original.height() * scale // 100)
-        scaled = self.original.scaled(width, height, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-        self.label.setPixmap(scaled)
-        self.resize(scaled.width() + 24, scaled.height() + 24)
-
-
-class PaintCanvas(QWidget):
-    def __init__(self, image_path: str | None = None, pixmap: QPixmap | None = None) -> None:
-        super().__init__()
-        self.base = QPixmap(pixmap) if pixmap is not None and not pixmap.isNull() else QPixmap(image_path or "")
-        self.overlay = QPixmap(self.base.size())
-        self.overlay.fill(Qt.GlobalColor.transparent)
-        self.tool = "pen"
-        self.stroke_color = QColor("#ff2d55")
-        self.stroke_width = 4
-        self.fill_enabled = False
-        self.fill_opacity = 35
-        self.start_pos: QPoint | None = None
-        self.last_pos: QPoint | None = None
-        self.preview = QPixmap()
-        self.undo_stack: list[QPixmap] = []
-        self.setFixedSize(self.base.size() if not self.base.isNull() else QSize(520, 320))
-
-    def push_undo_snapshot(self) -> None:
-        self.undo_stack.append(self.overlay.copy())
-        if len(self.undo_stack) > 20:
-            self.undo_stack.pop(0)
-
-    def undo(self) -> None:
-        if not self.undo_stack:
-            return
-        self.overlay = self.undo_stack.pop()
-        self.preview = QPixmap()
-        self.update()
-
-    def composed_pixmap(self) -> QPixmap:
-        if self.base.isNull():
-            return QPixmap()
-        result = QPixmap(self.base.size())
-        result.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(result)
-        painter.drawPixmap(0, 0, self.base)
-        painter.drawPixmap(0, 0, self.overlay)
-        painter.end()
-        return result
-
-    def paintEvent(self, event) -> None:
-        painter = QPainter(self)
-        if self.base.isNull():
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "이미지를 불러올 수 없습니다.")
-        else:
-            painter.drawPixmap(0, 0, self.base)
-            painter.drawPixmap(0, 0, self.overlay)
-            if not self.preview.isNull():
-                painter.drawPixmap(0, 0, self.preview)
-        painter.end()
-
-    def mousePressEvent(self, event) -> None:
-        if self.base.isNull() or event.button() != Qt.MouseButton.LeftButton:
-            return
-        self.push_undo_snapshot()
-        self.start_pos = event.position().toPoint()
-        self.last_pos = self.start_pos
-        self.preview = QPixmap()
-
-    def mouseMoveEvent(self, event) -> None:
-        if self.start_pos is None:
-            return
-        pos = event.position().toPoint()
-        if self.tool == "pen":
-            painter = QPainter(self.overlay)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setPen(QPen(self.stroke_color, self.stroke_width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-            painter.drawLine(self.last_pos, pos)
-            painter.end()
-            self.last_pos = pos
-        else:
-            self.preview = QPixmap(self.overlay.size())
-            self.preview.fill(Qt.GlobalColor.transparent)
-            self._draw_shape(self.preview, self.start_pos, pos)
-        self.update()
-
-    def mouseReleaseEvent(self, event) -> None:
-        if self.start_pos is None or event.button() != Qt.MouseButton.LeftButton:
-            return
-        pos = event.position().toPoint()
-        if self.tool != "pen":
-            self._draw_shape(self.overlay, self.start_pos, pos)
-            self.preview = QPixmap()
-        self.start_pos = None
-        self.last_pos = None
-        self.update()
-
-    def _draw_shape(self, target: QPixmap, start: QPoint, end: QPoint) -> None:
-        rect = QRect(start, end).normalized()
-        painter = QPainter(target)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QPen(self.stroke_color, self.stroke_width))
-        if self.fill_enabled and self.tool in {"rect", "ellipse"}:
-            fill = QColor(self.stroke_color)
-            fill.setAlphaF(self.fill_opacity / 100.0)
-            painter.setBrush(QBrush(fill))
-        else:
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-        if self.tool == "line":
-            painter.drawLine(start, end)
-        elif self.tool == "ellipse":
-            painter.drawEllipse(rect)
-        else:
-            painter.drawRect(rect)
-        painter.end()
-
-
-class SteelCutViewerDialog(QDialog):
-    def __init__(self, image_path: str | None, title: str, pixmap: QPixmap | None = None) -> None:
-        super().__init__()
-        self.image_path = image_path or ""
-        self.setWindowTitle(title)
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-        self.setWindowFlag(Qt.WindowType.Window, True)
-        self.setStyleSheet(
-            """
-            QDialog { background: #F7F8FB; }
-            QWidget#toolbarSection { background: #FFFFFF; border: 1px solid #E3E7EF; border-radius: 8px; }
-            QLabel#toolbarTitle { color: #475467; font-size: 9pt; font-weight: 800; }
-            QPushButton, QComboBox, QSpinBox {
-                min-height: 24px; max-height: 24px; border: 1px solid #D0D5DD; border-radius: 6px;
-                background: #FFFFFF; padding: 1px 8px;
-            }
-            QPushButton:hover, QComboBox:hover, QSpinBox:hover { border-color: #8EA4C8; }
-            QPushButton#primaryButton { background: #2563EB; border-color: #2563EB; color: #FFFFFF; font-weight: 800; }
-            QPushButton#colorButton { background: #ff2d55; border-color: #ff2d55; color: #FFFFFF; font-weight: 800; }
-            QCheckBox { color: #344054; spacing: 6px; }
-            QSlider { background: transparent; }
-            """
-        )
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(6)
-
-        drawing_section = self._section()
-        drawing = QHBoxLayout(drawing_section)
-        drawing.setContentsMargins(10, 5, 10, 5)
-        drawing.setSpacing(6)
-        drawing.addWidget(self._section_title("그리기"))
-
-        self.tool_combo = QComboBox()
-        self.tool_combo.addItem("펜", "pen")
-        self.tool_combo.addItem("선", "line")
-        self.tool_combo.addItem("사각형", "rect")
-        self.tool_combo.addItem("원", "ellipse")
-        self.tool_combo.setMinimumWidth(90)
-        self.tool_combo.view().setMinimumWidth(90)
-        self.color_btn = QPushButton("색상")
-        self.color_btn.setObjectName("colorButton")
-        self.width_spin = QSpinBox()
-        self.width_spin.setRange(1, 40)
-        self.width_spin.setValue(4)
-        self.width_spin.setSuffix(" px")
-        self.width_slider = QSlider(Qt.Orientation.Horizontal)
-        self.width_slider.setRange(1, 40)
-        self.width_slider.setValue(4)
-        self.width_slider.setFixedWidth(90)
-        self.fill_check = QCheckBox("채우기")
-        self.fill_opacity = QSlider(Qt.Orientation.Horizontal)
-        self.fill_opacity.setRange(0, 100)
-        self.fill_opacity.setValue(35)
-        self.fill_opacity.setFixedWidth(110)
-        drawing.setSpacing(8)
-        drawing.addWidget(self.tool_combo)
-        drawing.addSpacing(12)
-        drawing.addWidget(self.color_btn)
-        drawing.addSpacing(12)
-        drawing.addWidget(QLabel("두께"))
-        drawing.addWidget(self.width_spin)
-        drawing.addWidget(self.width_slider)
-        drawing.addSpacing(12)
-        drawing.addWidget(self.fill_check)
-        drawing.addWidget(QLabel("채움 투명도"))
-        drawing.addWidget(self.fill_opacity)
-        drawing.addStretch(1)
-        layout.addWidget(drawing_section)
-
-        system_section = self._section()
-        system = QHBoxLayout(system_section)
-        system.setContentsMargins(10, 5, 10, 5)
-        system.setSpacing(6)
-        system.addWidget(self._section_title("창 / 저장"))
-
-        self.opacity_slider = QSlider(Qt.Orientation.Horizontal)
-        self.opacity_slider.setRange(20, 100)
-        self.opacity_slider.setValue(100)
-        self.opacity_slider.setFixedWidth(130)
-        copy_btn = QPushButton("복사")
-        undo_btn = QPushButton("되돌리기")
-        reset_btn = QPushButton("초기화")
-        self.save_with_drawing = QCheckBox("저장 시 그리기 포함")
-        self.save_with_drawing.setChecked(True)
-        save_btn = QPushButton("저장")
-        save_btn.setObjectName("primaryButton")
-        self.pin_check = QCheckBox("항상 위")
-        self.pin_check.setChecked(True)
-        system.addWidget(QLabel("창 투명도"))
-        system.addWidget(self.opacity_slider)
-        system.addStretch(1)
-        system.addWidget(self.pin_check)
-        system.addWidget(self.save_with_drawing)
-        system.addWidget(undo_btn)
-        system.addWidget(reset_btn)
-        system.addWidget(copy_btn)
-        system.addWidget(save_btn)
-        layout.addWidget(system_section)
-
-        self.canvas = PaintCanvas(self.image_path, pixmap)
-        self.canvas.setStyleSheet("border: 1px solid #D0D5DD; border-radius: 8px; background: #FFFFFF;")
-        layout.addWidget(self.canvas, 1, Qt.AlignmentFlag.AlignCenter)
-        if not self.canvas.base.isNull():
-            self.resize(self.canvas.base.width() + 32, self.canvas.base.height() + 116)
-
-        self.opacity_slider.valueChanged.connect(lambda v: self.setWindowOpacity(v / 100.0))
-        self.pin_check.toggled.connect(self._toggle_pin)
-        self.tool_combo.currentIndexChanged.connect(lambda _=0: setattr(self.canvas, "tool", self.tool_combo.currentData()))
-        self.color_btn.clicked.connect(self.choose_color)
-        self.width_spin.valueChanged.connect(self._on_width_changed)
-        self.width_slider.valueChanged.connect(self._on_width_changed)
-        self.fill_check.toggled.connect(lambda value: setattr(self.canvas, "fill_enabled", value))
-        self.fill_opacity.valueChanged.connect(lambda value: setattr(self.canvas, "fill_opacity", value))
-        copy_btn.clicked.connect(self.copy_to_clipboard)
-        undo_btn.clicked.connect(self.undo_drawing)
-        reset_btn.clicked.connect(self.clear_drawing)
-        save_btn.clicked.connect(self.save_current_image)
-        # WidgetWithChildrenShortcut: 캔버스·슬라이더 등 자식 위젯이 포커스를
-        # 가질 때도 단축키가 동작하도록 WindowShortcut 대신 사용
-        copy_sc = QShortcut(QKeySequence(QKeySequence.StandardKey.Copy), self)
-        copy_sc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        copy_sc.activated.connect(self.copy_to_clipboard)
-        undo_sc = QShortcut(QKeySequence(QKeySequence.StandardKey.Undo), self)
-        undo_sc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        undo_sc.activated.connect(self.undo_drawing)
-
-    def _section(self) -> QWidget:
-        section = QWidget()
-        section.setObjectName("toolbarSection")
-        return section
-
-    def _section_title(self, text: str) -> QLabel:
-        label = QLabel(text)
-        label.setObjectName("toolbarTitle")
-        label.setFixedWidth(72)
-        return label
-
-    def choose_color(self) -> None:
-        color = QColorDialog.getColor(self.canvas.stroke_color, self, "색상 선택")
-        if color.isValid():
-            self.canvas.stroke_color = color
-            self.color_btn.setStyleSheet(f"background:{color.name()}; border-color:{color.name()}; color:white;")
-
-    def copy_to_clipboard(self) -> None:
-        pixmap = self.canvas.composed_pixmap()
-        copy_pixmap_to_clipboard(pixmap)
-
-    def undo_drawing(self) -> None:
-        self.canvas.undo()
-
-    def clear_drawing(self) -> None:
-        self.canvas.push_undo_snapshot()
-        self.canvas.overlay.fill(Qt.GlobalColor.transparent)
-        self.canvas.preview = QPixmap()
-        self.canvas.update()
-
-    def save_current_image(self) -> None:
-        if not self.image_path:
-            QMessageBox.warning(self, "저장 실패", "이미지 저장이 아직 완료되지 않았습니다. 잠시 후 다시 시도해주세요.")
-            return
-        pixmap = self.canvas.composed_pixmap() if self.save_with_drawing.isChecked() else self.canvas.base
-        if pixmap.isNull() or not pixmap.save(self.image_path, "PNG"):
-            QMessageBox.warning(self, "저장 실패", "스틸 컷 이미지를 저장하지 못했습니다.")
-            return
-        if self.save_with_drawing.isChecked():
-            self.canvas.base = pixmap
-            self.canvas.overlay.fill(Qt.GlobalColor.transparent)
-            self.canvas.update()
-        show_modern_info(self, "저장 완료", "스틸 컷 이미지를 저장했습니다.")
-
-    def _toggle_pin(self, checked: bool) -> None:
-        flags = self.windowFlags()
-        if checked:
-            flags |= Qt.WindowType.WindowStaysOnTopHint
-        else:
-            flags &= ~Qt.WindowType.WindowStaysOnTopHint
-        self.setWindowFlags(flags)
-        self.show()
-
-    def set_image_path(self, image_path: str) -> None:
-        self.image_path = image_path
-
-    def _on_width_changed(self, value: int) -> None:
-        self.canvas.stroke_width = value
-        self.width_spin.blockSignals(True)
-        self.width_spin.setValue(value)
-        self.width_spin.blockSignals(False)
-        self.width_slider.blockSignals(True)
-        self.width_slider.setValue(value)
-        self.width_slider.blockSignals(False)
-
-
-class SteelCutToast(QWidget):
-    clicked = pyqtSignal()
-    VISIBLE_MS = 5000
-    SLIDE_MS = 90
-
-    def __init__(self, pixmap: QPixmap, parent: QWidget | None = None) -> None:
-        super().__init__(None)
-        self._allow_close = False
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.Tool
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.WindowDoesNotAcceptFocus
-        )
-        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(320, 96)
-        self.setObjectName("steelCutToast")
-        self.setStyleSheet(
-            """
-            QWidget#steelCutToast {
-                background: #111827;
-                border: 1px solid #374151;
-                border-radius: 8px;
-            }
-            QLabel#toastTitle { color: #FFFFFF; font-size: 10pt; font-weight: 800; }
-            QLabel#toastBody { color: #CBD5E1; font-size: 9pt; }
-            QLabel#toastThumb { background: #FFFFFF; border-radius: 5px; }
-            """
-        )
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)
-
-        thumb = QLabel()
-        thumb.setObjectName("toastThumb")
-        thumb.setFixedSize(86, 64)
-        thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        if not pixmap.isNull():
-            thumb.setPixmap(
-                pixmap.scaled(
-                    thumb.size(),
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-            )
-        layout.addWidget(thumb)
-
-        text_box = QVBoxLayout()
-        text_box.setContentsMargins(0, 2, 0, 2)
-        title = QLabel("캡처가 클립보드에 복사됨")
-        title.setObjectName("toastTitle")
-        body = QLabel("클릭하면 큰 화면으로 봅니다.")
-        body.setObjectName("toastBody")
-        body.setWordWrap(True)
-        text_box.addWidget(title)
-        text_box.addWidget(body)
-        text_box.addStretch(1)
-        layout.addLayout(text_box, 1)
-
-        self._close_timer = QTimer(self)
-        self._close_timer.setSingleShot(True)
-        self._close_timer.timeout.connect(self.dismiss)
-        app = QApplication.instance()
-        if app is not None:
-            app.aboutToQuit.connect(self.force_close)
-
-    def _force_topmost(self) -> None:
-        if not sys.platform.startswith("win"):
-            return
-        try:
-            hwnd = int(self.winId())
-            ctypes.windll.user32.SetWindowPos(
-                ctypes.wintypes.HWND(hwnd),
-                ctypes.wintypes.HWND(-1),  # HWND_TOPMOST
-                0,
-                0,
-                0,
-                0,
-                0x0001 | 0x0002 | 0x0010 | 0x0040,  # NOSIZE | NOMOVE | NOACTIVATE | SHOWWINDOW
-            )
-        except Exception:
-            pass
-
-    def dismiss(self) -> None:
-        self._allow_close = True
-        self.close()
-
-    def force_close(self) -> None:
-        self._allow_close = True
-        self.close()
-
-    def closeEvent(self, event) -> None:
-        if self._allow_close:
-            super().closeEvent(event)
-            return
-        event.ignore()
-
-    def show_slide(self, anchor_rect: QRect | None = None) -> None:
-        anchor_point = anchor_rect.center() if anchor_rect is not None and not anchor_rect.isNull() else QCursor.pos()
-        screen = QApplication.screenAt(anchor_point) or QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
-        available = screen.availableGeometry() if screen else QRect(0, 0, 1280, 720)
-        end = QPoint(available.right() - self.width() - 16, available.bottom() - self.height() - 16)
-        start = QPoint(end.x() + 56, end.y())
-        self.move(start)
-        self.show()
-        self.raise_()
-        self._force_topmost()
-        QApplication.processEvents()
-        self._animation = QPropertyAnimation(self, b"pos", self)
-        self._animation.setDuration(self.SLIDE_MS)
-        self._animation.setStartValue(start)
-        self._animation.setEndValue(end)
-        self._animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self._animation.finished.connect(lambda: self._close_timer.start(self.VISIBLE_MS))
-        self._animation.start()
-        QTimer.singleShot(40, self._force_topmost)
-
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit()
-            self.dismiss()
-            return
-        super().mousePressEvent(event)
-
-
 class ImageTab(QWidget):
     def __init__(self, main) -> None:
         super().__init__()
         self.main = main
-        self._steel_cut_toast: SteelCutToast | None = None
-        self._steel_cut_viewer: SteelCutViewerDialog | None = None
+        self._snip_windows: list[QWidget] = []
+        self._snip_active = False
+        self.cheat_group_id = ""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.search = QLineEdit()
@@ -1250,13 +743,19 @@ class ImageTab(QWidget):
         self.steel_cut_list = GridPanel(columns=3)
         add_btn = QPushButton("+ 이미지")
         add_btn.clicked.connect(self.edit_image)
+        group_btn = QPushButton("+ 그룹 생성")
+        group_btn.clicked.connect(self.create_group_clicked)
         page = QWidget()
         page_layout = QVBoxLayout(page)
         page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.setSpacing(0)
+        # 탭(메뉴 줄) 아래에 그룹 경로(브레드크럼) 표시
+        self.breadcrumb = make_breadcrumb_label(self.enter_group)
+        page_layout.addWidget(self.breadcrumb)
         page_layout.addWidget(self.list, 1)
         save_folder_btn = QPushButton("저장 폴더 열기")
         save_folder_btn.clicked.connect(self.open_saved_image_folder)
-        page_layout.addLayout(bottom_action_bar(save_folder_btn, add_btn))
+        page_layout.addLayout(bottom_action_bar(save_folder_btn, group_btn, add_btn))
         steel_page = QWidget()
         steel_layout = QVBoxLayout(steel_page)
         steel_layout.setContentsMargins(0, 0, 0, 0)
@@ -1268,30 +767,136 @@ class ImageTab(QWidget):
         steel_layout.addLayout(bottom_action_bar(reset_btn))
         self.tabs.addTab(steel_page, "캡처 · 그리기")
         self.tabs.addTab(page, "컨닝페이퍼")
+        self.tabs.currentChanged.connect(self._on_tab_changed)
         layout.addWidget(self.tabs, 1)
+
+    def _on_tab_changed(self, _index: int) -> None:
+        if hasattr(self.main, "update_group_breadcrumb"):
+            self.main.update_group_breadcrumb()
 
     def refresh(self) -> None:
         self.cleanup_steel_cuts()
         cards = []
         q = self.search.text().strip().lower()
-        source_items = self.main.data.get("images", [])
-        visible_items = self.sort_controls.sort_items(source_items, lambda value: value.get("name") or value.get("path", ""))
-        for item in visible_items:
+        searching = bool(q)
+        data = self.main.data
+        self.cheat_group_id = valid_group_id(data, GROUP_SCOPE_CHEAT, self.cheat_group_id)
+        source_items = data.get("images", [])
+        sorted_items = self.sort_controls.sort_items(source_items, lambda value: value.get("name") or value.get("path", ""))
+        offset = 0
+        meta: list[tuple[str, object]] = []
+        if not searching:
+            if self.cheat_group_id:
+                current = group_by_id(data, self.cheat_group_id)
+                cards.append(make_back_card(self.go_back_group, card_height=72))
+                meta.append(("target", str(current.get("parent_id") or "") if current else ""))
+            for group in groups_in(data, GROUP_SCOPE_CHEAT, self.cheat_group_id):
+                cards.append(self._make_cheat_group_card(group))
+                meta.append(("target", group_id(group)))
+            offset = len(cards)
+        visible_items = []
+        for item in sorted_items:
             if q and q not in (item.get("name", "") + " " + item.get("path", "")).lower():
+                continue
+            if not searching and item_group_id(item) != self.cheat_group_id:
                 continue
             card = make_card(item.get("name", "(이름 없음)"), "", display_hotkey(item.get("hotkey")), card_size="a")
             add_card_actions(
                 card,
                 [
                     ("view", "보기", lambda checked=False, value=item: self.view_image(value), False),
+                    ("📂", "그룹으로 이동", lambda checked=False, value=item: self.move_image_to_group(value), False),
                     ("edit", "수정", lambda checked=False, value=item: self.edit_image(value), False),
                     ("delete", "삭제", lambda checked=False, value=item: self.delete_image(value), True),
                 ],
             )
+            visible_items.append(item)
             cards.append(card)
-        callback = (lambda old, new: self.reorder_items(source_items, visible_items, old, new)) if self.sort_controls.is_manual() else None
-        self.list.add_cards(cards, on_reorder=callback)
+            meta.append(("item", item))
+        callback = (lambda old, new, off=offset: self.reorder_items(source_items, visible_items, old - off, new - off)) if self.sort_controls.is_manual() else None
+        drop_handler = self._make_drop_handler(meta) if not searching else None
+        self.list.add_cards(cards, on_reorder=callback, on_drop=drop_handler)
+        self.refresh_breadcrumb()
         self.refresh_steel_cuts(q)
+
+    # --- 컨닝페이퍼 그룹(폴더) -------------------------------------------
+
+    def _make_drop_handler(self, meta: list[tuple[str, object]]):
+        """이미지 카드를 그룹/뒤로가기 카드 위에 드롭하면 해당 그룹으로 이동."""
+
+        def handle(old_index: int, new_index: int) -> bool:
+            if not (0 <= old_index < len(meta) and 0 <= new_index < len(meta)):
+                return False
+            src_kind, src_value = meta[old_index]
+            dst_kind, dst_value = meta[new_index]
+            if src_kind != "item" or dst_kind != "target":
+                return False
+            src_value["group_id"] = dst_value
+            self.main.save_data()
+            return True
+
+        return handle
+
+    def refresh_breadcrumb(self) -> None:
+        update_breadcrumb_label(self.breadcrumb, self.main.data, self.cheat_group_id)
+
+    def enter_group(self, gid: str) -> None:
+        self.cheat_group_id = gid
+        self.refresh()
+
+    def go_back_group(self) -> None:
+        current = group_by_id(self.main.data, self.cheat_group_id)
+        self.enter_group(str(current.get("parent_id") or "") if current else "")
+
+    def create_group_clicked(self) -> None:
+        dialog = GroupDialog()
+        while dialog.exec() == dialog.DialogCode.Accepted:
+            value = dialog.value()
+            if not value.get("name"):
+                show_modern_warning(dialog, "입력 확인", "그룹명을 입력해주세요.")
+                continue
+            create_group(self.main.data, GROUP_SCOPE_CHEAT, self.cheat_group_id, value["name"], value["icon"])
+            self.main.save_data()
+            return
+
+    def edit_group(self, group: dict) -> None:
+        dialog = GroupDialog(group)
+        while dialog.exec() == dialog.DialogCode.Accepted:
+            value = dialog.value()
+            if not value.get("name"):
+                show_modern_warning(dialog, "입력 확인", "그룹명을 입력해주세요.")
+                continue
+            group["name"] = value["name"]
+            group["icon"] = value["icon"]
+            self.main.save_data()
+            return
+
+    def delete_group_clicked(self, group: dict) -> None:
+        if not confirm_delete(self, "선택한 그룹을 삭제할까요?\n그룹 안의 항목과 하위 그룹은 상위 경로로 이동합니다."):
+            return
+        delete_group(self.main.data, group, [self.main.data.get("images", [])])
+        self.main.save_data()
+
+    def toggle_group_favorite_clicked(self, group: dict, card: QWidget, button) -> None:
+        toggle_group_favorite(group, card, button)
+        QTimer.singleShot(0, self.main.save_data)
+
+    def move_image_to_group(self, item: dict) -> None:
+        show_move_to_group_menu(self, self.main.data, GROUP_SCOPE_CHEAT, item, self.main.save_data)
+
+    def _make_cheat_group_card(self, group: dict) -> QWidget:
+        subtitle = count_group_contents(
+            self.main.data, GROUP_SCOPE_CHEAT, group_id(group), self.main.data.get("images", [])
+        )
+        return make_group_card(
+            group,
+            subtitle,
+            on_open=lambda g=group: self.enter_group(group_id(g)),
+            on_favorite=self.toggle_group_favorite_clicked,
+            on_edit=self.edit_group,
+            on_delete=self.delete_group_clicked,
+            card_height=72,
+        )
 
     def refresh_steel_cuts(self, q: str = "") -> None:
         source_items = self.main.data.setdefault("steel_cuts", [])
@@ -1423,71 +1028,76 @@ class ImageTab(QWidget):
     def capture_selection(self, rect: QRect) -> QPixmap:
         return capture_screen_rect(rect)
 
-    def steel_cut_capture_rect(self) -> tuple[QRect, QPixmap | None]:
-        mode = self.main.settings.get("steel_cut_capture_mode", "region")
-        if mode == "full":
-            return virtual_screen_geometry(), None
-        if mode == "window":
-            return active_window_rect(), None
-        if mode == "fixed":
-            width = int(self.main.settings.get("steel_cut_fixed_width", 800) or 800)
-            height = int(self.main.settings.get("steel_cut_fixed_height", 450) or 450)
-            raw_x = self.main.settings.get("steel_cut_fixed_x")
-            raw_y = self.main.settings.get("steel_cut_fixed_y")
-            initial = QPoint(int(raw_x), int(raw_y)) if raw_x is not None and raw_y is not None else None
-            capture = FixedSizeCaptureDialog(QSize(width, height), initial)
-            if exec_capture_dialog(capture) != capture.DialogCode.Accepted:
-                return QRect(), None
-            self.main.settings["steel_cut_fixed_x"] = capture.selection.x()
-            self.main.settings["steel_cut_fixed_y"] = capture.selection.y()
-            config.save_settings(self.main.settings)
-            return capture.selection, None
-        # 드래그로 영역을 선택하는 동안 다른 창의 포커스가 바뀌어 열려있던 드롭다운/토글
-        # 메뉴가 닫히더라도, 단축키를 누른 시점의 화면을 미리 캡처해두면 그 상태가 보존된다.
-        snapshot_rect = virtual_screen_geometry()
-        snapshot = capture_screen_rect(snapshot_rect)
-        capture = ScreenCaptureDialog(snapshot, snapshot_rect)
-        if exec_capture_dialog(capture) != capture.DialogCode.Accepted:
-            return QRect(), None
-        local_rect = capture.selection.translated(-snapshot_rect.topLeft())
-        return capture.selection, crop_pixmap_dip(snapshot, local_rect)
-
     def capture_steel_cut(self) -> None:
-        title = active_window_title()
-        rect, pixmap = self.steel_cut_capture_rect()
-        if rect.width() < 3 or rect.height() < 3:
+        """캡처는 항상 스마트 캡처(요소 인식 + 드래그 + A/S/Z 단축키)로 동작한다."""
+        if self._snip_active:
             return
-        if pixmap is None:
-            pixmap = self.capture_selection(rect)
+        self.start_snip_capture()
+
+    def start_snip_capture(self) -> None:
+        """Snipaste 스타일 캡처: UI 요소 자동 탐지 + 클릭/드래그/PrtSc/Alt+PrtSc."""
+        self._snip_active = True
+        try:
+            overlay = SnipOverlay()
+            result = overlay.exec()
+        finally:
+            self._snip_active = False
+        if result is None:
+            return
+        copy_pixmap_to_clipboard(result.pixmap)
+        self.open_snip_editor(result.pixmap, result.logical_rect, result.window_title or "창 제목 없음")
+
+    def open_snip_editor(self, pixmap: QPixmap, anchor: QRect, title: str) -> None:
+        editor = SnipEditorWindow(pixmap, anchor, title, self)
+        self.register_snip_window(editor)
+        editor.show()
+        editor.raise_()
+        editor.activateWindow()
+
+    def register_snip_window(self, window: QWidget) -> None:
+        self._snip_windows.append(window)
+        window.destroyed.connect(lambda _=None, value=window: self._forget_snip_window(value))
+
+    def _forget_snip_window(self, window: QWidget) -> None:
+        if window in self._snip_windows:
+            self._snip_windows.remove(window)
+
+    def save_snip_capture(self, pixmap: QPixmap, title: str) -> None:
+        """편집/고정 창의 '저장' → 캡처 · 그리기 목록에 등록."""
         if pixmap.isNull():
             return
-        copy_pixmap_to_clipboard(pixmap)
-        target = next_capture_jpg_path(self.screenshot_dir())
+        target = next_capture_path(self.screenshot_dir(), ".png")
         window_title = title or "창 제목 없음"
-        self.show_steel_cut_toast(pixmap, str(target), window_title, rect)
-        worker = SteelCutSaveWorker(pixmap.toImage(), target)
+        worker = SteelCutSaveWorker(pixmap.toImage(), target, "PNG", -1)
         worker.signals.finished.connect(lambda path, ok, value=window_title: self.finish_steel_cut_capture(path, ok, value))
         QThreadPool.globalInstance().start(worker)
 
-    def show_steel_cut_toast(self, pixmap: QPixmap, image_path: str, title: str, anchor_rect: QRect | None = None) -> None:
-        if self._steel_cut_toast is not None:
-            self._steel_cut_toast.force_close()
-        toast = SteelCutToast(pixmap, self)
-        self._steel_cut_toast = toast
-        toast.destroyed.connect(lambda _=None, dialog=toast: self.clear_steel_cut_toast(dialog))
-        toast.clicked.connect(lambda p=QPixmap(pixmap), path=image_path, value=title: self.open_steel_cut_viewer(path, value, p))
-        toast.show_slide(anchor_rect)
-
-    def clear_steel_cut_toast(self, toast: SteelCutToast) -> None:
-        if self._steel_cut_toast is toast:
-            self._steel_cut_toast = None
-
-    def open_steel_cut_viewer(self, image_path: str, title: str, pixmap: QPixmap | None = None) -> None:
-        self._steel_cut_viewer = SteelCutViewerDialog(image_path, title, pixmap)
-        self._steel_cut_viewer.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        self._steel_cut_viewer.show()
-        self._steel_cut_viewer.raise_()
-        self._steel_cut_viewer.activateWindow()
+    def move_snip_to_cheat_sheet(self, pixmap: QPixmap, title: str, group_id: str = "") -> bool:
+        """편집/고정 창의 '컨닝페이퍼로 이동' → 지정한 그룹(기본 최상위)에 등록."""
+        if pixmap.isNull():
+            return False
+        target = next_capture_path(self.saved_image_dir(), ".png")
+        if not pixmap.save(str(target), "PNG"):
+            QMessageBox.warning(self, "저장 실패", "이미지를 저장하지 못했습니다.")
+            return False
+        images = self.main.data.setdefault("images", [])
+        images.append(
+            {
+                "id": new_id("img"),
+                "name": title or "캡처",
+                "path": self.relative_asset_path(target),
+                "path_type": "relative",
+                "hotkey": None,
+                "sort_order": len(images),
+                "display_scale": 100,
+                "created_at": now_iso(),
+                "usage_count": 0,
+                "group_id": valid_group_id(self.main.data, GROUP_SCOPE_CHEAT, group_id),
+            }
+        )
+        self.main.save_data()
+        self.refresh()
+        return True
 
     def finish_steel_cut_capture(self, image_path: str, ok: bool, title: str) -> None:
         if not ok:
@@ -1516,11 +1126,7 @@ class ImageTab(QWidget):
             return
         bump_usage(item)
         self.main.save_usage_data()
-        dialog = ImageViewerDialog(path, item.get("name", "이미지"), int(item.get("display_scale", 100)), stay_on_top=True)
-        dialog.show()
-        dialog.raise_()
-        dialog.activateWindow()
-        dialog.exec()
+        self.open_pinned_image(QPixmap(path), item.get("name", "이미지"), int(item.get("display_scale", 100) or 100))
 
     def view_steel_cut(self, item: dict, copy_to_clipboard: bool = False) -> None:
         path = resolve_image_path(item.get("path", ""), config.BASE_DIR)
@@ -1530,14 +1136,31 @@ class ImageTab(QWidget):
         bump_usage(item)
         item["last_used_at"] = now_iso()
         self.main.save_usage_data()
-        # 참조를 self에 보관해 GC 충돌 방지, WA_DeleteOnClose로 Qt가 직접 정리
-        self._steel_cut_viewer = SteelCutViewerDialog(path, item.get("window_title", "스틸 컷"))
-        self._steel_cut_viewer.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        self._steel_cut_viewer.show()
-        self._steel_cut_viewer.raise_()
-        self._steel_cut_viewer.activateWindow()
-        if copy_to_clipboard:
-            self._steel_cut_viewer.copy_to_clipboard()
+        pixmap = QPixmap(path)
+        self.open_pinned_image(pixmap, item.get("window_title", "스틸 컷"))
+        if copy_to_clipboard and not pixmap.isNull():
+            copy_pixmap_to_clipboard(pixmap)
+
+    def open_pinned_image(self, pixmap: QPixmap, title: str, scale: int = 100) -> PinnedImageWindow | None:
+        """저장된 이미지를 고정(핀) 창으로 연다. 우클릭 메뉴로 조작한다."""
+        if pixmap.isNull():
+            QMessageBox.warning(self, "이미지 없음", "이미지를 불러오지 못했습니다.")
+            return None
+        window = PinnedImageWindow(pixmap, QPoint(0, 0), title, self)
+        if scale != 100:
+            window.set_zoom(scale)
+        screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
+        available = screen.availableGeometry()
+        window.adjustSize()
+        window.move(
+            available.center().x() - window.width() // 2,
+            available.center().y() - window.height() // 2,
+        )
+        self.register_snip_window(window)
+        window.show()
+        window.raise_()
+        window.activateWindow()
+        return window
 
     def delete_steel_cut_file(self, item: dict) -> None:
         try:
@@ -1624,6 +1247,8 @@ class ImageTab(QWidget):
                 value["created_at"] = now_iso()
                 value["sort_order"] = len(self.main.data.setdefault("images", []))
                 value["usage_count"] = 0
+                # 새 항목은 현재 열려 있는 그룹(폴더)에 등록한다.
+                value["group_id"] = self.cheat_group_id
             items = self.main.data.setdefault("images", [])
             if item in items:
                 items[items.index(item)] = value

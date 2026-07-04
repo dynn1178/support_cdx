@@ -75,6 +75,24 @@ from ui.common import (
     show_topmost_modern_info,
     show_modern_warning,
 )
+from ui.groups import (
+    GROUP_SCOPE_MEMO,
+    GroupDialog,
+    count_group_contents,
+    create_group,
+    delete_group,
+    group_by_id,
+    group_id,
+    groups_in,
+    item_group_id,
+    make_back_card,
+    make_breadcrumb_label,
+    make_group_card,
+    show_move_to_group_menu,
+    toggle_group_favorite,
+    update_breadcrumb_label,
+    valid_group_id,
+)
 
 
 MEMO_BOTTOM_ACTION_STYLE = (
@@ -1556,6 +1574,7 @@ class MemoListTab(QWidget):
         self.main = main
         self.sticky_windows: dict[str, StickyMemoDialog | MemoIndexCard] = {}
         self._recently_closed_sticker_keys: list[str] = []
+        self.group_id = ""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.search = QLineEdit()
@@ -1575,6 +1594,8 @@ class MemoListTab(QWidget):
         self.tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
         add_btn = QPushButton("+ 메모")
         add_btn.clicked.connect(lambda: self.edit_memo())
+        group_btn = QPushButton("+ 그룹 생성")
+        group_btn.clicked.connect(self.create_group_clicked)
         expand_btn = QPushButton("모두 펼치기")
         expand_btn.clicked.connect(self.expand_all_stickers)
         collapse_btn = QPushButton("모두 접기")
@@ -1588,15 +1609,19 @@ class MemoListTab(QWidget):
         sticker_toggle_btn.clicked.connect(self.toggle_pinned_stickers)
         close_all_btn = QPushButton("열기/닫기")
         close_all_btn.clicked.connect(self.toggle_recent_stickers)
-        for button in (expand_btn, collapse_btn, arrange_btn, sticker_toggle_btn, close_all_btn, add_btn):
+        for button in (expand_btn, collapse_btn, arrange_btn, sticker_toggle_btn, close_all_btn, group_btn, add_btn):
             button.setFixedHeight(30)
             button.setStyleSheet(MEMO_BOTTOM_ACTION_STYLE)
         self.grid = GridPanel(columns=2)
         page = QWidget()
         page_layout = QVBoxLayout(page)
         page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.setSpacing(0)
+        # 탭(메뉴 줄) 아래에 그룹 경로(브레드크럼) 표시
+        self.breadcrumb = make_breadcrumb_label(self.enter_group)
+        page_layout.addWidget(self.breadcrumb)
         page_layout.addWidget(self.grid, 1)
-        page_layout.addLayout(bottom_action_bar(expand_btn, collapse_btn, arrange_btn, sticker_toggle_btn, close_all_btn, add_btn))
+        page_layout.addLayout(bottom_action_bar(expand_btn, collapse_btn, arrange_btn, sticker_toggle_btn, close_all_btn, group_btn, add_btn))
         self.tabs.addTab(page, "메모")
         layout.addWidget(self.tabs, 1)
         self._sync_index_action_buttons()
@@ -1619,11 +1644,28 @@ class MemoListTab(QWidget):
     def refresh(self) -> None:
         cards = []
         q = self.search.text().strip().lower()
-        source_items = self.main.data.get("memos", [])
+        searching = bool(q)
+        data = self.main.data
+        self.group_id = valid_group_id(data, GROUP_SCOPE_MEMO, self.group_id)
+        source_items = data.get("memos", [])
         memos = self._ordered_memos(source_items)
         self._sync_index_action_buttons()
+        offset = 0
+        meta: list[tuple[str, object]] = []
+        if not searching:
+            if self.group_id:
+                current = group_by_id(data, self.group_id)
+                cards.append(make_back_card(self.go_back_group, 96))
+                meta.append(("target", str(current.get("parent_id") or "") if current else ""))
+            for group in groups_in(data, GROUP_SCOPE_MEMO, self.group_id):
+                cards.append(self._make_memo_group_card(group))
+                meta.append(("target", group_id(group)))
+            offset = len(cards)
+        visible_memos = []
         for memo in memos:
             if q and q not in (memo.get("title", "") + " " + memo.get("content", "")).lower():
+                continue
+            if not searching and item_group_id(memo) != self.group_id:
                 continue
             card = make_card(
                 memo.get("title", "(제목 없음)"),
@@ -1634,11 +1676,94 @@ class MemoListTab(QWidget):
                 v_center=True,
             )
             self.add_memo_actions(card, memo)
+            visible_memos.append(memo)
             cards.append(card)
-        callback = (lambda old, new: self.reorder_items(source_items, memos, old, new)) if self.sort_controls.is_manual() else None
-        self.grid.add_cards(cards, on_reorder=callback)
+            meta.append(("item", memo))
+        callback = (lambda old, new, off=offset: self.reorder_items(source_items, visible_memos, old - off, new - off)) if self.sort_controls.is_manual() else None
+        drop_handler = self._make_drop_handler(meta) if not searching else None
+        self.grid.add_cards(cards, on_reorder=callback, on_drop=drop_handler)
+        self.refresh_breadcrumb()
         if self._display_mode() == "index":
             self._arrange_index_cards()
+
+    # --- 그룹(폴더) -----------------------------------------------------
+
+    def _make_drop_handler(self, meta: list[tuple[str, object]]):
+        """메모 카드를 그룹/뒤로가기 카드 위에 드롭하면 해당 그룹으로 이동."""
+
+        def handle(old_index: int, new_index: int) -> bool:
+            if not (0 <= old_index < len(meta) and 0 <= new_index < len(meta)):
+                return False
+            src_kind, src_value = meta[old_index]
+            dst_kind, dst_value = meta[new_index]
+            if src_kind != "item" or dst_kind != "target":
+                return False
+            src_value["group_id"] = dst_value
+            self.main.save_data()
+            return True
+
+        return handle
+
+    def refresh_breadcrumb(self) -> None:
+        update_breadcrumb_label(self.breadcrumb, self.main.data, self.group_id)
+
+    def enter_group(self, gid: str) -> None:
+        self.group_id = gid
+        self.refresh()
+
+    def go_back_group(self) -> None:
+        current = group_by_id(self.main.data, self.group_id)
+        self.enter_group(str(current.get("parent_id") or "") if current else "")
+
+    def create_group_clicked(self) -> None:
+        dialog = GroupDialog()
+        while dialog.exec() == dialog.DialogCode.Accepted:
+            value = dialog.value()
+            if not value.get("name"):
+                show_modern_warning(dialog, "입력 확인", "그룹명을 입력해주세요.")
+                continue
+            create_group(self.main.data, GROUP_SCOPE_MEMO, self.group_id, value["name"], value["icon"])
+            self.main.save_data()
+            return
+
+    def edit_group(self, group: dict) -> None:
+        dialog = GroupDialog(group)
+        while dialog.exec() == dialog.DialogCode.Accepted:
+            value = dialog.value()
+            if not value.get("name"):
+                show_modern_warning(dialog, "입력 확인", "그룹명을 입력해주세요.")
+                continue
+            group["name"] = value["name"]
+            group["icon"] = value["icon"]
+            self.main.save_data()
+            return
+
+    def delete_group_clicked(self, group: dict) -> None:
+        if not confirm_delete(self, "선택한 그룹을 삭제할까요?\n그룹 안의 메모와 하위 그룹은 상위 경로로 이동합니다."):
+            return
+        delete_group(self.main.data, group, [self.main.data.get("memos", [])])
+        self.main.save_data()
+
+    def toggle_group_favorite_clicked(self, group: dict, card: QWidget, button) -> None:
+        toggle_group_favorite(group, card, button)
+        QTimer.singleShot(0, self.main.save_data)
+
+    def move_memo_to_group(self, memo: dict) -> None:
+        show_move_to_group_menu(self, self.main.data, GROUP_SCOPE_MEMO, memo, self.main.save_data)
+
+    def _make_memo_group_card(self, group: dict) -> QWidget:
+        subtitle = count_group_contents(
+            self.main.data, GROUP_SCOPE_MEMO, group_id(group), self.main.data.get("memos", [])
+        )
+        return make_group_card(
+            group,
+            subtitle,
+            on_open=lambda g=group: self.enter_group(group_id(g)),
+            on_favorite=self.toggle_group_favorite_clicked,
+            on_edit=self.edit_group,
+            on_delete=self.delete_group_clicked,
+            card_height=96,
+        )
 
     def is_favorite_memo(self, memo: dict) -> bool:
         return bool(memo.get("favorite", memo.get("pinned")))
@@ -1667,6 +1792,7 @@ class MemoListTab(QWidget):
         self.style_memo_favorite_button(pin, memo)
         row.addWidget(pin)
         row.addWidget(make_icon_button("sticker", "스티커", lambda checked=False, value=memo: self.show_sticker(value), size=_sz))
+        row.addWidget(make_icon_button("📂", "그룹으로 이동", lambda checked=False, value=memo: self.move_memo_to_group(value), size=_sz))
         row.addWidget(make_icon_button("edit", "수정", lambda checked=False, value=memo: self.edit_memo(value), size=_sz))
         row.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=memo: self.delete_memo(value), True, size=_sz))
         set_card_action_widget(card, action_page)
@@ -1925,6 +2051,8 @@ class MemoListTab(QWidget):
                 saved_memo = memo
             else:
                 value["sort_order"] = len(items)
+                # 새 메모는 현재 열려 있는 그룹(폴더)에 등록한다.
+                value.setdefault("group_id", self.group_id)
                 items.append(value)
                 saved_memo = value
             self.main.save_data()

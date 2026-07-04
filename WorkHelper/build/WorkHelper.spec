@@ -18,7 +18,7 @@ a = Analysis(
         (str(project_root / 'version.txt'), '.'),
         (str(project_root / 'icon2.png'), '.'),
     ],
-    hiddenimports=[],
+    hiddenimports=['comtypes', 'comtypes.client', 'comtypes.gen', 'comtypes.stream'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
