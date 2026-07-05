@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Callable
 
 from PyQt6.QtCore import QEasingCurve, QPoint, QRect, QSize, QTimer, QVariantAnimation, Qt
-from PyQt6.QtGui import QColor, QCursor, QFontMetrics, QIcon, QPixmap, QRegion
+from PyQt6.QtGui import QCursor, QFontMetrics, QIcon, QPixmap, QRegion
 from PyQt6.QtWidgets import (
     QApplication,
     QFrame,
@@ -23,6 +23,8 @@ from PyQt6.QtWidgets import (
 
 from app import config
 from app.date_tools import render_date_template
+from app.snippet_vars import render_snippet_text
+from app.theme import hex_to_rgba
 from ui.common import bump_usage, show_modern_warning
 from ui.groups import (
     GROUP_SCOPE_CHEAT,
@@ -112,45 +114,6 @@ WIDGET_THEMES = {
         "hover": "rgba(255, 255, 255, 186)",
     },
 }
-
-
-def hex_to_rgba(hex_color: str, opacity: int) -> str:
-    if str(hex_color or "").strip().startswith("rgba"):
-        raw = str(hex_color or "").strip()
-        parts = raw[raw.find("(") + 1 : raw.rfind(")")].split(",")
-        if len(parts) == 4:
-            try:
-                r, g, b = int(parts[0]), int(parts[1]), int(parts[2])
-                base_alpha = int(parts[3])
-                alpha = int(base_alpha * (max(20, min(100, opacity)) / 100))
-                return f"rgba({r}, {g}, {b}, {alpha})"
-            except ValueError:
-                return raw
-        return raw
-    raw = str(hex_color or "").strip().lstrip("#")
-    if len(raw) != 6:
-        raw = "F7FAFF"
-    try:
-        r = int(raw[0:2], 16)
-        g = int(raw[2:4], 16)
-        b = int(raw[4:6], 16)
-    except ValueError:
-        r, g, b = 247, 250, 255
-    alpha = int(255 * (max(20, min(100, opacity)) / 100))
-    return f"rgba({r}, {g}, {b}, {alpha})"
-
-
-def css_color_to_qcolor(value: str) -> QColor:
-    raw = str(value or "").strip()
-    if raw.startswith("rgba"):
-        parts = raw[raw.find("(") + 1 : raw.rfind(")")].split(",")
-        if len(parts) == 4:
-            try:
-                return QColor(int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3]))
-            except ValueError:
-                pass
-    color = QColor(raw)
-    return color if color.isValid() else QColor(0, 0, 0, 70)
 
 
 CHOSUNG_JAMO = ["ㄱ", "ㄲ", "ㄴ", "ㄷ", "ㄸ", "ㄹ", "ㅁ", "ㅂ", "ㅃ", "ㅅ", "ㅆ", "ㅇ", "ㅈ", "ㅉ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ"]
@@ -497,13 +460,13 @@ class FloatingWidget(QFrame):
         self.panel_layout.addWidget(self.scroll, 1)
         self.root.addWidget(self.panel, 1)
 
+        # 두 타이머 모두 상시 구동하지 않는다 — _sync_timers()가 위젯 활성/패널 표시
+        # 상태에 맞춰 시작·정지시킨다. (유휴 CPU/배터리 절약)
         self.watch_timer = QTimer(self)
         self.watch_timer.timeout.connect(self._watch_mouse)
-        self.watch_timer.start(35)
         self.scroll_timer = QTimer(self)
         self.scroll_timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.scroll_timer.timeout.connect(self._auto_scroll)
-        self.scroll_timer.start(16)
         self.hover_timer = QTimer(self)
         self.hover_timer.setSingleShot(True)
         self.hover_timer.timeout.connect(self._apply_pending_hover)
@@ -539,6 +502,7 @@ class FloatingWidget(QFrame):
         else:
             self._hint.hide()
             self.hide()
+        self._sync_timers()
 
     def refresh(self) -> None:
         self._preview_pinned = False
@@ -549,6 +513,7 @@ class FloatingWidget(QFrame):
         self._sync_hover_row()
         self._sync_search_box()
         self._show_location_hint_once()
+        self._sync_timers()
 
     def preview_settings(self) -> None:
         self._preview_pinned = True
@@ -574,6 +539,7 @@ class FloatingWidget(QFrame):
             self._shown = False
             self._hint.hide()
             self.hide()
+        self._sync_timers()
 
     def preview_position_settings(self) -> None:
         self._preview_pinned = True
@@ -591,6 +557,26 @@ class FloatingWidget(QFrame):
             self._shown = False
             self._hint.hide()
             self.hide()
+        self._sync_timers()
+
+    def _sync_timers(self) -> None:
+        """활성 상태에 맞춰 폴링 타이머를 시작/정지한다.
+
+        - watch_timer: 위젯이 켜져 있을 때만 (가장자리 트리거 감지)
+        - scroll_timer: 패널이 실제로 보일 때만 (마우스 위치 기반 자동 스크롤)
+        """
+        enabled = bool(self._settings.get("floating_widget_enabled", True))
+        if enabled:
+            if not self.watch_timer.isActive():
+                self.watch_timer.start(35)
+        else:
+            self.watch_timer.stop()
+        panel_active = enabled and (self._shown or self._animating)
+        if panel_active:
+            if not self.scroll_timer.isActive():
+                self.scroll_timer.start(16)
+        else:
+            self.scroll_timer.stop()
 
     def _edge(self) -> str:
         return str(self._settings.get("floating_widget_edge", "top") or "top")
@@ -944,6 +930,7 @@ class FloatingWidget(QFrame):
         self._animating = False
         self._show_location_hint_once()
         self.raise_()
+        self._sync_timers()
 
     def _hide_panel(self) -> None:
         if not self._shown or self._animating:
@@ -964,11 +951,13 @@ class FloatingWidget(QFrame):
         self._shown = False
         self._animating = False
         self._apply_hidden_mask()
+        self._sync_timers()
 
     def _animate(self, start: QRect, end: QRect, shown: bool) -> None:
         self.show()
         self._target_shown = shown
         self._animating = True
+        self._sync_timers()
         self.animation.stop()
         self.animation.setDuration(self._speed())
         self.animation.setEasingCurve(QEasingCurve.Type.OutCubic)
@@ -987,6 +976,7 @@ class FloatingWidget(QFrame):
             self.clearMask()
         else:
             self._apply_hidden_mask()
+        self._sync_timers()
 
     def _apply_style(self) -> None:
         opacity = max(20, min(100, int(self._settings.get("floating_widget_opacity", 77) or 77)))
@@ -1381,7 +1371,9 @@ class FloatingWidget(QFrame):
 
     def _copy_text_item(self, item: dict, field: str) -> None:
         bump_usage(item)
-        self.main.app.clipboard().setText(str(item.get(field, "")))
+        clipboard = self.main.app.clipboard()
+        rendered, _cursor = render_snippet_text(str(item.get(field, "")), clipboard_text=clipboard.text())
+        clipboard.setText(rendered)
         self.main.save_usage_data()
 
     def _copy_title_item(self, item: dict) -> None:
@@ -1406,7 +1398,7 @@ class FloatingWidget(QFrame):
             show_modern_warning(self.main, "실행 실패", str(exc))
 
     def _open_image(self, item: dict) -> None:
-        image_tab = self.main.tabs[4] if len(self.main.tabs) > 4 else None
+        image_tab = getattr(self.main, "image_tab", None)
         if image_tab is not None and hasattr(image_tab, "view_image"):
             image_tab.view_image(item)
 
@@ -1416,12 +1408,12 @@ class FloatingWidget(QFrame):
         self.main.save_usage_data()
 
     def _toggle_memo_sticker(self, item: dict) -> None:
-        memo_tab = self.main.tabs[6] if len(getattr(self.main, "tabs", [])) > 6 else None
+        memo_tab = getattr(self.main, "memo_tab", None)
         if memo_tab is not None and hasattr(memo_tab, "show_sticker"):
             memo_tab.show_sticker(item)
 
     def _run_memo_sticker_action(self, action: str) -> None:
-        memo_tab = self.main.tabs[6] if len(getattr(self.main, "tabs", [])) > 6 else None
+        memo_tab = getattr(self.main, "memo_tab", None)
         handler = getattr(memo_tab, action, None)
         if callable(handler):
             handler()

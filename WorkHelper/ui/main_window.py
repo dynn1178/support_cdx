@@ -11,12 +11,14 @@ from typing import Any
 
 from PyQt6.QtCore import QAbstractNativeEventFilter, QDate, QDateTime, QEvent, QTime, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QCursor, QIcon, QKeyEvent, QPixmap
-from PyQt6.QtWidgets import QApplication, QCheckBox, QComboBox, QDateEdit, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QStackedWidget, QTabWidget, QTextEdit, QToolButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QApplication, QCheckBox, QComboBox, QDateEdit, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QStackedWidget, QSystemTrayIcon, QTabWidget, QTextEdit, QToolButton, QVBoxLayout, QWidget
 
 from app import config
 from app.screen_utils import find_screen_index_by_signature, signature_for_monitor_index
 from app.date_tools import render_date_template
 from app.hotkey_manager import HotkeyManager, USER32, WM_HOTKEY
+from app.logger import get_logger
+from app.snippet_vars import render_snippet_text
 from app.theme import apply_theme
 from app.update_checker import check_just_updated, check_update_dialog
 from app.utils import display_hotkey, normalize_hotkey
@@ -26,14 +28,17 @@ from ui.tab_home import HomeTab
 from ui.tab_image import ImageTab
 from ui.tab_launcher import LauncherTab
 from ui.tab_macro import MacroTab
-from ui.tab_memo import MemoListTab, ScheduleListTab, TodoListTab
+from ui.tab_memo import MemoListTab
+from ui.tab_todo import ScheduleListTab, TodoListTab
 from ui.tab_misc import MiscTab, MouseHighlightOverlay
 from ui.tab_phrase import PhraseTab
 from ui.tab_settings import SettingsTab
 from ui.tab_text_tools import TextToolsTab
 from ui.floating_widget import FloatingWidget
-from ui.common import apply_modern_dialog_style, ask_modern_question, bump_usage, dialog_palette, fit_combo_to_contents, flash_taskbar, normalize_todo_groups, set_dialog_theme, show_modern_info, show_modern_warning
+from ui.common import apply_modern_dialog_style, ask_modern_question, bump_usage, dialog_palette, fit_combo_to_contents, flash_taskbar, force_activate_window, normalize_todo_groups, set_dialog_theme, show_modern_info, show_modern_warning
 
+
+log = get_logger("main_window")
 
 MINI_COPY_BUTTON_WIDTH = 64
 MINI_COPY_BUTTON_HEIGHT = 26
@@ -307,19 +312,9 @@ class NumberedTextPopup(QDialog):
         self.force_activate()
 
     def force_activate(self) -> None:
-        if self._closing or not self.isVisible():
+        if self._closing:
             return
-        self.raise_()
-        self.activateWindow()
-        self.setFocus(Qt.FocusReason.PopupFocusReason)
-        try:
-            hwnd = int(self.winId())
-            USER32.ShowWindow(hwnd, 5)
-            USER32.BringWindowToTop(hwnd)
-            USER32.SetForegroundWindow(hwnd)
-            USER32.SetActiveWindow(hwnd)
-        except Exception:
-            pass
+        force_activate_window(self, focus_target=self)
 
     def start_number_hotkeys(self) -> None:
         app = QApplication.instance()
@@ -419,19 +414,7 @@ class QuickMemoPopup(QDialog):
         self.force_activate()
 
     def force_activate(self) -> None:
-        if not self.isVisible():
-            return
-        self.raise_()
-        self.activateWindow()
-        self.text.setFocus(Qt.FocusReason.PopupFocusReason)
-        try:
-            hwnd = int(self.winId())
-            USER32.ShowWindow(hwnd, 5)
-            USER32.BringWindowToTop(hwnd)
-            USER32.SetForegroundWindow(hwnd)
-            USER32.SetActiveWindow(hwnd)
-        except Exception:
-            pass
+        force_activate_window(self, focus_target=self.text)
 
 
 class QuickActionPopup(QDialog):
@@ -715,21 +698,8 @@ class QuickActionPopup(QDialog):
         self.force_activate()
 
     def force_activate(self) -> None:
-        if not self.isVisible():
-            return
-        self.raise_()
-        self.activateWindow()
         line_edit = self.tab_widget.currentWidget().findChild(QLineEdit)
-        if line_edit:
-            line_edit.setFocus(Qt.FocusReason.PopupFocusReason)
-        try:
-            hwnd = int(self.winId())
-            USER32.ShowWindow(hwnd, 5)
-            USER32.BringWindowToTop(hwnd)
-            USER32.SetForegroundWindow(hwnd)
-            USER32.SetActiveWindow(hwnd)
-        except Exception:
-            pass
+        force_activate_window(self, focus_target=line_edit)
 
     def _on_save(self) -> None:
         idx = self.tab_widget.currentIndex()
@@ -804,7 +774,7 @@ class QuickActionPopup(QDialog):
         self.owner.save_data()
         if self.memo_sticky.isChecked():
             memo["sticker_open"] = True
-            self.owner.tabs[6].show_sticker(memo)
+            self.owner.memo_tab.show_sticker(memo)
         self.memo_text.clear()
         self.reject()
 
@@ -903,6 +873,9 @@ class MainWindow(QMainWindow):
         self._screen_change_timer.setSingleShot(True)
         self._screen_change_timer.timeout.connect(self.handle_screen_layout_changed)
         self._watched_screens = set()
+        self._usage_save_timer = QTimer(self)
+        self._usage_save_timer.setSingleShot(True)
+        self._usage_save_timer.timeout.connect(self._flush_usage_data)
         self.setWindowTitle(config.APP_NAME)
         icon2_path = config.BASE_DIR / "icon2.png" if (config.BASE_DIR / "icon2.png").exists() else config.RESOURCE_DIR / "icon2.png"
         icon_path = icon2_path if icon2_path.exists() else config.APP_ICON_PATH if config.APP_ICON_PATH.exists() else config.BUNDLED_ICON_PATH
@@ -910,6 +883,12 @@ class MainWindow(QMainWindow):
             self.setWindowIcon(QIcon(str(icon_path)))
         self._build_ui()
         self.floating_widget = FloatingWidget(self)
+        self._really_quit = False
+        self.tray_icon: QSystemTrayIcon | None = None
+        self._setup_tray_icon()
+        # 트레이 상주 앱이므로 마지막 창이 닫혀도 프로세스는 유지하고,
+        # 종료는 quit_application()에서 명시적으로 처리한다.
+        self.app.setQuitOnLastWindowClosed(False)
         self.setup_screen_layout_watchers()
         self.hotkeys.set_hwnd(int(self.winId()))
         self.apply_current_settings()
@@ -920,6 +899,8 @@ class MainWindow(QMainWindow):
         self.schedule_timer = QTimer(self)
         self.schedule_timer.timeout.connect(self.check_schedules)
         self.schedule_timer.start(60_000)
+        # 앱이 꺼져 있는 동안 놓친 일정 알림을 시작 직후 한 번 확인한다.
+        QTimer.singleShot(2_000, self.check_schedules)
         self.tip_timer = QTimer(self)
         self.tip_timer.timeout.connect(self.rotate_home_tip)
         self.tip_timer.start(300_000)
@@ -927,6 +908,12 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(1100, self.show_update_shortcut_notice)
         QTimer.singleShot(1500, self.check_update_on_startup)
         QTimer.singleShot(300, self.restore_open_stickers)
+        QTimer.singleShot(4_000, self._auto_backup)
+
+    def _auto_backup(self) -> None:
+        from app.backup import auto_backup_if_due
+
+        auto_backup_if_due()
 
     def _build_ui(self) -> None:
         central = QWidget()
@@ -1018,20 +1005,33 @@ class MainWindow(QMainWindow):
         content_layout.addWidget(screen_header)
 
         self.stack = QStackedWidget()
+        # 탭은 아래 이름 속성으로 참조한다. (self.tabs[N] 같은 위치 인덱스 참조 금지 —
+        # 탭 순서가 바뀌면 조용히 엉뚱한 탭이 호출되는 사고가 있었다.)
+        self.home_tab = HomeTab(self)
+        self.phrase_tab = PhraseTab(self)
+        self.launcher_tab = LauncherTab(self)
         self.clipboard_tab = ClipboardTab(self)
+        self.image_tab = ImageTab(self)
+        self.todo_tab = TodoListTab(self)
+        self.memo_tab = MemoListTab(self)
+        self.macro_tab = MacroTab(self)
+        self.calculator_tab = CalculatorTab(self)
+        self.text_tools_tab = TextToolsTab(self)
+        self.misc_tab = MiscTab(self)
+        self.settings_tab = SettingsTab(self)
         self.tabs = [
-            HomeTab(self),          # 0 홈
-            PhraseTab(self),        # 1 상용구
-            LauncherTab(self),      # 2 바로가기
-            self.clipboard_tab,     # 3 클립보드
-            ImageTab(self),         # 4 컨닝페이퍼
-            TodoListTab(self),      # 5 일정 관리
-            MemoListTab(self),      # 6 메모
-            MacroTab(self),         # 7 매크로
-            CalculatorTab(self),    # 8 계산기
-            TextToolsTab(self),     # 9 텍스트 변환
-            MiscTab(self),          # 10 피커/기타
-            SettingsTab(self),      # 11 설정
+            self.home_tab,          # 홈
+            self.phrase_tab,        # 상용구
+            self.launcher_tab,      # 바로가기
+            self.clipboard_tab,     # 클립보드
+            self.image_tab,         # 컨닝페이퍼
+            self.todo_tab,          # 일정 관리
+            self.memo_tab,          # 메모
+            self.macro_tab,         # 매크로
+            self.calculator_tab,    # 계산기
+            self.text_tools_tab,    # 텍스트 변환
+            self.misc_tab,          # 피커/기타
+            self.settings_tab,      # 설정
         ]
         for tab in self.tabs:
             self.stack.addWidget(tab)
@@ -1070,8 +1070,13 @@ class MainWindow(QMainWindow):
         self.update_hotkey_toggle_button()
 
     def set_tab(self, index: int) -> None:
-        if hasattr(self, "stack") and self.stack.currentIndex() == 11 and index != 11:
-            settings_tab = self.tabs[11]
+        leaving_settings = (
+            hasattr(self, "stack")
+            and self.stack.currentWidget() is self.settings_tab
+            and self.tabs[index] is not self.settings_tab
+        )
+        if leaving_settings:
+            settings_tab = self.settings_tab
             if hasattr(settings_tab, "is_dirty") and settings_tab.is_dirty():
                 changes = settings_tab.changed_settings_summary() if hasattr(settings_tab, "changed_settings_summary") else []
                 detail = "\n".join(changes[:8])
@@ -1085,10 +1090,8 @@ class MainWindow(QMainWindow):
                         return
                 elif hasattr(settings_tab, "discard_changes"):
                     QTimer.singleShot(0, settings_tab.discard_changes)
-        if hasattr(self, "stack") and self.stack.currentIndex() == 11 and index != 11:
-            settings_tab = self.tabs[11]
-            if hasattr(settings_tab, "end_widget_preview"):
-                settings_tab.end_widget_preview()
+        if leaving_settings and hasattr(self.settings_tab, "end_widget_preview"):
+            self.settings_tab.end_widget_preview()
         self.stack.setCurrentIndex(index)
         for i, button in enumerate(self.buttons):
             button.setChecked(i == index)
@@ -1160,8 +1163,13 @@ class MainWindow(QMainWindow):
         if key in self._watched_screens:
             return
         self._watched_screens.add(key)
+        # QScreen이 파괴되면 같은 id가 새 QScreen에 재사용될 수 있으므로
+        # 집합에서 제거해 이후 재연결이 누락되지 않게 한다.
+        screen.destroyed.connect(lambda _obj=None, key=key, self=self: self._watched_screens.discard(key))
         screen.geometryChanged.connect(lambda _rect, self=self: self.queue_screen_layout_changed())
         screen.availableGeometryChanged.connect(lambda _rect, self=self: self.queue_screen_layout_changed())
+        # 배율만 바뀌고 논리 지오메트리가 그대로인 경우에도 감지되도록 DPI 신호를 함께 감시한다.
+        screen.logicalDotsPerInchChanged.connect(lambda _dpi, self=self: self.queue_screen_layout_changed())
 
     def queue_screen_layout_changed(self) -> None:
         self._screen_change_timer.start(350)
@@ -1171,14 +1179,14 @@ class MainWindow(QMainWindow):
             self.watch_screen_geometry(screen)
         self.restore_monitor_settings()
         self._resync_geometry_after_dpi_change()
-        settings_tab = self.tabs[11] if len(getattr(self, "tabs", [])) > 11 else None
+        settings_tab = getattr(self, "settings_tab", None)
         if settings_tab is not None and hasattr(settings_tab, "refresh_widget_monitor_combo"):
             settings_tab.refresh_widget_monitor_combo(int(self.settings.get("floating_widget_monitor", 1) or 1))
         if getattr(self, "floating_widget", None) is not None:
             self.floating_widget.apply_settings()
-        memo_tab = self.tabs[6] if len(getattr(self, "tabs", [])) > 6 else None
-        if memo_tab is not None and hasattr(memo_tab, "arrange_compact_stickers"):
-            memo_tab.arrange_compact_stickers()
+        memo_tab = getattr(self, "memo_tab", None)
+        if memo_tab is not None:
+            memo_tab.handle_screen_layout_changed()
         # Monitor add/remove (e.g. unplugging down to a single screen) can make Windows
         # silently drop RegisterHotKey bindings and, in rare cases, kill the modifier
         # watcher thread. Re-arm both so Ctrl+Ctrl/Alt+Alt and the capture hotkeys keep
@@ -1235,11 +1243,9 @@ class MainWindow(QMainWindow):
         apply_theme(self.app, settings.get("theme", "light"))
         if getattr(self, "floating_widget", None) is not None:
             self.floating_widget.apply_settings()
-        tabs = getattr(self, "tabs", None)
-        if tabs and len(tabs) > 10 and hasattr(tabs[10], "apply_theme"):
-            tabs[10].apply_theme()
-        if tabs and len(tabs) > 11 and hasattr(tabs[11], "apply_theme"):
-            tabs[11].apply_theme()
+        for tab in (getattr(self, "misc_tab", None), getattr(self, "settings_tab", None)):
+            if tab is not None and hasattr(tab, "apply_theme"):
+                tab.apply_theme()
 
     def changeEvent(self, event: QEvent) -> None:
         super().changeEvent(event)
@@ -1274,14 +1280,26 @@ class MainWindow(QMainWindow):
 
     def save_data(self) -> None:
         self.data["settings"] = self.settings
+        if self._usage_save_timer.isActive():
+            self._usage_save_timer.stop()  # 전체 저장에 포함되므로 예약된 사용량 저장은 불필요
         config.save_template(self.template_index, self.data)
         config.save_settings(self.settings)
         self.register_hotkeys()
         self.refresh_all_tabs()
 
     def save_usage_data(self) -> None:
-        config.save_template(self.template_index, self.data)
+        # 사용량(usage_count 등)만 바뀐 저장은 클릭마다 전체 템플릿을 디스크에 쓰지
+        # 않도록 디바운스한다. 종료 시 flush_pending_saves()가 남은 변경을 기록한다.
+        self._usage_save_timer.start(3_000)
         self.refresh_home_tab()
+
+    def _flush_usage_data(self) -> None:
+        config.save_template(self.template_index, self.data)
+
+    def flush_pending_saves(self) -> None:
+        if self._usage_save_timer.isActive():
+            self._usage_save_timer.stop()
+            self._flush_usage_data()
 
     def refresh_all_tabs(self) -> None:
         for tab in self.tabs:
@@ -1291,13 +1309,13 @@ class MainWindow(QMainWindow):
             self.floating_widget.refresh()
 
     def refresh_home_tab(self) -> None:
-        if not hasattr(self, "tabs") or not self.tabs:
-            return
-        home = self.tabs[0]
-        if hasattr(home, "refresh"):
+        home = getattr(self, "home_tab", None)
+        if home is not None and hasattr(home, "refresh"):
             home.refresh()
 
     def change_template(self, index: int) -> None:
+        if self._usage_save_timer.isActive():
+            self._usage_save_timer.stop()
         config.save_template(self.template_index, self.data)
         self.template_index = index
         self.settings["active_preset"] = index
@@ -1357,6 +1375,7 @@ class MainWindow(QMainWindow):
     def register_hotkeys(self) -> None:
         self.hotkeys.set_hwnd(int(self.winId()))
         self.hotkeys.unregister_all()
+        self.hotkey_failures: list[str] = []
         if not self.settings.get("hotkeys_enabled", True):
             self.update_hotkey_toggle_button()
             return
@@ -1364,13 +1383,14 @@ class MainWindow(QMainWindow):
         if conflict:
             show_modern_warning(self, "단축키 충돌", conflict)
             return
-        failed: list[str] = []
+        failed = self.hotkey_failures
 
         def register(label: str, hotkey: dict, callback, item_id: str) -> None:
             # RegisterHotKey는 다른 프로그램이 이미 선점한 조합이면 실패한다.
             # 조용히 넘어가면 사용자는 단축키가 등록된 줄 알기 때문에 모아서 알린다.
             if not self.hotkeys.register(hotkey.get("modifiers", []), hotkey.get("key", ""), callback, item_id):
                 failed.append(f"- {label}: {normalize_hotkey(hotkey)}")
+                log.warning("hotkey register failed: %s (%s) — %s", label, normalize_hotkey(hotkey), self.hotkeys.last_error)
 
         for item in self.data.get("phrases", []) + self.data.get("snippets", []):
             hotkey = item.get("hotkey")
@@ -1383,15 +1403,15 @@ class MainWindow(QMainWindow):
         for item in self.data.get("launchers", []):
             hotkey = item.get("hotkey")
             if hotkey:
-                register(item.get("name", "런처"), hotkey, lambda value=item: self.tabs[2].open_launcher(value), item.get("id", ""))
+                register(item.get("name", "런처"), hotkey, lambda value=item: self.launcher_tab.open_launcher(value), item.get("id", ""))
         for item in self.data.get("images", []):
             hotkey = item.get("hotkey")
             if hotkey:
-                register(item.get("name", "이미지"), hotkey, lambda value=item: self.tabs[4].view_image(value), item.get("id", ""))
+                register(item.get("name", "이미지"), hotkey, lambda value=item: self.image_tab.view_image(value), item.get("id", ""))
         for item in self.data.get("macros", []):
             hotkey = item.get("hotkey")
             if hotkey:
-                register(item.get("name", "매크로"), hotkey, lambda value=item: self.tabs[7].play_macro(value), item.get("id", ""))
+                register(item.get("name", "매크로"), hotkey, lambda value=item: self.macro_tab.play_macro(value), item.get("id", ""))
         settings = self.settings
         popup_hotkey = settings.get("clipboard_popup_hotkey")
         if popup_hotkey and not settings.get("clipboard_popup_double_ctrl", True):
@@ -1408,12 +1428,12 @@ class MainWindow(QMainWindow):
             register(
                 "캡처 단축키",
                 steel_cut_hotkey,
-                lambda: QTimer.singleShot(0, self.tabs[4].capture_steel_cut),
+                lambda: QTimer.singleShot(0, self.image_tab.capture_steel_cut),
                 "steel_cut",
             )
         screen_draw_hotkey = settings.get("screen_draw_hotkey")
         if screen_draw_hotkey:
-            register("화면 그리기", screen_draw_hotkey, self.tabs[10].start_screen_draw, "screen_draw")
+            register("화면 그리기", screen_draw_hotkey, self.misc_tab.start_screen_draw, "screen_draw")
         if failed:
             show_modern_warning(
                 self,
@@ -1462,10 +1482,9 @@ class MainWindow(QMainWindow):
         self.open_sticky_memo_index_setting()
 
     def open_sticky_memo_index_setting(self) -> None:
-        self.set_tab(11)
-        settings_tab = self.tabs[11] if len(getattr(self, "tabs", [])) > 11 else None
-        if settings_tab is not None and hasattr(settings_tab, "focus_sticky_memo_index_mode"):
-            QTimer.singleShot(0, settings_tab.focus_sticky_memo_index_mode)
+        self.set_tab(self.tabs.index(self.settings_tab))
+        if hasattr(self.settings_tab, "focus_sticky_memo_index_mode"):
+            QTimer.singleShot(0, self.settings_tab.focus_sticky_memo_index_mode)
 
     def check_update_on_startup(self) -> None:
         if self._just_updated:
@@ -1648,7 +1667,7 @@ class MainWindow(QMainWindow):
         self.save_data()
         if dialog.sticky.isChecked():
             memo["sticker_open"] = True
-            self.tabs[6].show_sticker(memo)
+            self.memo_tab.show_sticker(memo)
 
     def copy_title_template(self, item: dict) -> None:
         bump_usage(item)
@@ -1670,7 +1689,9 @@ class MainWindow(QMainWindow):
 
     def paste_text(self, text: str) -> None:
         try:
-            self.app.clipboard().setText(text)
+            # {clipboard}/{date:...}/{cursor} 변수 치환. 클립보드 값은 덮어쓰기 전에 읽는다.
+            rendered, cursor_back = render_snippet_text(text, clipboard_text=self.app.clipboard().text())
+            self.app.clipboard().setText(rendered)
 
             def send_paste() -> None:
                 try:
@@ -1678,8 +1699,17 @@ class MainWindow(QMainWindow):
 
                     self.wait_for_modifier_release()
                     pyautogui.hotkey("ctrl", "v")
+                    if cursor_back:
+                        # 대상 앱이 붙여넣기를 처리한 뒤 {cursor} 위치로 커서 이동
+                        time.sleep(0.12)
+                        VK_LEFT = 0x25
+                        events: list[tuple[int, bool]] = []
+                        for _ in range(min(cursor_back, 500)):
+                            events.append((VK_LEFT, False))
+                            events.append((VK_LEFT, True))
+                        send_key_batch(events)
                 except Exception:
-                    pass
+                    log.debug("paste failed", exc_info=True)
 
             threading.Thread(target=send_paste, daemon=True).start()
         except Exception as exc:
@@ -1721,10 +1751,26 @@ class MainWindow(QMainWindow):
                 continue
             buffer = self.hotstring_buffer if item.get("case_sensitive") else self.hotstring_buffer.lower()
             needle = trigger if item.get("case_sensitive") else trigger.lower()
-            if buffer.endswith(needle):
-                self.hotstring_busy = True
-                self.hotstring_expand_requested.emit(trigger, item.get("text", ""), item.get("id", ""))
-                break
+            if not buffer.endswith(needle):
+                continue
+            if item.get("word_boundary") and not self._hotstring_at_word_boundary(needle):
+                continue
+            self.hotstring_busy = True
+            self.hotstring_expand_requested.emit(trigger, item.get("text", ""), item.get("id", ""))
+            break
+
+    def _hotstring_at_word_boundary(self, needle: str) -> bool:
+        """트리거 바로 앞 글자가 단어 문자(영숫자·한글)면 경계가 아니다.
+
+        버퍼는 공백/엔터/탭에서 초기화되므로, 버퍼가 트리거만큼만 쌓였다면
+        단어 시작으로 본다.
+        """
+        if len(self.hotstring_buffer) <= len(needle):
+            return True
+        prev_char = self.hotstring_buffer[-len(needle) - 1]
+        if prev_char.isalnum():
+            return False
+        return not (0xAC00 <= ord(prev_char) <= 0xD7A3)
 
     def expand_hotstring(self, trigger: str, text: str, item_id: str) -> None:
         self.hotstring_busy = True
@@ -1779,11 +1825,12 @@ class MainWindow(QMainWindow):
             self.mouse_highlight_overlay = None
 
     def restore_open_stickers(self) -> None:
-        if len(self.tabs) <= 8:
+        memo_tab = getattr(self, "memo_tab", None)
+        if memo_tab is None:
             return
         for memo in self.data.get("memos", []):
             if memo.get("sticker_open"):
-                self.tabs[6].show_sticker(memo, track_usage=False, raise_window=False, toggle_existing=False)
+                memo_tab.show_sticker(memo, track_usage=False, raise_window=False, toggle_existing=False)
 
     def wait_for_modifier_release(self, timeout: float = 1.0) -> None:
         deadline = time.monotonic() + timeout
@@ -1796,20 +1843,53 @@ class MainWindow(QMainWindow):
         now = datetime.now()
         changed = False
         for schedule in self.data.get("schedules", []):
+            if schedule.get("completed"):
+                continue
             try:
                 target = datetime.fromisoformat(schedule.get("datetime", ""))
-            except ValueError:
+            except (TypeError, ValueError):
                 continue
             notify_at = target - timedelta(minutes=int(schedule.get("notify_before_minutes", 0)))
-            schedule_id = schedule.get("id", "")
-            if notify_at <= now <= target + timedelta(minutes=1) and schedule_id not in self._notified_schedule_ids:
-                self._notified_schedule_ids.add(schedule_id)
-                schedule["last_notified_at"] = now.isoformat(timespec="seconds")
-                self.advance_repeating_schedule(schedule, target)
-                changed = True
-                self.show_schedule_notification(schedule)
+            # 회차별 키 — 반복 일정이 다음 회차로 넘어가면 키가 달라져 다시 알린다.
+            # (id만 쓰면 첫 알림 후 앱을 재시작할 때까지 반복 회차가 전부 무시된다)
+            notify_key = f"{schedule.get('id', '')}|{schedule.get('datetime', '')}"
+            if notify_key in self._notified_schedule_ids:
+                continue
+            in_window = notify_at <= now <= target + timedelta(minutes=1)
+            missed = now > target + timedelta(minutes=1) and not self._already_notified(schedule, notify_at)
+            if not (in_window or missed):
+                continue
+            self._notified_schedule_ids.add(notify_key)
+            schedule["last_notified_at"] = now.isoformat(timespec="seconds")
+            self.advance_repeating_schedule(schedule, target)
+            if missed:
+                self._advance_schedule_to_future(schedule, now)
+            changed = True
+            self.show_schedule_notification(schedule, missed=missed)
         if changed:
             config.save_template(self.template_index, self.data)
+
+    def _already_notified(self, schedule: dict[str, Any], notify_at: datetime) -> bool:
+        raw = str(schedule.get("last_notified_at") or "")
+        if not raw:
+            return False
+        try:
+            return datetime.fromisoformat(raw) >= notify_at
+        except ValueError:
+            return False
+
+    def _advance_schedule_to_future(self, schedule: dict[str, Any], now: datetime) -> None:
+        """앱이 꺼져 있는 동안 지나간 반복 회차들을 건너뛰고 다음 미래 회차로 맞춘다."""
+        for _ in range(400):
+            try:
+                current = datetime.fromisoformat(schedule.get("datetime", ""))
+            except (TypeError, ValueError):
+                return
+            if current > now:
+                return
+            self.advance_repeating_schedule(schedule, current)
+            if schedule.get("datetime") == current.isoformat(timespec="seconds"):
+                return  # 반복 없음 — 더 진행되지 않는다
 
     def advance_repeating_schedule(self, schedule: dict[str, Any], target: datetime) -> None:
         repeat = schedule.get("repeat", "none")
@@ -1854,7 +1934,7 @@ class MainWindow(QMainWindow):
                     next_day += timedelta(days=1)
             schedule["repeat"] = "weekly"
 
-    def show_schedule_notification(self, schedule: dict[str, Any]) -> None:
+    def show_schedule_notification(self, schedule: dict[str, Any], missed: bool = False) -> None:
         bump_usage(schedule)
         self.save_usage_data()
         title = schedule.get("title", "일정")
@@ -1863,6 +1943,8 @@ class MainWindow(QMainWindow):
         memo = (schedule.get("memo") or "").strip()
 
         parts: list[str] = []
+        if missed:
+            parts.append("⚠ 앱이 꺼져 있는 동안 지난 알림입니다.")
         if priority:
             parts.append(f"중요도: {priority}")
         if deadline:
@@ -1875,15 +1957,95 @@ class MainWindow(QMainWindow):
             from plyer import notification
             notification.notify(title=title, message=message, timeout=5)
         except Exception:
-            pass
+            log.debug("plyer notification failed", exc_info=True)
 
         flash_taskbar(self)
         accent_map = {"상": "#DC2626", "중": "#4338CA"}
         accent = accent_map.get(priority)
-        show_modern_info(self, f"🔔 {title}", message, accent=accent)
+        header = f"🔔 {title}" if not missed else f"🔕 (놓친 알림) {title}"
+        from ui.common import ModernInfoDialog
+
+        dialog = ModernInfoDialog(self, header, message, accent, ("완료 처리", "10분 뒤 다시", "닫기"))
+        dialog.exec()
+        if dialog.choice == "완료 처리":
+            self._complete_schedule(schedule)
+        elif dialog.choice == "10분 뒤 다시":
+            self._snooze_schedule_notification(schedule)
+
+    def _complete_schedule(self, schedule: dict[str, Any]) -> None:
+        schedule["completed"] = True
+        schedule["completed_at"] = datetime.now().isoformat(timespec="seconds")
+        self.save_data()
+
+    def _snooze_schedule_notification(self, schedule: dict[str, Any], minutes: int = 10) -> None:
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+
+        def fire() -> None:
+            if timer in self._quick_timers:
+                self._quick_timers.remove(timer)
+            if not schedule.get("completed"):
+                self.show_schedule_notification(schedule)
+
+        timer.timeout.connect(fire)
+        timer.start(minutes * 60_000)
+        self._quick_timers.append(timer)
+
+    # ── 시스템 트레이 ──────────────────────────────────────────────────────
+
+    def _setup_tray_icon(self) -> None:
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            log.warning("system tray unavailable — close will quit the app")
+            return
+        self.tray_icon = QSystemTrayIcon(self.windowIcon(), self)
+        self.tray_icon.setToolTip(config.APP_NAME)
+        menu = QMenu()
+        menu.addAction("열기", self.show_from_tray)
+        menu.addSeparator()
+        menu.addAction("스티커 메모 열기/닫기", lambda: self.memo_tab.toggle_recent_stickers())
+        menu.addAction("화면 캡처", lambda: QTimer.singleShot(0, self.image_tab.capture_steel_cut))
+        menu.addSeparator()
+        menu.addAction("종료", self.quit_application)
+        self._tray_menu = menu  # QMenu가 GC되지 않도록 보관
+        self.tray_icon.setContextMenu(menu)
+        self.tray_icon.activated.connect(self._on_tray_activated)
+        self.tray_icon.show()
+
+    def _on_tray_activated(self, reason) -> None:
+        if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick):
+            self.show_from_tray()
+
+    def show_from_tray(self) -> None:
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def _show_tray_hint_once(self) -> None:
+        if self.settings.get("tray_hint_shown"):
+            return
+        self.settings["tray_hint_shown"] = True
+        config.save_settings(self.settings)
+        if self.tray_icon is not None:
+            self.tray_icon.showMessage(
+                config.APP_NAME,
+                "앱이 트레이에서 계속 실행 중입니다. 완전히 종료하려면 트레이 아이콘에서 '종료'를 선택하세요.",
+                QSystemTrayIcon.MessageIcon.Information,
+                4000,
+            )
+
+    def quit_application(self) -> None:
+        self._really_quit = True
+        self.close()  # 저장 실패 시 closeEvent가 _really_quit을 되돌리고 취소한다
 
     def closeEvent(self, event) -> None:
-        settings_tab = self.tabs[11] if hasattr(self, "tabs") and len(self.tabs) > 11 else None
+        # X 버튼: 트레이가 있으면 종료 대신 트레이로 숨긴다. 완전 종료는
+        # quit_application()(트레이 메뉴의 '종료')에서만 수행한다.
+        if not self._really_quit and self.tray_icon is not None and self.tray_icon.isVisible():
+            event.ignore()
+            self.hide()
+            self._show_tray_hint_once()
+            return
+        settings_tab = getattr(self, "settings_tab", None)
         if settings_tab is not None and hasattr(settings_tab, "is_dirty") and settings_tab.is_dirty():
             changes = settings_tab.changed_settings_summary() if hasattr(settings_tab, "changed_settings_summary") else []
             detail = "\n".join(changes[:8])
@@ -1894,20 +2056,40 @@ class MainWindow(QMainWindow):
                 message = f"변경된 내용\n{detail}\n\n{message}"
             if ask_modern_question(self, "변경 내용 저장", message, None, "저장", "취소"):
                 if settings_tab.save_settings() is False:
+                    self._really_quit = False
                     event.ignore()
                     return
             elif hasattr(settings_tab, "discard_changes"):
                 settings_tab.discard_changes()
+        self._shutdown()
+        super().closeEvent(event)
+        # quitOnLastWindowClosed가 꺼져 있으므로 명시적으로 이벤트 루프를 끝낸다.
+        QTimer.singleShot(0, self.app.quit)
+
+    def _shutdown(self) -> None:
+        log.info("app shutting down")
+        self.flush_pending_saves()
         self.hotkeys.unregister_all()
         if self.hotstring_listener is not None:
             try:
                 self.hotstring_listener.stop()
             except Exception:
-                pass
+                log.debug("hotstring listener stop failed", exc_info=True)
         self.set_mouse_highlight(False)
+        # 스티커/인덱스 카드는 accept()가 아니라 close()로 닫아 sticker_open 상태를
+        # 보존한다 — 다음 실행 때 restore_open_stickers()가 다시 띄울 수 있도록.
+        memo_tab = getattr(self, "memo_tab", None)
+        if memo_tab is not None:
+            for dialog in list(memo_tab.sticky_windows.values()):
+                try:
+                    dialog.close()
+                except Exception:
+                    log.debug("sticker close failed", exc_info=True)
         if self.floating_widget is not None:
             self.floating_widget.close()
             self.floating_widget = None
+        if self.tray_icon is not None:
+            self.tray_icon.hide()
         self.app.removeNativeEventFilter(self.hotkey_event_filter)
         self.ctrl_listener_stop.set()
         if self.ctrl_listener_thread:
@@ -1916,4 +2098,3 @@ class MainWindow(QMainWindow):
             self.clipboard_tab.stop()
         if hasattr(self.clipboard_tab, "cleanup_expired_images"):
             self.clipboard_tab.cleanup_expired_images(days=7)
-        super().closeEvent(event)

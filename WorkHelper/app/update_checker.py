@@ -20,6 +20,9 @@ from PyQt6.QtWidgets import (
 )
 
 from app import config
+from app.logger import get_logger
+
+log = get_logger("update")
 
 JUST_UPDATED_FLAG = Path(tempfile.gettempdir()) / "6pma_just_updated.txt"
 MANUAL_UPDATE_URL = "https://github.com/dynn1178/support_cdx/releases/latest/download/6PM.Assistant.zip"
@@ -605,6 +608,7 @@ def check_update_dialog(
         else:
             latest_version, update = fetch_latest_info(current_version, repo=repo, token=token)
     except Exception as exc:
+        log.warning("update check failed: %s", exc, exc_info=True)
         if not silent_no_update:
             QMessageBox.warning(parent, "업데이트 확인 실패", str(exc))
         return False

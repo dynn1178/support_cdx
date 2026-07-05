@@ -14,7 +14,8 @@ a = Analysis(
     binaries=[],
     datas=[
         (str(project_root / 'assets'), 'assets'),
-        (str(project_root / 'data'), 'data'),
+        # 사용자 데이터(data/)는 번들하지 않는다 — 초기 샘플은 seed/에서 복사된다.
+        (str(project_root / 'seed'), 'seed'),
         (str(project_root / 'version.txt'), '.'),
         (str(project_root / 'icon2.png'), '.'),
     ],

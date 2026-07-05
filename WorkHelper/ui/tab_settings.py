@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
     QSlider,
     QSpinBox,
     QTabWidget,
+    QTextEdit,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -68,15 +69,19 @@ class SettingsTab(QWidget):
         self.hotkey_tab = QWidget()
         self.theme_tab = QWidget()
         self.widget_tab = QWidget()
+        self.diagnostics_tab = QWidget()
         self.tabs.addTab(self.general_tab, "일반")
         self.tabs.addTab(self.hotkey_tab, "단축키")
         self.tabs.addTab(self.theme_tab, "테마")
         self.tabs.addTab(self.widget_tab, "위젯")
+        self.tabs.addTab(self.diagnostics_tab, "진단")
         layout.addWidget(self.tabs, 1)
         self.build_general()
         self.build_hotkeys()
         self.build_theme()
         self.build_widget()
+        self.build_diagnostics()
+        self.tabs.currentChanged.connect(self._on_settings_subtab_changed)
 
         save_btn = QPushButton("설정 저장")
         update_btn = QPushButton("업데이트 확인")
@@ -124,8 +129,155 @@ class SettingsTab(QWidget):
         form.addRow("자동 업데이트", self.auto_update_install)
         form.addRow("업데이트 확인", self.auto_update_check)
         form.addRow(self.update_snooze_label, self.update_snooze_until)
+        backup_now_btn = QPushButton("지금 백업")
+        backup_now_btn.clicked.connect(self.backup_now)
+        restore_btn = QPushButton("백업 복원...")
+        restore_btn.clicked.connect(self.restore_backup_clicked)
+        backup_row = QHBoxLayout()
+        backup_row.setContentsMargins(0, 0, 0, 0)
+        backup_row.setSpacing(6)
+        backup_row.addWidget(backup_now_btn)
+        backup_row.addWidget(restore_btn)
+        backup_row.addStretch(1)
+        backup_widget = QWidget()
+        backup_widget.setLayout(backup_row)
+        backup_hint = QLabel("하루 1회 자동 백업 · 최근 10개 보관 (backups/)")
+        backup_hint.setObjectName("mutedText")
+        form.addRow("데이터 백업", backup_widget)
+        form.addRow("", backup_hint)
         layout.addLayout(form)
         layout.addStretch(1)
+
+    def backup_now(self) -> None:
+        from app import backup
+
+        if hasattr(self.main, "flush_pending_saves"):
+            self.main.flush_pending_saves()
+        path = backup.create_backup()
+        if path is not None:
+            show_modern_info(self, "백업 완료", f"백업 파일을 저장했습니다.\n{path.name}")
+        else:
+            show_modern_warning(self, "백업 실패", "백업 파일을 만들지 못했습니다. 로그를 확인해주세요.")
+
+    def restore_backup_clicked(self) -> None:
+        from datetime import datetime as dt
+
+        from app import backup
+
+        backups = backup.list_backups()
+        if not backups:
+            show_modern_warning(self, "복원 불가", "복원할 백업이 없습니다.")
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("백업 복원")
+        from ui.common import apply_modern_dialog_style
+
+        apply_modern_dialog_style(dialog)
+        dialog_layout = QVBoxLayout(dialog)
+        dialog_layout.addWidget(QLabel("복원할 백업을 선택하세요."))
+        combo = QComboBox()
+        for path in backups:
+            stamp = dt.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+            combo.addItem(f"{stamp}  ({path.name})", str(path))
+        dialog_layout.addWidget(combo)
+        button_row = QHBoxLayout()
+        button_row.addStretch(1)
+        cancel_btn = QPushButton("취소")
+        cancel_btn.clicked.connect(dialog.reject)
+        ok_btn = QPushButton("복원")
+        ok_btn.clicked.connect(dialog.accept)
+        button_row.addWidget(cancel_btn)
+        button_row.addWidget(ok_btn)
+        dialog_layout.addLayout(button_row)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        selected = combo.currentData()
+        if not selected:
+            return
+        if not ask_modern_question(
+            self,
+            "백업 복원",
+            "현재 설정과 프리셋을 선택한 백업 시점으로 되돌립니다.\n"
+            "복원 직전 상태도 새 백업으로 보관됩니다. 계속할까요?",
+        ):
+            return
+        try:
+            backup.create_backup()  # 복원 직전 상태 보관
+            backup.restore_backup(selected)
+        except Exception as exc:
+            show_modern_warning(self, "복원 실패", str(exc))
+            return
+        self._reload_after_restore()
+        show_modern_info(self, "복원 완료", "백업을 복원했습니다.")
+
+    def _reload_after_restore(self) -> None:
+        main = self.main
+        main.settings = config.load_settings()
+        main.template_index = int(main.settings.get("active_preset", 1))
+        main.data = config.load_template(main.template_index)
+        main.data["settings"] = main.settings
+        main.apply_current_settings()
+        main.register_hotkeys()
+        main.refresh_all_tabs()
+        self.refresh()
+
+    def build_diagnostics(self) -> None:
+        layout = QVBoxLayout(self.diagnostics_tab)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+        fail_title = QLabel("단축키 등록 실패")
+        fail_title.setStyleSheet("font-weight: 800;")
+        self.hotkey_fail_view = QLabel("없음 ✓")
+        self.hotkey_fail_view.setObjectName("mutedText")
+        self.hotkey_fail_view.setWordWrap(True)
+        log_title = QLabel("최근 로그")
+        log_title.setStyleSheet("font-weight: 800;")
+        self.log_view = QTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        self.log_view.setStyleSheet('QTextEdit { font-family: Consolas, "Malgun Gothic"; font-size: 8.5pt; }')
+        button_row = QHBoxLayout()
+        refresh_btn = QPushButton("새로고침")
+        refresh_btn.clicked.connect(self.refresh_diagnostics)
+        open_log_btn = QPushButton("로그 폴더 열기")
+        open_log_btn.clicked.connect(self.open_log_folder)
+        button_row.addWidget(refresh_btn)
+        button_row.addWidget(open_log_btn)
+        button_row.addStretch(1)
+        layout.addWidget(fail_title)
+        layout.addWidget(self.hotkey_fail_view)
+        layout.addWidget(log_title)
+        layout.addWidget(self.log_view, 1)
+        layout.addLayout(button_row)
+
+    def _on_settings_subtab_changed(self, index: int) -> None:
+        if self.tabs.widget(index) is self.diagnostics_tab:
+            self.refresh_diagnostics()
+
+    def refresh_diagnostics(self) -> None:
+        failures = list(getattr(self.main, "hotkey_failures", []))
+        self.hotkey_fail_view.setText("\n".join(failures) if failures else "없음 ✓")
+        from app.logger import LOG_PATH
+
+        try:
+            text = LOG_PATH.read_text(encoding="utf-8", errors="replace")
+            lines = text.splitlines()[-300:]
+            self.log_view.setPlainText("\n".join(lines))
+            scrollbar = self.log_view.verticalScrollBar()
+            scrollbar.setValue(scrollbar.maximum())
+        except OSError:
+            self.log_view.setPlainText("(로그 파일이 아직 없습니다)")
+
+    def open_log_folder(self) -> None:
+        import os
+
+        from app.logger import LOG_DIR
+
+        try:
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            os.startfile(str(LOG_DIR))
+        except OSError as exc:
+            show_modern_warning(self, "열기 실패", str(exc))
 
     def build_hotkeys(self) -> None:
         root = QVBoxLayout(self.hotkey_tab)

@@ -8,6 +8,9 @@ from PyQt6.QtGui import QFont, QIcon
 from PyQt6.QtWidgets import QApplication
 
 from app import config
+from app.logger import get_logger, install_excepthook, setup_logging
+
+log = get_logger("main")
 
 
 def enable_dpi_awareness() -> None:
@@ -50,8 +53,11 @@ def qt_message_handler(_mode, _context, message: str) -> None:
 
 
 def main() -> int:
+    setup_logging()
+    install_excepthook()
     enable_dpi_awareness()
     config.ensure_data_files()
+    log.info("app starting (version=%s)", config.read_version())
     qInstallMessageHandler(qt_message_handler)
     QFont.insertSubstitution("Fixedsys", "Consolas")
     QFont.insertSubstitution("Terminal", "Consolas")

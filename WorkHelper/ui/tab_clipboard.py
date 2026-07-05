@@ -9,7 +9,6 @@ from PyQt6.QtGui import QCursor, QImage, QKeyEvent, QPixmap
 from PyQt6.QtWidgets import QApplication, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QTabWidget, QVBoxLayout, QWidget
 
 from app import config
-from app.clipboard_watcher import ClipboardWatcher
 from app.hotkey_manager import USER32, WM_HOTKEY
 from app.utils import new_id, now_iso, short_preview
 from ui.common import (
@@ -25,6 +24,7 @@ from ui.common import (
     ask_modern_question,
     bottom_action_bar,
     bump_usage,
+    force_activate_window,
     make_card,
     make_icon_button,
     remove_favorite_badge_from_card,
@@ -164,19 +164,9 @@ class ClipboardMiniPopup(QDialog):
         self.force_activate()
 
     def force_activate(self) -> None:
-        if self._closing or not self.isVisible():
+        if self._closing:
             return
-        self.raise_()
-        self.activateWindow()
-        self.setFocus(Qt.FocusReason.PopupFocusReason)
-        try:
-            hwnd = int(self.winId())
-            USER32.ShowWindow(hwnd, 5)
-            USER32.BringWindowToTop(hwnd)
-            USER32.SetForegroundWindow(hwnd)
-            USER32.SetActiveWindow(hwnd)
-        except Exception:
-            pass
+        force_activate_window(self, focus_target=self)
 
     def start_number_hotkeys(self) -> None:
         app = QApplication.instance()
@@ -333,19 +323,34 @@ class ClipboardTab(QWidget):
         page_layout.addLayout(bottom_action_bar(clear_btn))
         self.tabs.addTab(page, "클립보드")
         layout.addWidget(self.tabs, 1)
-        self.watcher = ClipboardWatcher()
-        self.watcher.new_item.connect(self.add_history)
-        self.watcher.start()
+        # 폴링(QThread 0.5s + QTimer 0.7s) 대신 OS 클립보드 변경 이벤트를 구독한다.
+        # 일부 앱은 복사 한 번에 dataChanged를 여러 번 쏘므로 짧게 디바운스한다.
+        self.last_text = ""
         self.last_image_signature = ""
         self.ignore_next_image = False
-        self.image_timer = QTimer(self)
-        self.image_timer.timeout.connect(self.check_image_clipboard)
-        self.image_timer.start(700)
+        self._clipboard_debounce = QTimer(self)
+        self._clipboard_debounce.setSingleShot(True)
+        self._clipboard_debounce.timeout.connect(self.process_clipboard_change)
+        QApplication.clipboard().dataChanged.connect(lambda: self._clipboard_debounce.start(150))
 
     def stop(self) -> None:
-        self.watcher.stop()
-        self.watcher.wait(1000)
-        self.image_timer.stop()
+        self._clipboard_debounce.stop()
+
+    def process_clipboard_change(self) -> None:
+        clipboard = QApplication.clipboard()
+        mime = clipboard.mimeData()
+        if mime is None:
+            return
+        if mime.hasImage():
+            self.check_image_clipboard()
+            return
+        if not mime.hasText():
+            return
+        text = clipboard.text()
+        if not text.strip() or text == self.last_text:
+            return
+        self.last_text = text
+        self.add_history(text)
 
     def add_history(self, text: str) -> None:
         items = self.history.setdefault("history", [])

@@ -1,7 +1,47 @@
 from __future__ import annotations
 
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import QApplication
+
+
+def hex_to_rgba(hex_color: str, opacity: int) -> str:
+    """#RRGGBB 또는 rgba(...) 문자열에 20~100% 불투명도를 적용한 rgba(...)를 돌려준다."""
+    if str(hex_color or "").strip().startswith("rgba"):
+        raw = str(hex_color or "").strip()
+        parts = raw[raw.find("(") + 1 : raw.rfind(")")].split(",")
+        if len(parts) == 4:
+            try:
+                r, g, b = int(parts[0]), int(parts[1]), int(parts[2])
+                base_alpha = int(parts[3])
+                alpha = int(base_alpha * (max(20, min(100, opacity)) / 100))
+                return f"rgba({r}, {g}, {b}, {alpha})"
+            except ValueError:
+                return raw
+        return raw
+    raw = str(hex_color or "").strip().lstrip("#")
+    if len(raw) != 6:
+        raw = "F7FAFF"
+    try:
+        r = int(raw[0:2], 16)
+        g = int(raw[2:4], 16)
+        b = int(raw[4:6], 16)
+    except ValueError:
+        r, g, b = 247, 250, 255
+    alpha = int(255 * (max(20, min(100, opacity)) / 100))
+    return f"rgba({r}, {g}, {b}, {alpha})"
+
+
+def css_color_to_qcolor(value: str) -> QColor:
+    raw = str(value or "").strip()
+    if raw.startswith("rgba"):
+        parts = raw[raw.find("(") + 1 : raw.rfind(")")].split(",")
+        if len(parts) == 4:
+            try:
+                return QColor(int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3]))
+            except ValueError:
+                pass
+    color = QColor(raw)
+    return color if color.isValid() else QColor(0, 0, 0, 70)
 
 
 THEMES = {

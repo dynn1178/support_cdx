@@ -6,7 +6,10 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from .logger import get_logger
 from .utils import app_base_dir, bundled_resource_dir, now_iso
+
+log = get_logger("config")
 
 APP_NAME = "6PM Assistant"
 DEFAULT_VERSION = "1.0.0"
@@ -390,13 +393,17 @@ def ensure_data_files() -> None:
     for index in range(1, TEMPLATE_COUNT + 1):
         path = template_path(index)
         if not path.exists():
-            bundled_template = RESOURCE_DIR / "data" / "templates" / f"template_{index}.json"
-            if not copy_bundled_file(bundled_template, path):
-                data = default_template(index)
-                save_template(index, data)
+            # 초기 배포용 샘플은 seed/에 분리 보관한다. (data/는 사용자 데이터라
+            # git/배포 번들에서 제외) 구버전 번들 호환을 위해 data/ 경로도 시도한다.
+            seeded = copy_bundled_file(RESOURCE_DIR / "seed" / "templates" / f"template_{index}.json", path)
+            if not seeded:
+                seeded = copy_bundled_file(RESOURCE_DIR / "data" / "templates" / f"template_{index}.json", path)
+            if not seeded:
+                save_template(index, default_template(index))
     if not CLIPBOARD_HISTORY_PATH.exists():
-        if not copy_bundled_file(RESOURCE_DIR / "data" / "clipboard_history.json", CLIPBOARD_HISTORY_PATH):
-            save_clipboard_history({"history": []})
+        if not copy_bundled_file(RESOURCE_DIR / "seed" / "clipboard_history.json", CLIPBOARD_HISTORY_PATH):
+            if not copy_bundled_file(RESOURCE_DIR / "data" / "clipboard_history.json", CLIPBOARD_HISTORY_PATH):
+                save_clipboard_history({"history": []})
 
 
 def copy_bundled_file(source: Path, target: Path) -> bool:
@@ -509,6 +516,7 @@ def load_settings() -> dict[str, Any]:
         with SETTINGS_PATH.open("r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception:
+        log.warning("settings.json 로드 실패 — 기본값으로 시작", exc_info=True)
         data = {}
     data = _migrate_settings(data)
     settings = copy.deepcopy(DEFAULT_SETTINGS)

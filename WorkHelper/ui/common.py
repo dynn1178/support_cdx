@@ -493,6 +493,31 @@ def flash_taskbar(widget: QWidget, msec: int = 4000) -> None:
         QApplication.alert(window, msec)
 
 
+def force_activate_window(widget: QWidget, focus_target: QWidget | None = None) -> None:
+    """팝업 창을 최상위로 올리고 Win32 포그라운드 전환까지 시도한다.
+
+    전역 단축키로 뜨는 팝업은 다른 앱이 포그라운드일 때 activateWindow()만으로는
+    포커스를 얻지 못하는 경우가 많아 SetForegroundWindow 계열을 함께 호출한다.
+    """
+    if not widget.isVisible():
+        return
+    widget.raise_()
+    widget.activateWindow()
+    if focus_target is not None:
+        focus_target.setFocus(Qt.FocusReason.PopupFocusReason)
+    try:
+        import ctypes
+
+        hwnd = int(widget.winId())
+        user32 = ctypes.windll.user32
+        user32.ShowWindow(hwnd, 5)  # SW_SHOW
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+        user32.SetActiveWindow(hwnd)
+    except Exception:
+        pass
+
+
 def confirm_delete(parent: QWidget, message: str = "이 항목을 삭제하시겠습니까?") -> bool:
     colors = dialog_palette(parent)
     dialog = QDialog(parent)
@@ -1114,7 +1139,7 @@ class TextItemDialog(QDialog):
         form.addRow("단축키", self.hotkey)
         layout.addLayout(form)
         footer = QHBoxLayout()
-        hint = QLabel(help_text or "줄바꿈 형태 지원")
+        hint = QLabel(help_text or "줄바꿈 형태 지원 · 변수: {clipboard} {date} {date:yyyy-MM-dd} {time} {cursor}")
         hint.setObjectName("mutedText")
         footer.addWidget(hint)
         footer.addStretch(1)

@@ -112,9 +112,12 @@ class HotstringDialog(QDialog):
         self.text = QTextEdit(self.item.get("text", ""))
         self.case_sensitive = QCheckBox("대소문자 구분")
         self.case_sensitive.setChecked(bool(self.item.get("case_sensitive", False)))
+        self.word_boundary = QCheckBox("단어 경계에서만 (앞 글자가 공백·문장부호일 때만 변환)")
+        self.word_boundary.setChecked(bool(self.item.get("word_boundary", False)))
         form.addRow("입력 문자열", self.trigger)
         form.addRow("대체 텍스트", self.text)
         form.addRow("옵션", self.case_sensitive)
+        form.addRow("", self.word_boundary)
         layout.addLayout(form)
         help_text = QLabel("입력 문자열을 입력하면 대체 텍스트로 변환됩니다. 예시: gg. → google.com")
         help_text.setObjectName("mutedText")
@@ -133,6 +136,7 @@ class HotstringDialog(QDialog):
                 "trigger": self.trigger.text().strip(),
                 "text": self.text.toPlainText(),
                 "case_sensitive": self.case_sensitive.isChecked(),
+                "word_boundary": self.word_boundary.isChecked(),
             }
         )
         return data

@@ -54,15 +54,8 @@ def normalize_hotkey(hotkey: dict | None) -> str:
     return "+".join(modifiers + ([key] if key else []))
 
 
-def display_hotkey(hotkey: dict | None) -> str:
-    if not hotkey:
-        return ""
-    aliases = {"ctrl": "Ctrl", "control": "Ctrl", "alt": "Alt", "shift": "Shift", "win": "Win", "windows": "Win", "meta": "Win", "super": "Win"}
-    order = {"Ctrl": 0, "Alt": 1, "Shift": 2, "Win": 3}
-    modifiers = [aliases.get(str(modifier).lower(), str(modifier).title()) for modifier in hotkey.get("modifiers", [])]
-    modifiers = sorted(dict.fromkeys(modifiers), key=lambda value: order.get(value, 99))
-    key = hotkey.get("key", "")
-    return "+".join(modifiers + ([key] if key else []))
+# 표시용 별칭 — normalize_hotkey와 동일한 포맷을 사용한다.
+display_hotkey = normalize_hotkey
 
 
 def hotkey_to_keyboard_string(hotkey: dict | None) -> str:
