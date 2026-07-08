@@ -794,6 +794,13 @@ class TodoListTab(QWidget):
         self._countdown_qTimer_obj = QTimer(self)
         self._countdown_qTimer_obj.setInterval(1000)
 
+        # 드래그 중 컬럼 자동 스크롤
+        self._autoscroll_timer = QTimer(self)
+        self._autoscroll_timer.setInterval(30)
+        self._autoscroll_timer.timeout.connect(self._do_autoscroll)
+        self._autoscroll_scroll: QScrollArea | None = None
+        self._autoscroll_direction = 0
+
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
@@ -941,8 +948,9 @@ class TodoListTab(QWidget):
         col.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         col.setAcceptDrops(True)
         col._todo_group_name = name
-        col.dragEnterEvent = lambda event: self._todo_col_drag_enter(event)
-        col.dragMoveEvent = lambda event: self._todo_col_drag_enter(event)
+        col.dragEnterEvent = lambda event, c=col: self._todo_col_drag_move(event, c)
+        col.dragMoveEvent = lambda event, c=col: self._todo_col_drag_move(event, c)
+        col.dragLeaveEvent = lambda event, c=col: self._todo_col_drag_leave(event, c)
         col.dropEvent = lambda event, group=name: self._todo_col_drop(event, group)
         cl = QVBoxLayout(col)
         cl.setContentsMargins(4, 4, 4, 4)
@@ -971,6 +979,7 @@ class TodoListTab(QWidget):
         il.addStretch(1)
         scroll.setWidget(content)
         cl.addWidget(scroll, 1)
+        col._todo_scroll = scroll
 
         return col
 
@@ -994,12 +1003,49 @@ class TodoListTab(QWidget):
         mime.setText(str(item.get("id", "")))
         drag.setMimeData(mime)
         drag.exec(Qt.DropAction.MoveAction)
+        self._stop_autoscroll()
 
-    def _todo_col_drag_enter(self, event) -> None:
-        if event.mimeData().hasText():
-            event.acceptProposedAction()
+    _AUTOSCROLL_EDGE = 40
+    _AUTOSCROLL_STEP = 16
+
+    def _todo_col_drag_move(self, event, col: QWidget) -> None:
+        if not event.mimeData().hasText():
+            return
+        event.acceptProposedAction()
+        scroll = getattr(col, "_todo_scroll", None)
+        if scroll is None:
+            return
+        self._autoscroll_scroll = scroll
+        local_y = event.position().toPoint().y() - scroll.geometry().top()
+        height = scroll.geometry().height()
+        edge = self._AUTOSCROLL_EDGE
+        if local_y < edge:
+            self._autoscroll_direction = -1
+        elif local_y > height - edge:
+            self._autoscroll_direction = 1
+        else:
+            self._autoscroll_direction = 0
+        if self._autoscroll_direction != 0 and not self._autoscroll_timer.isActive():
+            self._autoscroll_timer.start()
+
+    def _todo_col_drag_leave(self, event, col: QWidget) -> None:
+        if self._autoscroll_scroll is getattr(col, "_todo_scroll", None):
+            self._stop_autoscroll()
+
+    def _do_autoscroll(self) -> None:
+        if not self._autoscroll_scroll or self._autoscroll_direction == 0:
+            self._autoscroll_timer.stop()
+            return
+        bar = self._autoscroll_scroll.verticalScrollBar()
+        bar.setValue(bar.value() + self._autoscroll_direction * self._AUTOSCROLL_STEP)
+
+    def _stop_autoscroll(self) -> None:
+        self._autoscroll_timer.stop()
+        self._autoscroll_scroll = None
+        self._autoscroll_direction = 0
 
     def _todo_col_drop(self, event, group: str) -> None:
+        self._stop_autoscroll()
         item_id = event.mimeData().text()
         for item in self.main.data.get("schedules", []):
             if item.get("id") == item_id:

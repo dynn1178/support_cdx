@@ -1,0 +1,26 @@
+2026-07-08 10:27:33,982 INFO    workhelper.main: app starting (version=1.5.0)
+2026-07-08 10:27:39,758 WARNING workhelper.main_window: hotkey register failed: 엑셀 단축키 (Ctrl+Alt+F1) — RegisterHotKey failed: 1409
+2026-07-08 10:27:42,639 WARNING workhelper.main_window: hotkey register failed: 엑셀 단축키 (Ctrl+Alt+F1) — RegisterHotKey failed: 1409
+2026-07-08 10:27:45,809 WARNING workhelper.main_window: hotkey register failed: 엑셀 단축키 (Ctrl+Alt+F1) — RegisterHotKey failed: 1409
+2026-07-08 10:27:49,504 INFO    workhelper.backup: backup created: backup_20260708_102749.zip
+2026-07-08 10:28:01,642 INFO    workhelper.main_window: app shutting down
+2026-07-08 13:16:47,772 INFO    workhelper.main: app starting (version=1.5.0)
+2026-07-08 13:19:48,644 INFO    workhelper.main_window: app shutting down
+2026-07-08 14:12:42,062 INFO    workhelper.main: app starting (version=1.5.0)
+2026-07-08 14:12:47,106 INFO    workhelper.main: app starting (version=1.5.0)
+2026-07-08 14:12:47,210 INFO    workhelper.main: another instance is already running — notifying it and exiting
+2026-07-08 14:17:34,900 INFO    workhelper.main: app starting (version=1.5.0)
+2026-07-08 14:18:48,119 INFO    workhelper.main: app starting (version=1.5.0)
+2026-07-08 14:31:08,876 INFO    workhelper.main_window: app shutting down
+2026-07-08 14:51:53,893 INFO    workhelper.main: app starting (version=1.5.0)
+2026-07-08 14:54:41,178 INFO    workhelper.main_window: app shutting down
+2026-07-08 14:54:55,039 INFO    workhelper.main: app starting (version=1.5.0)
+2026-07-08 14:55:16,644 INFO    workhelper.main: app starting (version=1.5.0)
+2026-07-08 14:55:45,455 INFO    workhelper.main: app starting (version=1.5.0)
+2026-07-08 14:59:24,880 INFO    workhelper.main: app starting (version=1.5.0)
+2026-07-08 15:00:18,161 INFO    workhelper.main_window: app shutting down
+2026-07-08 15:00:21,202 INFO    workhelper.main: app starting (version=1.5.0)
+2026-07-08 15:01:10,673 INFO    workhelper.main_window: app shutting down
+2026-07-08 15:03:32,000 INFO    workhelper.main: app starting (version=1.5.0)
+2026-07-08 15:03:48,490 INFO    workhelper.main_window: app shutting down
+2026-07-08 15:36:05,999 INFO    workhelper.main: app starting (version=1.5.0)

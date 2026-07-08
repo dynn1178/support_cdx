@@ -15,6 +15,7 @@ from typing import Callable
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import (
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -355,6 +356,32 @@ def update_breadcrumb_label(label: QLabel, data: dict, gid: str) -> None:
         )
     label.setText(' <span style="color:#94A3B8;">›</span> '.join(parts))
     label.show()
+
+
+# ---------------------------------------------------------------------------
+# 저장위치(그룹) 선택 콤보
+# ---------------------------------------------------------------------------
+
+
+def build_group_combo(data: dict, scope: str, selected_gid: str = "") -> QComboBox:
+    """항목 등록/수정 다이얼로그에 넣는 저장위치(그룹) 선택 콤보.
+
+    최상위를 포함해 scope에 속한 모든 그룹을 트리 들여쓰기로 나열한다.
+    """
+    combo = QComboBox()
+    combo.addItem("🏠 최상위", "")
+
+    def add_options(parent_id: str, depth: int) -> None:
+        for group in groups_in(data, scope, parent_id):
+            gid = group_id(group)
+            label = ("    " * depth) + f"{group_icon(group)} {group.get('name', '')}"
+            combo.addItem(label, gid)
+            add_options(gid, depth + 1)
+
+    add_options("", 0)
+    index = combo.findData(selected_gid)
+    combo.setCurrentIndex(index if index >= 0 else 0)
+    return combo
 
 
 # ---------------------------------------------------------------------------

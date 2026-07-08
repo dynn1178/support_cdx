@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import QApplication
 
 from app import config
 from app.logger import get_logger, install_excepthook, setup_logging
+from app.single_instance import SingleInstanceGuard
 
 log = get_logger("main")
 
@@ -63,12 +64,20 @@ def main() -> int:
     QFont.insertSubstitution("Terminal", "Consolas")
     app = QApplication(sys.argv)
     app.setFont(QFont("Malgun Gothic", 9))
+
+    guard = SingleInstanceGuard()
+    if not guard.try_acquire():
+        log.info("another instance is already running — notifying it and exiting")
+        guard.notify_running_instance()
+        return 0
+
     from ui.main_window import MainWindow
 
     icon_path = config.APP_ICON_PATH if config.APP_ICON_PATH.exists() else config.BUNDLED_ICON_PATH
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
     window = MainWindow(app)
+    guard.show_requested.connect(window.show_from_tray)
     window.show()
     return app.exec()
 

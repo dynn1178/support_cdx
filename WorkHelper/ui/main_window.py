@@ -92,9 +92,12 @@ def send_key_batch(events: list[tuple[int, bool]]) -> bool:
 # UPDATE_SHORTCUT_NOTICE:
 # 신규 기능 안내 팝업은 아래 ID/문구만 바꾸면 다시 노출됩니다.
 # 바로가기 버튼을 누른 사용자에게는 settings.json의 update_shortcut_notice_ack에 ID가 저장됩니다.
-UPDATE_SHORTCUT_NOTICE_ID = "sticky_memo_display_mode_20260521"
+UPDATE_SHORTCUT_NOTICE_ID = "launcher_group_folders_20260708"
 UPDATE_SHORTCUT_NOTICE_TITLE = "업데이트 안내"
-UPDATE_SHORTCUT_NOTICE_MESSAGE = "스티커 메모를 플로팅/인덱스 형태 중 하나를 선택해서 볼 수 있어요"
+UPDATE_SHORTCUT_NOTICE_MESSAGE = (
+    "사이트, 메모, 컨닝페이퍼 탭에서 그룹(폴더)를 생성하고 분류별로 정리할 수 있어요.\n"
+    "드래그로 그룹 폴더 안에 이동시켜보세요."
+)
 
 
 class UpdateShortcutNoticeDialog(QDialog):
@@ -177,7 +180,7 @@ class UpdateShortcutNoticeDialog(QDialog):
         """
         self._pulse_style = self._base_style.replace("border: 2px solid #F43F5E;", "border: 2px solid #FDA4AF;")
         self.setStyleSheet(self._base_style)
-        self.resize(430, 170)
+        self.resize(430, 200)
         self._pulse_timer = QTimer(self)
         self._pulse_timer.timeout.connect(self._pulse)
         self._pulse_timer.start(420)
@@ -1479,7 +1482,12 @@ class MainWindow(QMainWindow):
             return
         self.settings["update_shortcut_notice_ack"] = UPDATE_SHORTCUT_NOTICE_ID
         config.save_settings(self.settings)
-        self.open_sticky_memo_index_setting()
+        self.open_launcher_group_creation()
+
+    def open_launcher_group_creation(self) -> None:
+        self.set_tab(self.tabs.index(self.launcher_tab))
+        if hasattr(self.launcher_tab, "focus_group_creation"):
+            QTimer.singleShot(0, self.launcher_tab.focus_group_creation)
 
     def open_sticky_memo_index_setting(self) -> None:
         self.set_tab(self.tabs.index(self.settings_tab))

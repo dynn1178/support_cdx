@@ -4,7 +4,7 @@ import hashlib
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from PyQt6.QtCore import QAbstractNativeEventFilter, QSize, QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import QAbstractNativeEventFilter, QSize, QThreadPool, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QCursor, QImage, QKeyEvent, QPixmap
 from PyQt6.QtWidgets import QApplication, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QTabWidget, QVBoxLayout, QWidget
 
@@ -25,6 +25,7 @@ from ui.common import (
     bottom_action_bar,
     bump_usage,
     force_activate_window,
+    ImageSaveWorker,
     make_card,
     make_icon_button,
     remove_favorite_badge_from_card,
@@ -57,11 +58,14 @@ def image_path(item: dict) -> Path:
 
 
 def stable_image_signature(image: QImage) -> str:
-    normalized = image.convertToFormat(QImage.Format.Format_RGBA8888)
-    bits = normalized.constBits()
-    bits.setsize(normalized.sizeInBytes())
+    # 원본 해상도 전체를 해시하면 큰 스크린샷에서 눈에 띄는 지연이 생기므로,
+    # 축소한 썸네일만 해시해 변경 여부를 판별한다.
+    thumb = image.scaled(48, 48, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.FastTransformation)
+    thumb = thumb.convertToFormat(QImage.Format.Format_RGBA8888)
+    bits = thumb.constBits()
+    bits.setsize(thumb.sizeInBytes())
     digest = hashlib.sha1(bytes(bits)).hexdigest()
-    return f"{normalized.width()}x{normalized.height()}:{digest}"
+    return f"{image.width()}x{image.height()}:{digest}"
 
 
 class PopupNumberFilter(QAbstractNativeEventFilter):
@@ -296,6 +300,7 @@ class ClipboardTab(QWidget):
         self.main = main
         self.history = config.load_clipboard_history()
         self._mini_popup: ClipboardMiniPopup | None = None
+        self._image_thumb_cache: dict[str, QPixmap] = {}
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.search = QLineEdit()
@@ -396,27 +401,37 @@ class ClipboardTab(QWidget):
         self.add_image_history(image, signature)
 
     def add_image_history(self, image: QImage, signature: str) -> None:
-        items = self.history.setdefault("history", [])
+        # PNG 인코딩+디스크 쓰기는 백그라운드 스레드에서 수행해 복사 직후 UI가
+        # 멈추는 느낌(버벅임)이 들지 않게 한다.
         item_id = new_id("cbimg")
-        config.CLIPBOARD_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
         path = config.CLIPBOARD_IMAGE_DIR / f"{item_id}.png"
-        if not image.save(str(path), "PNG"):
+        width, height = image.width(), image.height()
+        worker = ImageSaveWorker(image, path, "PNG", -1)
+        worker.signals.finished.connect(
+            lambda saved_path, ok, item_id=item_id, signature=signature, width=width, height=height:
+            self._on_image_history_saved(ok, item_id, saved_path, signature, width, height)
+        )
+        QThreadPool.globalInstance().start(worker)
+
+    def _on_image_history_saved(self, ok: bool, item_id: str, path: str, signature: str, width: int, height: int) -> None:
+        if not ok:
             return
+        items = self.history.setdefault("history", [])
         copied_at = now_iso()
         items.insert(
             0,
             {
                 "id": item_id,
                 "type": "image",
-                "path": str(path),
+                "path": path,
                 "copied_at": copied_at,
                 "created_at": copied_at,
                 "sort_order": len(items),
                 "usage_count": 0,
                 "pinned": False,
                 "image_signature": signature,
-                "width": image.width(),
-                "height": image.height(),
+                "width": width,
+                "height": height,
             },
         )
         self.trim_history()
@@ -522,6 +537,7 @@ class ClipboardTab(QWidget):
     def delete_item(self, item: dict) -> None:
         self.history.get("history", []).remove(item)
         if is_image_item(item):
+            self._image_thumb_cache.pop(item.get("id", ""), None)
             try:
                 image_path(item).unlink(missing_ok=True)
             except Exception:
@@ -542,6 +558,7 @@ class ClipboardTab(QWidget):
                 except Exception:
                     pass
         self.history["history"] = []
+        self._image_thumb_cache.clear()
         config.save_clipboard_history(self.history)
         self.refresh()
 
@@ -561,6 +578,7 @@ class ClipboardTab(QWidget):
             if copied_at >= cutoff:
                 kept.append(item)
                 continue
+            self._image_thumb_cache.pop(item.get("id", ""), None)
             try:
                 image_path(item).unlink(missing_ok=True)
             except Exception:
@@ -594,6 +612,20 @@ class ClipboardTab(QWidget):
         if self._mini_popup is dialog:
             self._mini_popup = None
 
+    def _image_thumb(self, item: dict) -> QPixmap | None:
+        # 매 refresh()마다 디스크에서 다시 디코딩하면 이력이 쌓일수록
+        # 눈에 띄게 느려지므로, 항목 id 기준으로 축소된 썸네일을 캐시한다.
+        item_id = item.get("id", "")
+        cached = self._image_thumb_cache.get(item_id)
+        if cached is not None:
+            return cached
+        pixmap = QPixmap(str(image_path(item)))
+        if pixmap.isNull():
+            return None
+        thumb = pixmap.scaled(IMAGE_THUMB_SIZE, IMAGE_THUMB_SIZE, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        self._image_thumb_cache[item_id] = thumb
+        return thumb
+
     def make_image_card(self, item: dict) -> QWidget:
         card = QWidget()
         card.setObjectName("card")
@@ -604,9 +636,9 @@ class ClipboardTab(QWidget):
         preview = QLabel()
         preview.setFixedSize(IMAGE_THUMB_SIZE, IMAGE_THUMB_SIZE)
         preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        pixmap = QPixmap(str(image_path(item)))
-        if not pixmap.isNull():
-            preview.setPixmap(pixmap.scaled(IMAGE_THUMB_SIZE, IMAGE_THUMB_SIZE, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        thumb = self._image_thumb(item)
+        if thumb is not None:
+            preview.setPixmap(thumb)
         else:
             preview.setText("이미지")
         text_col = QVBoxLayout()

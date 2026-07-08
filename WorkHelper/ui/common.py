@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Callable
 
-from PyQt6.QtCore import QEvent, QPoint, QPropertyAnimation, QSize, Qt, QTimer
+from PyQt6.QtCore import QEvent, QObject, QPoint, QPropertyAnimation, QRunnable, QSize, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import QGraphicsOpacityEffect
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -27,6 +28,31 @@ from PyQt6.QtWidgets import (
 
 from app.theme import THEMES
 from app.utils import now_iso
+
+class ImageSaveSignals(QObject):
+    finished = pyqtSignal(str, bool)
+
+
+class ImageSaveWorker(QRunnable):
+    """이미지 저장(인코딩+디스크 쓰기)을 백그라운드 스레드에서 수행해 UI가 멈추지 않게 한다."""
+
+    def __init__(self, image, path: Path, image_format: str = "PNG", quality: int = -1) -> None:
+        super().__init__()
+        self.image = image
+        self.path = path
+        self.image_format = image_format
+        self.quality = quality
+        self.signals = ImageSaveSignals()
+
+    @pyqtSlot()
+    def run(self) -> None:
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            ok = True if self.path.exists() else self.image.save(str(self.path), self.image_format, self.quality)
+        except Exception:
+            ok = False
+        self.signals.finished.emit(str(self.path), ok)
+
 
 HOTKEY_KEYS = (
     [str(i) for i in range(1, 10)]

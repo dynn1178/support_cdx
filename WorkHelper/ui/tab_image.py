@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
-from PyQt6.QtCore import QEventLoop, QObject, QPoint, QRect, QRunnable, QSize, QThreadPool, QTimer, Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QEventLoop, QPoint, QRect, QSize, QThreadPool, QTimer, Qt
 from PyQt6.QtGui import QColor, QCursor, QImage, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
@@ -50,6 +50,8 @@ from ui.common import (
     bump_usage,
     confirm_delete,
     confirm_shift_digit_hotkey,
+    fit_combo_to_contents,
+    ImageSaveWorker,
     make_card,
     make_icon_button,
     set_card_action_widget,
@@ -59,6 +61,7 @@ from ui.common import (
 from ui.groups import (
     GROUP_SCOPE_CHEAT,
     GroupDialog,
+    build_group_combo,
     count_group_contents,
     create_group,
     delete_group,
@@ -175,29 +178,6 @@ def copy_pixmap_to_clipboard(pixmap: QPixmap) -> None:
     set_image(force=True)
     for delay in (35, 90, 180, 320):
         QTimer.singleShot(delay, set_image)
-
-
-class SteelCutSaveSignals(QObject):
-    finished = pyqtSignal(str, bool)
-
-
-class SteelCutSaveWorker(QRunnable):
-    def __init__(self, image, path: Path, image_format: str = "JPG", quality: int = 95) -> None:
-        super().__init__()
-        self.image = image
-        self.path = path
-        self.image_format = image_format
-        self.quality = quality
-        self.signals = SteelCutSaveSignals()
-
-    @pyqtSlot()
-    def run(self) -> None:
-        try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            ok = True if self.path.exists() else self.image.save(str(self.path), self.image_format, self.quality)
-        except Exception:
-            ok = False
-        self.signals.finished.emit(str(self.path), ok)
 
 
 def _screen_source_rect(screen, logical_rect: QRect, full_pixmap: QPixmap) -> QRect:
@@ -557,10 +537,14 @@ class ScreenCaptureDialog(QDialog):
 
 
 class ImageDialog(QDialog):
-    def __init__(self, item: dict | None = None) -> None:
+    def __init__(self, item: dict | None = None, data: dict | None = None, default_group_id: str = "") -> None:
         super().__init__()
         self.setWindowTitle("이미지")
         self.item = item or {}
+        self.group_combo = build_group_combo(
+            data or {}, GROUP_SCOPE_CHEAT, self.item.get("group_id", "") if item else default_group_id
+        )
+        fit_combo_to_contents(self.group_combo, 160)
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.name = QLineEdit(self.item.get("name", ""))
@@ -581,6 +565,7 @@ class ImageDialog(QDialog):
         row.addWidget(self.path, 1)
         row.addWidget(browse)
         form.addRow("이름", self.name)
+        form.addRow("저장 위치", self.group_combo)
         form.addRow("이미지 경로", row)
         form.addRow("단축키", self.hotkey)
         url_row = QHBoxLayout()
@@ -710,6 +695,7 @@ class ImageDialog(QDialog):
                 "path_type": "absolute" if Path(path).is_absolute() else "relative",
                 "display_scale": int(self.capture_scale.currentText().replace("%", "")),
                 "hotkey": self.hotkey.value(),
+                "group_id": self.group_combo.currentData() or "",
             }
         )
         return data
@@ -1068,7 +1054,7 @@ class ImageTab(QWidget):
             return
         target = next_capture_path(self.screenshot_dir(), ".png")
         window_title = title or "창 제목 없음"
-        worker = SteelCutSaveWorker(pixmap.toImage(), target, "PNG", -1)
+        worker = ImageSaveWorker(pixmap.toImage(), target, "PNG", -1)
         worker.signals.finished.connect(lambda path, ok, value=window_title: self.finish_steel_cut_capture(path, ok, value))
         QThreadPool.globalInstance().start(worker)
 
@@ -1227,7 +1213,7 @@ class ImageTab(QWidget):
         self.main.save_data()
 
     def edit_image(self, item: dict | None = None) -> None:
-        dialog = ImageDialog(item)
+        dialog = ImageDialog(item, self.main.data, self.cheat_group_id)
         while dialog.exec() == dialog.DialogCode.Accepted:
             value = dialog.value()
             if not value.get("name"):
@@ -1247,8 +1233,6 @@ class ImageTab(QWidget):
                 value["created_at"] = now_iso()
                 value["sort_order"] = len(self.main.data.setdefault("images", []))
                 value["usage_count"] = 0
-                # 새 항목은 현재 열려 있는 그룹(폴더)에 등록한다.
-                value["group_id"] = self.cheat_group_id
             items = self.main.data.setdefault("images", [])
             if item in items:
                 items[items.index(item)] = value

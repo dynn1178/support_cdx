@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -32,11 +33,12 @@ from PyQt6.QtWidgets import (
 
 from app import config
 from app.utils import display_hotkey, new_id, now_iso, resolve_image_path, short_preview
-from ui.common import CARD_ACTION_ICON_SIZE, CARD_ACTION_OVERLAY_MARGIN, CARD_ACTION_ROW_MARGIN_X, CARD_ACTION_ROW_MARGIN_Y, CARD_ACTION_ROW_SPACING, CARD_CONTENT_TOP_MARGIN, ElidedLabel, ElidedMultilineLabel, GridPanel, HotkeyFields, SortControls, add_favorite_badge_to_card, apply_manual_reorder, apply_modern_dialog_style, ask_modern_question, bottom_action_bar, bump_usage, confirm_delete, confirm_shift_digit_hotkey, dialog_palette, make_card, make_hotkey_caps, make_icon_button, remove_favorite_badge_from_card, set_card_action_widget, show_modern_warning
+from ui.common import CARD_ACTION_ICON_SIZE, CARD_ACTION_OVERLAY_MARGIN, CARD_ACTION_ROW_MARGIN_X, CARD_ACTION_ROW_MARGIN_Y, CARD_ACTION_ROW_SPACING, CARD_CONTENT_TOP_MARGIN, ElidedLabel, ElidedMultilineLabel, GridPanel, HotkeyFields, SortControls, add_favorite_badge_to_card, apply_manual_reorder, apply_modern_dialog_style, ask_modern_question, bottom_action_bar, bump_usage, confirm_delete, confirm_shift_digit_hotkey, dialog_palette, fit_combo_to_contents, make_card, make_hotkey_caps, make_icon_button, remove_favorite_badge_from_card, set_card_action_widget, show_modern_warning
 from ui.groups import (
     GROUP_SCOPE_FILE,
     GROUP_SCOPE_SITE,
     GroupDialog,
+    build_group_combo,
     count_group_contents,
     create_group,
     delete_group,
@@ -144,10 +146,21 @@ def launcher_display_emoji(item: dict) -> str:
 
 
 class LauncherDialog(QDialog):
-    def __init__(self, item: dict | None = None, launcher_type_value: str = "site") -> None:
+    def __init__(
+        self,
+        item: dict | None = None,
+        launcher_type_value: str = "site",
+        data: dict | None = None,
+        default_group_id: str = "",
+    ) -> None:
         super().__init__()
         self.item = item or {"type": launcher_type_value}
         self.fixed_type = launcher_type(self.item.get("type", launcher_type_value))
+        group_scope = GROUP_SCOPE_SITE if self.fixed_type == "site" else GROUP_SCOPE_FILE
+        self.group_combo = build_group_combo(
+            data or {}, group_scope, self.item.get("group_id", "") if item else default_group_id
+        )
+        fit_combo_to_contents(self.group_combo, 160)
         action = "수정" if item else "등록"
         title_by_type = {"site": f"사이트 {action}", "file": f"파일/폴더 {action}", "folder": f"파일/폴더 {action}"}
         self.setWindowTitle(title_by_type.get(self.fixed_type, "바로가기 등록"))
@@ -210,6 +223,7 @@ class LauncherDialog(QDialog):
         browser_widget.setLayout(browser_row)
 
         form.addRow("이름", self.name)
+        form.addRow("저장 위치", self.group_combo)
         if self.fixed_type == "site":
             form.addRow("URL", self.url)
             form.addRow("아이디", self.username)
@@ -362,6 +376,7 @@ class LauncherDialog(QDialog):
                 "icon_mode": "emoji" if self.icon_mode_emoji.isChecked() else "auto",
                 "icon_emoji": self.selected_icon_emoji,
                 "hotkey": self.hotkey.value(),
+                "group_id": self.group_combo.currentData() or "",
             }
         )
         return data
@@ -433,6 +448,7 @@ class LauncherTab(QWidget):
         self.add_file_btn.clicked.connect(lambda: self.edit_launcher(launcher_type_value="file"))
         self.add_group_btn = QPushButton("+ 그룹 생성")
         self.add_group_btn.clicked.connect(self.create_group_clicked)
+        self.add_group_btn.clicked.connect(self._clear_group_creation_highlight)
         row = QHBoxLayout()
         row.addStretch(1)
         row.addWidget(self.add_group_btn)
@@ -443,6 +459,48 @@ class LauncherTab(QWidget):
         self.build_quick_search_tab()
         self.update_add_buttons()
         QTimer.singleShot(0, self._startup_favicon_scan)
+
+    def focus_group_creation(self) -> None:
+        """업데이트 안내 팝업의 '바로가기': 사이트 탭으로 이동해 그룹 생성 버튼을 강조한다."""
+        self.tabs.setCurrentIndex(0)
+        self.update_add_buttons()
+        for delay in (0, 150):
+            QTimer.singleShot(delay, self._flash_group_creation_button)
+
+    def _flash_group_creation_button(self) -> None:
+        target = getattr(self, "add_group_btn", None)
+        if target is None or not target.isVisible():
+            return
+        old = getattr(self, "_group_creation_highlight", None)
+        if old is not None:
+            old.hide()
+            old.deleteLater()
+        highlight = QWidget(self)
+        highlight.setObjectName("launcherGroupHighlight")
+        highlight.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        highlight.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        highlight.setStyleSheet(
+            """
+            QWidget#launcherGroupHighlight {
+                background: rgba(225, 29, 72, 22);
+                border: 2px solid rgba(225, 29, 72, 210);
+                border-radius: 8px;
+            }
+            """
+        )
+        pad = 5
+        pos = target.mapTo(self, target.rect().topLeft())
+        highlight.setGeometry(pos.x() - pad, pos.y() - pad, target.width() + pad * 2, target.height() + pad * 2)
+        highlight.show()
+        highlight.raise_()
+        self._group_creation_highlight = highlight
+
+    def _clear_group_creation_highlight(self) -> None:
+        highlight = getattr(self, "_group_creation_highlight", None)
+        if highlight is not None:
+            highlight.hide()
+            highlight.deleteLater()
+            self._group_creation_highlight = None
 
     def update_add_buttons(self) -> None:
         idx = self.tabs.currentIndex()
@@ -990,7 +1048,8 @@ class LauncherTab(QWidget):
             show_modern_warning(self, "실행 실패", str(exc))
 
     def edit_launcher(self, item: dict | None = None, launcher_type_value: str = "site") -> None:
-        dialog = LauncherDialog(item, launcher_type_value)
+        default_group_id = self.site_group_id if launcher_type_value == "site" else self.file_group_id
+        dialog = LauncherDialog(item, launcher_type_value, self.main.data, default_group_id)
         while dialog.exec() == dialog.DialogCode.Accepted:
             value = dialog.value()
             if not value.get("name"):
@@ -1023,8 +1082,6 @@ class LauncherTab(QWidget):
                 value["created_at"] = now_iso()
                 value["sort_order"] = len(self.main.data.setdefault("launchers", []))
                 value["usage_count"] = 0
-                # 새 항목은 현재 열려 있는 그룹(폴더)에 등록한다.
-                value["group_id"] = self.site_group_id if value.get("type") == "site" else self.file_group_id
             self.ensure_launcher_favicon(value, item)
             items = self.main.data.setdefault("launchers", [])
             if item in items:

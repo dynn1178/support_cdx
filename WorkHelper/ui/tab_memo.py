@@ -78,6 +78,7 @@ from ui.common import (
 from ui.groups import (
     GROUP_SCOPE_MEMO,
     GroupDialog,
+    build_group_combo,
     count_group_contents,
     create_group,
     delete_group,
@@ -135,11 +136,15 @@ def memo_card_preview(text: str, limit: int = 160, max_lines: int = 2) -> str:
 
 
 class MemoDialog(QDialog):
-    def __init__(self, memo: dict | None = None) -> None:
+    def __init__(self, memo: dict | None = None, data: dict | None = None, default_group_id: str = "") -> None:
         super().__init__()
         self.setWindowTitle("메모")
         apply_modern_dialog_style(self)
         self.memo = memo or {}
+        self.group_combo = build_group_combo(
+            data or {}, GROUP_SCOPE_MEMO, self.memo.get("group_id", "") if memo else default_group_id
+        )
+        fit_combo_to_contents(self.group_combo, 160)
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self._memo_option_rows: list[QWidget] = []
@@ -159,6 +164,7 @@ class MemoDialog(QDialog):
         _bg_default = self.memo.get("background") or (random.choice(MEMO_COLOR_LIST) if _is_new else "노랑")
         self.background.setCurrentText(_bg_default if _bg_default in MEMO_COLORS else "노랑")
         form.addRow("제목", self.title)
+        form.addRow("저장 위치", self.group_combo)
         form.addRow("내용", self.content)
         form.addRow("배경색", self.background)
         form.addRow(self.open_as_sticker)
@@ -193,6 +199,7 @@ class MemoDialog(QDialog):
                 "background": self.background.currentText(),
                 "_open_sticker_after_save": self.open_as_sticker.isChecked(),
                 "updated_at": now_iso(),
+                "group_id": self.group_combo.currentData() or "",
             }
         )
         return data
@@ -713,7 +720,7 @@ class MemoListTab(QWidget):
             dialog.reload_from_memo()
 
     def edit_memo(self, memo: dict | None = None) -> None:
-        dialog = MemoDialog(memo)
+        dialog = MemoDialog(memo, self.main.data, self.group_id)
         while dialog.exec() == dialog.DialogCode.Accepted:
             value = dialog.value()
             if not value.get("title"):
@@ -727,8 +734,6 @@ class MemoListTab(QWidget):
                 saved_memo = memo
             else:
                 value["sort_order"] = len(items)
-                # 새 메모는 현재 열려 있는 그룹(폴더)에 등록한다.
-                value.setdefault("group_id", self.group_id)
                 items.append(value)
                 saved_memo = value
             self.main.save_data()
