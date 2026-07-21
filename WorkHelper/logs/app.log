@@ -24,3 +24,58 @@
 2026-07-08 15:03:32,000 INFO    workhelper.main: app starting (version=1.5.0)
 2026-07-08 15:03:48,490 INFO    workhelper.main_window: app shutting down
 2026-07-08 15:36:05,999 INFO    workhelper.main: app starting (version=1.5.0)
+2026-07-08 15:38:29,570 INFO    workhelper.main: app starting (version=1.5.0)
+2026-07-08 15:49:54,662 INFO    workhelper.main_window: app shutting down
+2026-07-20 18:07:28,105 INFO    workhelper.main: app starting (version=1.5.1)
+2026-07-20 18:07:28,216 INFO    workhelper.main: another instance is already running — notifying it and exiting
+2026-07-20 18:07:36,549 INFO    workhelper.main: app starting (version=1.5.1)
+2026-07-20 18:07:36,622 INFO    workhelper.main: another instance is already running — notifying it and exiting
+2026-07-20 18:08:36,708 INFO    workhelper.main: app starting (version=1.5.1)
+2026-07-20 18:08:36,770 INFO    workhelper.main: another instance is already running — notifying it and exiting
+2026-07-20 18:08:52,427 INFO    workhelper.main: app starting (version=1.5.1)
+2026-07-20 18:09:05,624 INFO    workhelper.backup: backup created: backup_20260720_180905.zip
+2026-07-20 18:15:44,488 ERROR   workhelper.unhandled: unhandled exception
+Traceback (most recent call last):
+  File "c:\Users\User\Documents\GitHub\support_cdx\WorkHelper\ui\main_window.py", line 202, in nativeEventFilter
+    def nativeEventFilter(self, event_type, message):
+    
+KeyboardInterrupt
+2026-07-20 18:15:55,803 ERROR   workhelper.unhandled: unhandled exception
+Traceback (most recent call last):
+  File "c:\Users\User\Documents\GitHub\support_cdx\WorkHelper\ui\main_window.py", line 202, in nativeEventFilter
+    def nativeEventFilter(self, event_type, message):
+    
+KeyboardInterrupt
+2026-07-20 18:16:29,450 ERROR   workhelper.unhandled: unhandled exception
+Traceback (most recent call last):
+  File "c:\Users\User\Documents\GitHub\support_cdx\WorkHelper\ui\main_window.py", line 202, in nativeEventFilter
+    def nativeEventFilter(self, event_type, message):
+    
+KeyboardInterrupt
+2026-07-20 18:16:30,589 ERROR   workhelper.unhandled: unhandled exception
+Traceback (most recent call last):
+  File "c:\Users\User\Documents\GitHub\support_cdx\WorkHelper\ui\main_window.py", line 202, in nativeEventFilter
+    def nativeEventFilter(self, event_type, message):
+    
+KeyboardInterrupt
+2026-07-20 18:16:33,717 ERROR   workhelper.unhandled: unhandled exception
+Traceback (most recent call last):
+  File "c:\Users\User\Documents\GitHub\support_cdx\WorkHelper\ui\main_window.py", line 202, in nativeEventFilter
+    def nativeEventFilter(self, event_type, message):
+    
+KeyboardInterrupt
+2026-07-20 18:16:34,518 ERROR   workhelper.unhandled: unhandled exception
+Traceback (most recent call last):
+  File "c:\Users\User\Documents\GitHub\support_cdx\WorkHelper\ui\main_window.py", line 202, in nativeEventFilter
+    def nativeEventFilter(self, event_type, message):
+    
+KeyboardInterrupt
+2026-07-20 18:16:37,140 ERROR   workhelper.unhandled: unhandled exception
+Traceback (most recent call last):
+  File "c:\Users\User\Documents\GitHub\support_cdx\WorkHelper\ui\main_window.py", line 202, in nativeEventFilter
+    def nativeEventFilter(self, event_type, message):
+    
+KeyboardInterrupt
+2026-07-20 18:16:42,952 INFO    workhelper.main_window: app shutting down
+2026-07-20 18:16:45,014 INFO    workhelper.main: app starting (version=1.5.1)
+2026-07-20 18:19:05,065 INFO    workhelper.main_window: app shutting down

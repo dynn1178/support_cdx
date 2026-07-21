@@ -1031,7 +1031,13 @@ class ImageTab(QWidget):
         if result is None:
             return
         copy_pixmap_to_clipboard(result.pixmap)
-        self.open_snip_editor(result.pixmap, result.logical_rect, result.window_title or "창 제목 없음")
+        title = result.window_title or "창 제목 없음"
+        # 클립보드로 복사한 원본 캡처를 저장 경로에 즉시 자동 저장하고
+        # 캡처 · 그리기 목록에 항목으로 추가한다 (편집 창에서 별도로
+        # "저장"을 누르지 않아도 캡처 자체는 항상 기록된다). 편집 창은
+        # 계속 열려 있을 것이므로 목록 탭으로 강제 전환하지는 않는다.
+        self.save_snip_capture(result.pixmap, title, switch_tab=False)
+        self.open_snip_editor(result.pixmap, result.logical_rect, title)
 
     def open_snip_editor(self, pixmap: QPixmap, anchor: QRect, title: str) -> None:
         editor = SnipEditorWindow(pixmap, anchor, title, self)
@@ -1048,14 +1054,20 @@ class ImageTab(QWidget):
         if window in self._snip_windows:
             self._snip_windows.remove(window)
 
-    def save_snip_capture(self, pixmap: QPixmap, title: str) -> None:
-        """편집/고정 창의 '저장' → 캡처 · 그리기 목록에 등록."""
+    def save_snip_capture(self, pixmap: QPixmap, title: str, switch_tab: bool = True) -> None:
+        """캡처 이미지를 저장 경로에 기록하고 캡처 · 그리기 목록에 등록.
+
+        캡처 직후(클립보드 복사와 동시에) 자동으로 호출되며, 편집/고정 창의
+        '저장' 액션에서도 동일하게 쓰인다.
+        """
         if pixmap.isNull():
             return
         target = next_capture_path(self.screenshot_dir(), ".png")
         window_title = title or "창 제목 없음"
         worker = ImageSaveWorker(pixmap.toImage(), target, "PNG", -1)
-        worker.signals.finished.connect(lambda path, ok, value=window_title: self.finish_steel_cut_capture(path, ok, value))
+        worker.signals.finished.connect(
+            lambda path, ok, value=window_title, switch=switch_tab: self.finish_steel_cut_capture(path, ok, value, switch)
+        )
         QThreadPool.globalInstance().start(worker)
 
     def move_snip_to_cheat_sheet(self, pixmap: QPixmap, title: str, group_id: str = "") -> bool:
@@ -1085,7 +1097,7 @@ class ImageTab(QWidget):
         self.refresh()
         return True
 
-    def finish_steel_cut_capture(self, image_path: str, ok: bool, title: str) -> None:
+    def finish_steel_cut_capture(self, image_path: str, ok: bool, title: str, switch_tab: bool = True) -> None:
         if not ok:
             QMessageBox.warning(self, "스틸 컷 실패", "스크린샷을 저장하지 못했습니다.")
             return
@@ -1102,7 +1114,8 @@ class ImageTab(QWidget):
         }
         items.append(value)
         self.main.save_data()
-        self.tabs.setCurrentIndex(0)
+        if switch_tab:
+            self.tabs.setCurrentIndex(0)
         self.refresh()
 
     def view_image(self, item: dict) -> None:

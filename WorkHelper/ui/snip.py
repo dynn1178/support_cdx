@@ -68,6 +68,7 @@ from PyQt6.QtWidgets import (
     QSlider,
     QTextEdit,
     QToolButton,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -1288,7 +1289,9 @@ class AnnotationCanvas(QWidget):
         self.base.setDevicePixelRatio(1.0)
         self.scale = max(0.05, float(display_scale))
         self.annotations: list[Annotation] = []
-        # undo/redo는 연산 단위로 기록한다: ("add", ann) | ("remove", [(index, ann), ...])
+        # undo/redo는 연산 단위로 기록한다:
+        # ("add", ann) | ("remove", [(index, ann), ...]) |
+        # ("move", ann, old_point, new_point) | ("edit", index, old_ann, new_ann)
         self._undo_ops: list[tuple] = []
         self._redo_ops: list[tuple] = []
         self.tool = "none"
@@ -1303,6 +1306,18 @@ class AnnotationCanvas(QWidget):
         self._drag_origin: QPoint | None = None
         self._text_edit: QTextEdit | None = None
         self._text_anchor_raw: QPointF | None = None
+        self._text_press_pos: QPointF | None = None
+        self._text_drag_rect: QRectF | None = None
+        self._editing_removed: tuple[int, Annotation] | None = None
+        self._editing_font_px: float | None = None
+        self._moving_annotation: Annotation | None = None
+        self._moving_index: int | None = None
+        self._move_orig_point: QPointF | None = None
+        self._move_press_raw: QPointF | None = None
+        self._move_press_display: QPointF | None = None
+        self._move_moved = False
+        self._hover_text_index: int | None = None
+        self.setMouseTracking(True)
         self.setFixedSize(
             max(1, round(self.base.width() * self.scale)),
             max(1, round(self.base.height() * self.scale)),
@@ -1348,13 +1363,22 @@ class AnnotationCanvas(QWidget):
         if not self._undo_ops:
             return
         op = self._undo_ops.pop()
-        if op[0] == "add":
+        kind = op[0]
+        if kind == "add":
             annotation = op[1]
             if annotation in self.annotations:
                 self.annotations.remove(annotation)
-        else:  # remove → 지웠던 항목을 원래 위치에 복원
+        elif kind == "remove":  # 지웠던 항목을 원래 위치에 복원
             for index, annotation in sorted(op[1]):
                 self.annotations.insert(min(index, len(self.annotations)), annotation)
+        elif kind == "move":
+            annotation, old_point, _new_point = op[1], op[2], op[3]
+            annotation.points[0] = old_point
+        elif kind == "edit":
+            index, old_annotation, new_annotation = op[1], op[2], op[3]
+            if new_annotation in self.annotations:
+                self.annotations.remove(new_annotation)
+            self.annotations.insert(min(index, len(self.annotations)), old_annotation)
         self._redo_ops.append(op)
         self.update()
         self.changed.emit()
@@ -1363,12 +1387,21 @@ class AnnotationCanvas(QWidget):
         if not self._redo_ops:
             return
         op = self._redo_ops.pop()
-        if op[0] == "add":
+        kind = op[0]
+        if kind == "add":
             self.annotations.append(op[1])
-        else:
+        elif kind == "remove":
             for _index, annotation in op[1]:
                 if annotation in self.annotations:
                     self.annotations.remove(annotation)
+        elif kind == "move":
+            annotation, _old_point, new_point = op[1], op[2], op[3]
+            annotation.points[0] = new_point
+        elif kind == "edit":
+            index, old_annotation, new_annotation = op[1], op[2], op[3]
+            if old_annotation in self.annotations:
+                self.annotations.remove(old_annotation)
+            self.annotations.insert(min(index, len(self.annotations)), new_annotation)
         self._undo_ops.append(op)
         self.update()
         self.changed.emit()
@@ -1407,6 +1440,16 @@ class AnnotationCanvas(QWidget):
             annotation.render(painter, self.base)
         if self._active is not None:
             self._active.render(painter, self.base)
+        painter.resetTransform()
+        pen = QPen(QColor(ACCENT), 1, Qt.PenStyle.DashLine)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        if self._text_drag_rect is not None and (
+            self._text_drag_rect.width() > 1 or self._text_drag_rect.height() > 1
+        ):
+            painter.drawRect(self._text_drag_rect)
+        if self._text_edit is not None:
+            painter.drawRect(QRectF(self._text_edit.geometry()).adjusted(-1, -1, 1, 1))
         painter.end()
 
     # --- 마우스 ------------------------------------------------------------
@@ -1415,12 +1458,29 @@ class AnnotationCanvas(QWidget):
         if event.button() != Qt.MouseButton.LeftButton:
             return
         if self.tool == "none":
+            raw = self.to_raw(event.position())
+            hit = self._find_text_at(raw)
+            if hit is not None:
+                index, annotation = hit
+                self._start_move_text(index, annotation, raw, event.position())
+                return
             self._drag_origin = event.globalPosition().toPoint() - self.window().pos()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             return
         if self.tool == "text":
             self.commit_text()
-            self._begin_text(event.position())
+            # 텍스트 도구가 켜진 채로 남아 있는 상태(입력을 마친 직후)에서도
+            # 기존 텍스트 박스를 클릭하면 새로 만들지 않고 그 박스를
+            # 이동/재편집할 수 있어야 한다.
+            raw = self.to_raw(event.position())
+            hit = self._find_text_at(raw)
+            if hit is not None:
+                index, annotation = hit
+                self._start_move_text(index, annotation, raw, event.position())
+                return
+            self._text_press_pos = QPointF(event.position())
+            self._text_drag_rect = QRectF(event.position(), event.position())
+            self.update()
             return
         raw = self.to_raw(event.position())
         if self.tool == "eraser":
@@ -1453,6 +1513,31 @@ class AnnotationCanvas(QWidget):
         return annotation.tool == "mosaic" and annotation.mosaic_shape == "pen"
 
     def mouseMoveEvent(self, event) -> None:
+        idle = (
+            self._text_press_pos is None
+            and self._moving_annotation is None
+            and self._drag_origin is None
+            and self._active is None
+            and self._erase_batch is None
+        )
+        if idle and self.tool in ("none", "text"):
+            self._update_text_hover(event)
+            return
+        if self.tool == "text" and self._text_press_pos is not None:
+            self._text_drag_rect = QRectF(self._text_press_pos, event.position()).normalized()
+            self.update()
+            return
+        if self._moving_annotation is not None:
+            display_pos = event.position()
+            if not self._move_moved:
+                delta_display = display_pos - self._move_press_display
+                if abs(delta_display.x()) > 3 or abs(delta_display.y()) > 3:
+                    self._move_moved = True
+            raw = self.to_raw(display_pos)
+            delta = raw - self._move_press_raw
+            self._moving_annotation.points[0] = QPointF(self._move_orig_point) + delta
+            self.update()
+            return
         if self.tool == "none" and self._drag_origin is not None:
             self.window().move(event.globalPosition().toPoint() - self._drag_origin)
             return
@@ -1474,9 +1559,43 @@ class AnnotationCanvas(QWidget):
     def mouseReleaseEvent(self, event) -> None:
         if event.button() != Qt.MouseButton.LeftButton:
             return
+        if self._moving_annotation is not None:
+            annotation = self._moving_annotation
+            if self._move_moved:
+                old_point = self._move_orig_point
+                new_point = QPointF(annotation.points[0])
+                self._undo_ops.append(("move", annotation, old_point, new_point))
+                self._redo_ops.clear()
+                self.changed.emit()
+            else:
+                # 단순 클릭(드래그 없음): 편집은 더블클릭에서 처리하므로 위치만 복원한다.
+                annotation.points[0] = self._move_orig_point
+            self._moving_annotation = None
+            self._moving_index = None
+            self._move_orig_point = None
+            self._move_press_raw = None
+            self._move_press_display = None
+            self._move_moved = False
+            self._apply_cursor()
+            self.update()
+            return
         if self.tool == "none":
             self._drag_origin = None
             self.setCursor(Qt.CursorShape.OpenHandCursor)
+            return
+        if self.tool == "text":
+            # 기존 텍스트를 클릭한 press는 위의 _moving_annotation 분기로 처리되며
+            # _text_drag_rect를 채우지 않는다. 새 박스를 만들던 드래그가 실제로
+            # 시작됐을 때만 새 텍스트 박스를 생성한다.
+            if self._text_drag_rect is not None:
+                rect = self._text_drag_rect.normalized()
+                self._text_press_pos = None
+                self._text_drag_rect = None
+                if rect.width() < 6 and rect.height() < 6:
+                    self._begin_text(event.position())
+                else:
+                    self._begin_text(rect.topLeft(), box_size=rect.size())
+                self.update()
             return
         if self.tool == "eraser":
             if self._erase_batch:
@@ -1490,6 +1609,59 @@ class AnnotationCanvas(QWidget):
                 self._push(self._active)
             self._active = None
             self.update()
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        if event.button() != Qt.MouseButton.LeftButton or self.tool not in ("none", "text"):
+            super().mouseDoubleClickEvent(event)
+            return
+        raw = self.to_raw(event.position())
+        hit = self._find_text_at(raw)
+        # 더블클릭의 두 번째 press가 만들어 둔 이동/드래그 상태를 모두 정리해
+        # 뒤이어 오는 release에서 새 박스가 생기거나 이동이 잘못 적용되지 않게 한다.
+        self._moving_annotation = None
+        self._moving_index = None
+        self._move_orig_point = None
+        self._move_press_raw = None
+        self._move_press_display = None
+        self._move_moved = False
+        self._drag_origin = None
+        self._text_press_pos = None
+        self._text_drag_rect = None
+        if hit is None:
+            return
+        self._hover_text_index = None
+        QToolTip.hideText()
+        index, annotation = hit
+        self._open_text_editor_for(index, annotation)
+        self.update()
+
+    def leaveEvent(self, event) -> None:
+        if self._hover_text_index is not None:
+            self._hover_text_index = None
+            QToolTip.hideText()
+            self._apply_cursor()
+        super().leaveEvent(event)
+
+    def _update_text_hover(self, event) -> None:
+        """텍스트 박스 위에 마우스를 올리면 이동 가능함을 커서와 짧은
+        말풍선으로 즉시 알려준다 (편집은 더블클릭으로 한다)."""
+        raw = self.to_raw(event.position())
+        hit = self._find_text_at(raw)
+        hovering_index = hit[0] if hit is not None else None
+        if hovering_index == self._hover_text_index:
+            return
+        self._hover_text_index = hovering_index
+        if hovering_index is not None:
+            self.setCursor(Qt.CursorShape.SizeAllCursor)
+            QToolTip.showText(
+                event.globalPosition().toPoint(),
+                "드래그하면 이동, 더블클릭하면 편집할 수 있어요",
+                self,
+            )
+            QTimer.singleShot(1500, QToolTip.hideText)
+        else:
+            QToolTip.hideText()
+            self._apply_cursor()
 
     def _erase_at(self, raw: QPointF) -> None:
         """커서 아래 가장 위에 그려진 주석 하나를 지운다 (제스처 단위 undo)."""
@@ -1509,25 +1681,39 @@ class AnnotationCanvas(QWidget):
 
     # --- 텍스트 ------------------------------------------------------------
 
-    def _begin_text(self, display_pos) -> None:
+    def _begin_text(self, display_pos, box_size: QSizeF | None = None, font_px: float | None = None) -> None:
         editor = QTextEdit(self)
         editor.setFrameShape(QFrame.Shape.NoFrame)
+        # 여백/테두리를 0으로 고정해야 편집 중 보이는 글자 위치와 커밋 후
+        # painter.drawText()가 그리는 위치(anchor, 여백 없음)가 정확히 일치한다.
+        editor.setContentsMargins(0, 0, 0, 0)
+        editor.setViewportMargins(0, 0, 0, 0)
+        editor.document().setDocumentMargin(0)
         font = QFont("Malgun Gothic")
-        font.setPixelSize(max(8, round(self.raw_font_px() * self.scale)))
+        resolved_font_px = font_px if font_px is not None else self.raw_font_px()
+        font.setPixelSize(max(8, round(resolved_font_px * self.scale)))
         font.setBold(True)
         editor.setFont(font)
+        # 앱 전역 QSS(app/theme.py)가 QTextEdit에 padding: 7px 10px / min-height: 20px를
+        # 강제 적용한다. 여기서 명시적으로 0으로 다시 덮어써야 편집 중 보이는 위치와
+        # 커밋 후 렌더링 위치가 어긋나지 않는다.
         editor.setStyleSheet(
-            "QTextEdit { background: rgba(255,255,255,40); border: 1px dashed %s; color: %s; }"
-            % (ACCENT, self.color.name())
+            "QTextEdit { background: rgba(37,99,235,28); border: none; border-radius: 0;"
+            " padding: 0; margin: 0; min-width: 0px; min-height: 0px; color: %s; }" % self.color.name()
         )
         editor.setPlaceholderText("텍스트 입력")
-        width = max(160, self.width() - int(display_pos.x()) - 8)
-        editor.setGeometry(int(display_pos.x()), int(display_pos.y()), min(width, 320), 72)
+        if box_size is not None and box_size.width() >= 30 and box_size.height() >= 18:
+            width = int(box_size.width())
+            height = int(box_size.height())
+        else:
+            width = min(max(160, self.width() - int(display_pos.x()) - 8), 320)
+            height = 72
+        editor.setGeometry(int(display_pos.x()), int(display_pos.y()), width, height)
         editor.show()
         editor.setFocus()
         editor.installEventFilter(self)
         self._text_edit = editor
-        self._text_anchor_raw = self.to_raw(display_pos)
+        self._text_anchor_raw = self.to_raw(QPointF(display_pos))
 
     def eventFilter(self, obj, event) -> bool:
         if obj is self._text_edit:
@@ -1546,26 +1732,95 @@ class AnnotationCanvas(QWidget):
         self._text_edit = None
         text = editor.toPlainText().rstrip()
         anchor = self._text_anchor_raw
+        font_px = self._editing_font_px if self._editing_font_px is not None else self.raw_font_px()
         editor.deleteLater()
         self._text_anchor_raw = None
+        editing = self._editing_removed
+        self._editing_removed = None
+        self._editing_font_px = None
         if text and anchor is not None:
-            self._push(
-                Annotation(
-                    tool="text",
-                    color=QColor(self.color),
-                    width=1.0,
-                    points=[anchor],
-                    text=text,
-                    font_px=self.raw_font_px(),
-                )
+            new_annotation = Annotation(
+                tool="text",
+                color=QColor(self.color),
+                width=1.0,
+                points=[anchor],
+                text=text,
+                font_px=font_px,
             )
+            if editing is not None:
+                index, old_annotation = editing
+                insert_at = min(index, len(self.annotations))
+                self.annotations.insert(insert_at, new_annotation)
+                self._undo_ops.append(("edit", insert_at, old_annotation, new_annotation))
+                self._redo_ops.clear()
+                self.update()
+                self.changed.emit()
+            else:
+                self._push(new_annotation)
+        elif editing is not None:
+            # 텍스트를 비워서 커밋 → 기존 항목을 삭제한 것으로 취급 (되돌리기 가능)
+            index, old_annotation = editing
+            self._undo_ops.append(("remove", [(index, old_annotation)]))
+            self._redo_ops.clear()
+            self.update()
+            self.changed.emit()
 
     def _discard_text(self) -> None:
         editor = self._text_edit
         self._text_edit = None
         self._text_anchor_raw = None
+        self._editing_font_px = None
         if editor is not None:
             editor.deleteLater()
+        editing = self._editing_removed
+        self._editing_removed = None
+        if editing is not None:
+            index, old_annotation = editing
+            self.annotations.insert(min(index, len(self.annotations)), old_annotation)
+            self.update()
+
+    # --- 텍스트 박스 선택/이동/재편집 --------------------------------------
+
+    def _find_text_at(self, raw: QPointF) -> "tuple[int, Annotation] | None":
+        for index in range(len(self.annotations) - 1, -1, -1):
+            annotation = self.annotations[index]
+            if annotation.tool != "text":
+                continue
+            try:
+                hit = annotation.hit_test(raw)
+            except Exception:
+                hit = False
+            if hit:
+                return index, annotation
+        return None
+
+    def _start_move_text(self, index: int, annotation: Annotation, raw: QPointF, display_pos) -> None:
+        self._moving_annotation = annotation
+        self._moving_index = index
+        self._move_orig_point = QPointF(annotation.points[0])
+        self._move_press_raw = QPointF(raw)
+        self._move_press_display = QPointF(display_pos)
+        self._move_moved = False
+        self.setCursor(Qt.CursorShape.SizeAllCursor)
+
+    def _open_text_editor_for(self, index: int, annotation: Annotation) -> None:
+        self.commit_text()
+        if index >= len(self.annotations) or self.annotations[index] is not annotation:
+            try:
+                index = self.annotations.index(annotation)
+            except ValueError:
+                return
+        self.annotations.pop(index)
+        self._editing_removed = (index, annotation)
+        self._editing_font_px = annotation.font_px
+        self.color = QColor(annotation.color)
+        display_pos = QPointF(annotation.points[0].x() * self.scale, annotation.points[0].y() * self.scale)
+        self._begin_text(display_pos, font_px=annotation.font_px)
+        if self._text_edit is not None:
+            self._text_edit.setPlainText(annotation.text)
+            cursor = self._text_edit.textCursor()
+            cursor.movePosition(cursor.MoveOperation.End)
+            self._text_edit.setTextCursor(cursor)
 
 
 # ---------------------------------------------------------------------------
