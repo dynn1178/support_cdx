@@ -105,3 +105,89 @@ KeyboardInterrupt
 2026-08-05 15:12:38,341 INFO    workhelper.main_window: app shutting down
 2026-08-05 15:12:40,234 INFO    workhelper.main: app starting (version=1.5.2)
 2026-08-05 15:36:39,077 INFO    workhelper.main_window: app shutting down
+2026-08-07 13:05:14,458 INFO    workhelper.main: app starting (version=1.5.3)
+2026-08-07 13:05:25,887 INFO    workhelper.backup: backup created: backup_20260807_130525.zip
+2026-08-07 13:41:25,799 INFO    workhelper.main_window: app shutting down
+2026-08-07 13:41:30,239 INFO    workhelper.main: app starting (version=1.5.3)
+2026-08-07 13:57:35,837 ERROR   workhelper.unhandled: unhandled exception
+Traceback (most recent call last):
+  File "c:\Users\User\Documents\GitHub\support_cdx\WorkHelper\ui\main_window.py", line 202, in nativeEventFilter
+    def nativeEventFilter(self, event_type, message):
+    
+KeyboardInterrupt
+2026-08-07 13:58:59,011 INFO    workhelper.main_window: app shutting down
+2026-08-07 13:59:08,456 INFO    workhelper.main: app starting (version=1.5.3)
+2026-08-07 14:06:55,150 INFO    workhelper.main_window: app shutting down
+2026-08-07 14:06:59,534 INFO    workhelper.main: app starting (version=1.5.3)
+2026-08-07 14:29:13,796 INFO    workhelper.main_window: app shutting down
+2026-08-07 14:29:19,896 INFO    workhelper.main: app starting (version=1.5.3)
+2026-08-07 14:29:42,799 WARNING workhelper.update: update check failed: HTTPSConnectionPool(host='api.github.com', port=443): Max retries exceeded with url: /repos/dynn1178/support_cdx/releases/latest (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x00000290E9EDE990>, 'Connection to api.github.com timed out. (connect timeout=8)'))
+Traceback (most recent call last):
+  File "C:\Users\User\AppData\Local\Programs\Python\Python311\Lib\site-packages\urllib3\connection.py", line 174, in _new_conn
+    conn = connection.create_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Programs\Python\Python311\Lib\site-packages\urllib3\util\connection.py", line 95, in create_connection
+    raise err
+  File "C:\Users\User\AppData\Local\Programs\Python\Python311\Lib\site-packages\urllib3\util\connection.py", line 85, in create_connection
+    sock.connect(sa)
+TimeoutError: timed out
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\User\AppData\Local\Programs\Python\Python311\Lib\site-packages\urllib3\connectionpool.py", line 703, in urlopen
+    httplib_response = self._make_request(
+                       ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Programs\Python\Python311\Lib\site-packages\urllib3\connectionpool.py", line 386, in _make_request
+    self._validate_conn(conn)
+  File "C:\Users\User\AppData\Local\Programs\Python\Python311\Lib\site-packages\urllib3\connectionpool.py", line 1042, in _validate_conn
+    conn.connect()
+  File "C:\Users\User\AppData\Local\Programs\Python\Python311\Lib\site-packages\urllib3\connection.py", line 358, in connect
+    self.sock = conn = self._new_conn()
+                       ^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Programs\Python\Python311\Lib\site-packages\urllib3\connection.py", line 179, in _new_conn
+    raise ConnectTimeoutError(
+urllib3.exceptions.ConnectTimeoutError: (<urllib3.connection.HTTPSConnection object at 0x00000290E9EDE990>, 'Connection to api.github.com timed out. (connect timeout=8)')
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\User\AppData\Local\Programs\Python\Python311\Lib\site-packages\requests\adapters.py", line 696, in send
+    resp = conn.urlopen(
+           ^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Programs\Python\Python311\Lib\site-packages\urllib3\connectionpool.py", line 787, in urlopen
+    retries = retries.increment(
+              ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Programs\Python\Python311\Lib\site-packages\urllib3\util\retry.py", line 592, in increment
+    raise MaxRetryError(_pool, url, error or ResponseError(cause))
+urllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='api.github.com', port=443): Max retries exceeded with url: /repos/dynn1178/support_cdx/releases/latest (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x00000290E9EDE990>, 'Connection to api.github.com timed out. (connect timeout=8)'))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "c:\Users\User\Documents\GitHub\support_cdx\WorkHelper\app\update_checker.py", line 606, in check_update_dialog
+    update = fetch_latest_update(current_version, repo=repo, token=token)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\User\Documents\GitHub\support_cdx\WorkHelper\app\update_checker.py", line 108, in fetch_latest_update
+    payload = _fetch_release_payload(repo, token)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "c:\Users\User\Documents\GitHub\support_cdx\WorkHelper\app\update_checker.py", line 100, in _fetch_release_payload
+    response = requests.get(f"https://api.github.com/repos/{repo_name}/releases/latest", headers=headers, timeout=8)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Programs\Python\Python311\Lib\site-packages\requests\api.py", line 87, in get
+    return request("get", url, params=params, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Programs\Python\Python311\Lib\site-packages\requests\api.py", line 71, in request
+    return session.request(method=method, url=url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Programs\Python\Python311\Lib\site-packages\requests\sessions.py", line 651, in request
+    resp = self.send(prep, **send_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Programs\Python\Python311\Lib\site-packages\requests\sessions.py", line 784, in send
+    r = adapter.send(request, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Programs\Python\Python311\Lib\site-packages\requests\adapters.py", line 717, in send
+    raise ConnectTimeout(e, request=request)
+requests.exceptions.ConnectTimeout: HTTPSConnectionPool(host='api.github.com', port=443): Max retries exceeded with url: /repos/dynn1178/support_cdx/releases/latest (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x00000290E9EDE990>, 'Connection to api.github.com timed out. (connect timeout=8)'))
+2026-08-07 15:51:51,322 INFO    workhelper.main_window: app shutting down
+2026-08-07 16:14:13,654 INFO    workhelper.main: app starting (version=1.5.3)

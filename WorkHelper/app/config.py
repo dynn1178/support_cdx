@@ -23,6 +23,7 @@ TEMPLATE_DIR = DATA_DIR / "templates"
 SETTINGS_PATH = DATA_DIR / "settings.json"
 CLIPBOARD_HISTORY_PATH = DATA_DIR / "clipboard_history.json"
 CLIPBOARD_IMAGE_DIR = DATA_DIR / "clipboard_images"
+MACRO_INI_DIR = DATA_DIR / "macro_vars"
 SCREENSHOT_DIR = BASE_DIR / "screenshot"
 VERSION_PATH = BASE_DIR / "version.txt"
 APP_ICON_PATH = BASE_DIR / "assets" / "icons" / "app.ico"
@@ -173,14 +174,7 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
             "id": "mc_sample",
             "name": "자리비움 방지",
             "hotkey": None,
-            "actions": [
-                {
-                    "type": "click",
-                    "x": None,
-                    "y": None,
-                    "delay": 60.0,
-                }
-            ],
+            "script": "Sleep, 60000\nClick",
             "sort_order": 0,
             "repeat": 100,
         },
@@ -381,6 +375,7 @@ def ensure_data_files() -> None:
     (BASE_DIR / "assets" / "images").mkdir(parents=True, exist_ok=True)
     (BASE_DIR / "assets" / "icons").mkdir(parents=True, exist_ok=True)
     CLIPBOARD_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    MACRO_INI_DIR.mkdir(parents=True, exist_ok=True)
     copy_bundled_file(RESOURCE_DIR / "assets" / "icons" / "app.ico", APP_ICON_PATH)
     # version.txt는 항상 번들 버전으로 덮어씀 (이전 버전 exe가 남긴 파일 방지)
     bundled_version = RESOURCE_DIR / "version.txt"
@@ -492,7 +487,19 @@ def merge_template_defaults(data: dict[str, Any]) -> dict[str, Any]:
     if not meta.get("preset_name"):
         meta["preset_name"] = meta.get("template_name") or "프리셋"
     meta.pop("template_name", None)
+    merged["macros"] = [_migrate_macro(item) for item in merged.get("macros", [])]
     return merged
+
+
+def _migrate_macro(macro: dict[str, Any]) -> dict[str, Any]:
+    """행 단위 actions 리스트로 저장된 옛 매크로를 script 텍스트로 변환한다."""
+    if "script" in macro or "actions" not in macro:
+        return macro
+    from .macro_script import record_actions_to_script
+
+    migrated = dict(macro)
+    migrated["script"] = record_actions_to_script(migrated.pop("actions", []))
+    return migrated
 
 
 def _migrate_settings(data: dict[str, Any]) -> dict[str, Any]:

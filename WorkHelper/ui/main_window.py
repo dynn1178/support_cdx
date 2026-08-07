@@ -1414,7 +1414,7 @@ class MainWindow(QMainWindow):
         for item in self.data.get("macros", []):
             hotkey = item.get("hotkey")
             if hotkey:
-                register(item.get("name", "매크로"), hotkey, lambda value=item: self.macro_tab.play_macro(value), item.get("id", ""))
+                register(item.get("name", "매크로"), hotkey, lambda value=item: self.macro_tab.play_macro(value, show_intro=False), item.get("id", ""))
         settings = self.settings
         popup_hotkey = settings.get("clipboard_popup_hotkey")
         if popup_hotkey and not settings.get("clipboard_popup_double_ctrl", True):
