@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from datetime import datetime
+from pathlib import Path
+
 from PyQt6.QtCore import QSize, QTimer, Qt
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -19,7 +23,9 @@ from PyQt6.QtWidgets import (
 )
 
 from app.date_tools import render_date_template
+from app.text_export import build_entries, safe_filename, save_text_file, save_zip
 from app.utils import display_hotkey, new_id, now_iso, short_preview
+from ui.code_syntax import language_extension, language_label
 from ui.common import (
     CARD_ACTION_ICON_SIZE,
     CARD_ACTION_ROW_MARGIN_X,
@@ -167,15 +173,28 @@ class PhraseTab(QWidget):
         self.snippet_list = GridPanel(columns=2)
         self.hotstring_list = GridPanel(columns=2)
         self.title_list = GridPanel(columns=2)
+        snippet_backup = QPushButton("전체 백업")
+        snippet_backup.setToolTip("저장된 스니펫을 모두 txt로 변환해 zip 파일 한 개로 저장합니다.")
+        snippet_backup.clicked.connect(self.backup_snippets)
         self.tabs.addTab(self.tab_page(self.phrase_list, "+ 텍스트", lambda: self.edit_item("phrases")), "일반 텍스트")
-        self.tabs.addTab(self.tab_page(self.snippet_list, "+ 스니펫", lambda: self.edit_item("snippets")), "스니펫")
+        self.tabs.addTab(
+            self.tab_page(self.snippet_list, "+ 스니펫", lambda: self.edit_item("snippets"), extra_buttons=[snippet_backup]),
+            "스니펫",
+        )
         self.tabs.addTab(self.tab_page(self.hotstring_list, "+ 핫스트링", lambda: self.edit_hotstring()), "핫스트링")
         self.tabs.addTab(self.tab_page(self.title_list, "+ 제목", lambda: self.edit_title()), "날짜/보고 양식")
         layout.addWidget(self.tabs, 1)
         self.status_label = QLabel("")
         self.status_label.setObjectName("mutedText")
 
-    def tab_page(self, panel: GridPanel, button_text: str, callback, help_text: str = "") -> QWidget:
+    def tab_page(
+        self,
+        panel: GridPanel,
+        button_text: str,
+        callback,
+        help_text: str = "",
+        extra_buttons: list[QPushButton] | None = None,
+    ) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -189,6 +208,8 @@ class PhraseTab(QWidget):
         add_button = QPushButton(button_text)
         add_button.clicked.connect(callback)
         buttons.addStretch(1)
+        for button in extra_buttons or []:
+            buttons.addWidget(button)
         buttons.addWidget(add_button)
         layout.addLayout(buttons)
         return page
@@ -368,6 +389,15 @@ class PhraseTab(QWidget):
         pin = make_icon_button("pin", "즐겨찾기", lambda checked=False, value=item, c=card: self.toggle_phrase_favorite(value, c, pin), size=_sz)
         self.style_phrase_favorite_button(pin, item)
         row.addWidget(pin)
+        if collection == "snippets":
+            row.addWidget(
+                make_icon_button(
+                    "save",
+                    "파일로 저장",
+                    lambda checked=False, value=item, c=card: self.save_snippet_file(value, c),
+                    size=_sz,
+                )
+            )
         row.addWidget(make_icon_button("edit", "수정", lambda checked=False, value=item, col=collection, is_code=code: self.edit_item(col, value, is_code), size=_sz))
         row.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=item, col=collection: self.delete_item(col, value), True, size=_sz))
         set_card_action_widget(card, action_page)
@@ -398,6 +428,57 @@ class PhraseTab(QWidget):
         target = status_label or self.status_label
         target.setText(text)
         QTimer.singleShot(1000, target.clear)
+
+    # --- 파일 내보내기 ---------------------------------------------------
+
+    def save_snippet_file(self, item: dict, card: QWidget | None = None) -> None:
+        """스니펫 하나를 파일로 저장한다. 코드 형식에 맞는 확장자와 txt 중 고를 수 있다."""
+        language = item.get("language")
+        extension = language_extension(language).lower()
+        base = safe_filename(item.get("name") or "스니펫", "스니펫")
+        filters = []
+        if extension != "txt":
+            filters.append(f"{language_label(language)} 파일 (*.{extension})")
+        filters.append("텍스트 파일 (*.txt)")
+        path, selected = QFileDialog.getSaveFileName(
+            self, "스니펫 파일로 저장", f"{base}.{extension}", ";;".join(filters)
+        )
+        if not path:
+            return
+        target = Path(path)
+        chosen = "txt" if selected.startswith("텍스트 파일") else extension
+        if target.suffix.lower().lstrip(".") not in {extension, "txt"}:
+            target = target.with_name(f"{target.name}.{chosen}")
+        try:
+            save_text_file(target, item.get("text", ""))
+        except OSError as error:
+            show_modern_warning(self, "저장 실패", f"파일을 저장하지 못했습니다.\n{error}")
+            return
+        if card is not None:
+            show_card_status(card, "저장 완료!")
+
+    def backup_snippets(self) -> None:
+        """스니펫 전체를 txt로 변환해 zip 한 개로 저장한다."""
+        items = self.main.data.get("snippets", [])
+        if not items:
+            show_modern_warning(self, "백업할 내용 없음", "저장된 스니펫이 없습니다.")
+            return
+        default_name = f"스니펫_백업_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        path, _selected = QFileDialog.getSaveFileName(self, "스니펫 전체 백업", default_name, "ZIP 파일 (*.zip)")
+        if not path:
+            return
+        target = Path(path)
+        if target.suffix.lower() != ".zip":
+            target = target.with_name(f"{target.name}.zip")
+        entries = build_entries(
+            [(item.get("name") or "스니펫", item.get("text", "")) for item in items], "txt", "스니펫"
+        )
+        try:
+            save_zip(target, entries)
+        except OSError as error:
+            show_modern_warning(self, "백업 실패", f"백업 파일을 만들지 못했습니다.\n{error}")
+            return
+        show_modern_info(self, "백업 완료", f"스니펫 {len(entries)}개를 txt로 저장했습니다.\n{target}")
 
     def copy_hotstring(self, item: dict) -> None:
         bump_usage(item)

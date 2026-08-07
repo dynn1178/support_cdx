@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.date_tools import apply_offset, format_date
+from app.number_format import format_calc_result
 from ui.common import GRID_PANEL_MARGINS
 
 
@@ -93,6 +94,8 @@ class ArithmeticTab(QWidget):
         self.expression.returnPressed.connect(self.copy_result)
         self.result = QLabel("")
         self.result.setObjectName("cardTitle")
+        self.result.setWordWrap(True)
+        self.result.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.status = QLabel("")
         self.status.setObjectName("mutedText")
 
@@ -129,20 +132,16 @@ class ArithmeticTab(QWidget):
         expression = self.expression.text().strip()
         if not expression:
             self.result.setText("")
+            self.raw_result = ""
             self.status.setText("")
             return
         try:
-            value = SafeCalculator.eval(expression)
-            if isinstance(value, float) and value.is_integer():
-                value = int(value)
-            self.raw_result = str(value)
-            self.result.setText(f"{value:,}")
-            self.status.setText("")
-        except SyntaxError:
-            self.result.setText("")
-            self.raw_result = ""
+            display, raw = format_calc_result(SafeCalculator.eval(expression))
+            self.raw_result = raw
+            self.result.setText(display)
             self.status.setText("")
         except Exception:
+            # 입력 중인 수식은 아직 계산할 수 없으므로 조용히 비워둔다.
             self.result.setText("")
             self.raw_result = ""
             self.status.setText("")
@@ -152,6 +151,7 @@ class ArithmeticTab(QWidget):
         expression = self.expression.text().strip()
         if not text:
             return
+        # 화면에는 1,000 · 한글·백분율을 함께 보여주지만 복사는 항상 원본 숫자만.
         self.main.app.clipboard().setText(text)
         self.status.setText("클립보드로 복사되었습니다.")
         from PyQt6.QtCore import QTimer
@@ -164,11 +164,13 @@ class ArithmeticTab(QWidget):
             self.history_list.addItems(self.history)
 
     def use_history_item(self, item: QListWidgetItem) -> None:
-        expression, sep, result = item.text().partition(" = ")
+        expression, sep, _display = item.text().partition(" = ")
         if not sep:
             return
         self.expression.setText(expression)
-        self.main.app.clipboard().setText(result.replace(",", "").strip())
+        self.refresh()  # 표시용 문자열 대신 다시 계산한 원본 값을 복사한다.
+        if self.raw_result:
+            self.main.app.clipboard().setText(self.raw_result)
 
     def clear_history(self) -> None:
         self.history.clear()

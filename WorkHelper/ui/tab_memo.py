@@ -41,6 +41,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app import config
+from app.text_export import build_entries, safe_filename, save_text_file, save_zip
 from app.utils import new_id, now_iso, short_preview
 from ui.common import (
     CARD_ACTION_ICON_SIZE,
@@ -246,7 +247,10 @@ class MemoListTab(QWidget):
         sticker_toggle_btn.clicked.connect(self.toggle_pinned_stickers)
         close_all_btn = QPushButton("열기/닫기")
         close_all_btn.clicked.connect(self.toggle_recent_stickers)
-        for button in (expand_btn, collapse_btn, arrange_btn, sticker_toggle_btn, close_all_btn, group_btn, add_btn):
+        backup_btn = QPushButton("전체 백업")
+        backup_btn.setToolTip("저장된 메모를 모두 txt로 변환해 zip 파일 한 개로 저장합니다.")
+        backup_btn.clicked.connect(self.backup_memos)
+        for button in (expand_btn, collapse_btn, arrange_btn, sticker_toggle_btn, close_all_btn, backup_btn, group_btn, add_btn):
             button.setFixedHeight(30)
             button.setStyleSheet(MEMO_BOTTOM_ACTION_STYLE)
         self.grid = GridPanel(columns=2)
@@ -258,7 +262,9 @@ class MemoListTab(QWidget):
         self.breadcrumb = make_breadcrumb_label(self.enter_group)
         page_layout.addWidget(self.breadcrumb)
         page_layout.addWidget(self.grid, 1)
-        page_layout.addLayout(bottom_action_bar(expand_btn, collapse_btn, arrange_btn, sticker_toggle_btn, close_all_btn, group_btn, add_btn))
+        page_layout.addLayout(
+            bottom_action_bar(expand_btn, collapse_btn, arrange_btn, sticker_toggle_btn, close_all_btn, backup_btn, group_btn, add_btn)
+        )
         self.tabs.addTab(page, "메모")
         layout.addWidget(self.tabs, 1)
         self._sync_index_action_buttons()
@@ -429,10 +435,60 @@ class MemoListTab(QWidget):
         self.style_memo_favorite_button(pin, memo)
         row.addWidget(pin)
         row.addWidget(make_icon_button("sticker", "스티커", lambda checked=False, value=memo: self.show_sticker(value), size=_sz))
+        row.addWidget(
+            make_icon_button(
+                "save",
+                "txt 파일로 저장",
+                lambda checked=False, value=memo, c=card: self.save_memo_file(value, c),
+                size=_sz,
+            )
+        )
         row.addWidget(make_icon_button("📂", "그룹으로 이동", lambda checked=False, value=memo: self.move_memo_to_group(value), size=_sz))
         row.addWidget(make_icon_button("edit", "수정", lambda checked=False, value=memo: self.edit_memo(value), size=_sz))
         row.addWidget(make_icon_button("delete", "삭제", lambda checked=False, value=memo: self.delete_memo(value), True, size=_sz))
         set_card_action_widget(card, action_page)
+
+    # --- 파일 내보내기 ---------------------------------------------------
+
+    def save_memo_file(self, memo: dict, card: QWidget | None = None) -> None:
+        """메모 하나를 txt 파일로 저장한다."""
+        base = safe_filename(memo.get("title") or "메모", "메모")
+        path, _selected = QFileDialog.getSaveFileName(self, "메모 txt로 저장", f"{base}.txt", "텍스트 파일 (*.txt)")
+        if not path:
+            return
+        target = Path(path)
+        if target.suffix.lower() != ".txt":
+            target = target.with_name(f"{target.name}.txt")
+        try:
+            save_text_file(target, memo.get("content", ""))
+        except OSError as error:
+            show_modern_warning(self, "저장 실패", f"파일을 저장하지 못했습니다.\n{error}")
+            return
+        if card is not None:
+            show_card_status(card, "저장 완료!")
+
+    def backup_memos(self) -> None:
+        """메모 전체를 txt로 변환해 zip 한 개로 저장한다."""
+        memos = self.main.data.get("memos", [])
+        if not memos:
+            show_modern_warning(self, "백업할 내용 없음", "저장된 메모가 없습니다.")
+            return
+        default_name = f"메모_백업_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        path, _selected = QFileDialog.getSaveFileName(self, "메모 전체 백업", default_name, "ZIP 파일 (*.zip)")
+        if not path:
+            return
+        target = Path(path)
+        if target.suffix.lower() != ".zip":
+            target = target.with_name(f"{target.name}.zip")
+        entries = build_entries(
+            [(memo.get("title") or "메모", memo.get("content", "")) for memo in memos], "txt", "메모"
+        )
+        try:
+            save_zip(target, entries)
+        except OSError as error:
+            show_modern_warning(self, "백업 실패", f"백업 파일을 만들지 못했습니다.\n{error}")
+            return
+        show_modern_info(self, "백업 완료", f"메모 {len(entries)}개를 txt로 저장했습니다.\n{target}")
 
     def toggle_pin(self, memo: dict, card: QWidget | None = None, button: QWidget | None = None) -> None:
         memo["favorite"] = not self.is_favorite_memo(memo)

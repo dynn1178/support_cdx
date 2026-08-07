@@ -198,6 +198,7 @@ ACTION_ICONS = {
     "open": "🔗",
     "sticker": "🗒️",
     "history": "📜",
+    "save": "💾",
 }
 
 
@@ -1149,18 +1150,7 @@ class TextItemDialog(QDialog):
         if require_name:
             form.addRow("이름", self.name)
         if code:
-            self.language = QComboBox()
-            self.language.addItem(str(self.item.get("language", "other") or "other"))
-        if False and code:
-            self.language = QComboBox()
-            self.language.addItems(["sql", "python", "기타"])
-            current = self.item.get("language", "sql")
-            if current == "other":
-                current = "기타"
-            idx = self.language.findText(current)
-            if idx >= 0:
-                self.language.setCurrentIndex(idx)
-            form.addRow("언어", self.language)
+            self._setup_code_editor(form)
         form.addRow("내용", self.text)
         form.addRow("단축키", self.hotkey)
         layout.addLayout(form)
@@ -1177,13 +1167,92 @@ class TextItemDialog(QDialog):
         footer.addWidget(buttons)
         layout.addLayout(footer)
 
+    # --- 코드 편집기 -----------------------------------------------------
+
+    def _setup_code_editor(self, form: QFormLayout) -> None:
+        """언어 선택 + 구문 강조를 붙인다. '자동 감지'면 내용에서 언어를 추정한다."""
+        from ui.code_syntax import (
+            AUTO_LANGUAGE,
+            CodeHighlighter,
+            LanguageComboBox,
+            apply_code_editor_style,
+            detect_language,
+            is_dark_background,
+            language_label,
+            normalize_language,
+        )
+
+        self.setMinimumWidth(620)
+        colors = dialog_palette(self)
+        dark = is_dark_background(colors["field"])
+        apply_code_editor_style(self.text, dark, colors["border"])
+        self.text.setMinimumHeight(260)
+
+        saved_language = normalize_language(self.item.get("language"))
+        # 이전에 사용자가 이 대화상자에서 수동으로 언어를 고정한 적(language_auto=False)이 없다면
+        # 항상 '자동 감지'를 기본 선택으로 보여준다.
+        auto_mode = bool(self.item.get("language_auto", True))
+        self.language = LanguageComboBox(AUTO_LANGUAGE if auto_mode else saved_language)
+        self.highlighter = CodeHighlighter(self.text.document(), saved_language, dark)
+        self.language_hint = QLabel("")
+        self.language_hint.setObjectName("mutedText")
+
+        language_row = QWidget()
+        language_layout = QHBoxLayout(language_row)
+        language_layout.setContentsMargins(0, 0, 0, 0)
+        language_layout.setSpacing(8)
+        language_layout.addWidget(self.language)
+        language_layout.addWidget(self.language_hint, 1)
+        form.addRow("코드 형식", language_row)
+
+        self._detect_timer = QTimer(self)
+        self._detect_timer.setSingleShot(True)
+        self._detect_timer.setInterval(300)
+        self._detect_timer.timeout.connect(self._sync_highlight_language)
+        self.language.language_changed.connect(lambda _value: self._sync_highlight_language())
+        self.text.textChanged.connect(self._detect_timer.start)
+        self._detect_language = detect_language
+        self._language_label = language_label
+        self._sync_highlight_language()
+
+    def _sync_highlight_language(self) -> None:
+        """콤보가 '자동 감지'면 내용으로 언어를 정하고, 아니면 고른 언어를 그대로 쓴다."""
+        from ui.code_syntax import AUTO_LANGUAGE
+
+        selected = self.language.language()
+        if selected == AUTO_LANGUAGE:
+            resolved = self._detect_language(self.text.toPlainText())
+            self.language_hint.setText(f"자동 인식: {self._language_label(resolved)}")
+        else:
+            resolved = selected
+            self.language_hint.setText("")
+        self.highlighter.set_language(resolved)
+
+    def resolved_language(self) -> str:
+        if not self.code:
+            return ""
+        # 디바운스 타이머가 아직 안 돌았을 수 있어 저장 직전에 한 번 더 맞춘다.
+        if self._detect_timer.isActive():
+            self._detect_timer.stop()
+            self._sync_highlight_language()
+        return self.highlighter.language
+
     def value(self) -> dict[str, Any]:
         data = dict(self.item)
         name = self.name.text().strip() if self.require_name else (self.text.toPlainText().splitlines() or [""])[0][:30].strip()
         data.update({"name": name, "text": self.text.toPlainText(), "hotkey": self.hotkey.value()})
         if self.code:
-            language = "other" if self.language.currentText() == "기타" else self.language.currentText()
-            data.update({"language": language, "type": "code"})
+            from ui.code_syntax import AUTO_LANGUAGE
+
+            auto_mode = self.language.language() == AUTO_LANGUAGE
+            data.update(
+                {
+                    # 자동 감지여도 확장자 판단에 쓸 수 있도록 확정된 언어를 저장한다.
+                    "language": self.resolved_language(),
+                    "language_auto": auto_mode,
+                    "type": "code",
+                }
+            )
         else:
             data.update({"type": "text"})
         return data
