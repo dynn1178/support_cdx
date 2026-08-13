@@ -7,8 +7,11 @@ from __future__ import annotations
     Sleep, ms                         ms 밀리초 대기
     Click [, x, y]                    클릭 (좌표 생략 시 현재 마우스 위치)
     MouseClick, Button [, x, y]       Button(left/right/middle) 지정 클릭
+    MouseDoubleClick [, Button, x, y] 지정 버튼(기본 left)으로 더블클릭
+    MouseDrag, x1, y1, x2, y2 [, Button]   (x1,y1)에서 버튼을 누른 채 (x2,y2)까지 드래그
     MouseMove, x, y [, speed] [, R]   마우스 이동 (R 이 있으면 x,y 는 현재 위치 기준 상대 이동)
     MouseGetPos, xVar, yVar           현재 마우스 좌표를 변수에 저장
+    MouseRestorePos                   가장 최근 MouseGetPos 위치로 마우스를 되돌림
     Send / SendInput, keys            키 입력 — ^Ctrl !Alt +Shift #Win, {Enter} {Tab} {Esc} 등,
                                        {CtrlDown}/{CtrlUp} 등으로 키를 누른 채 유지 가능
     VarName := 값                      변수 지정. 값이 "..."로 감싸이지 않은 경우, 값에서 %변수명% 치환
@@ -262,6 +265,31 @@ def _parse_statement(line: str, line_no: int) -> tuple[Step, bool]:
             x = y = None
         return Step("click", line_no, {"x": x, "y": y, "button": button}), False
 
+    if command_lower == "mousedoubleclick":
+        args = _split_args(rest) if rest.strip() else []
+        button = args[0].lower() if args and args[0] else "left"
+        if button not in _MOUSE_BUTTONS:
+            raise MacroScriptError(line_no, f"지원하지 않는 마우스 버튼입니다: {button}")
+        if len(args) >= 3 and args[1] and args[2]:
+            x = _parse_int(args[1], line_no, "MouseDoubleClick 의 x좌표")
+            y = _parse_int(args[2], line_no, "MouseDoubleClick 의 y좌표")
+        else:
+            x = y = None
+        return Step("doubleclick", line_no, {"x": x, "y": y, "button": button}), False
+
+    if command_lower == "mousedrag":
+        args = _split_args(rest)
+        if len(args) < 4 or not all(args[:4]):
+            raise MacroScriptError(line_no, "MouseDrag 는 x1, y1, x2, y2 가 필요합니다.")
+        x1 = _parse_int(args[0], line_no, "MouseDrag 의 시작 x좌표")
+        y1 = _parse_int(args[1], line_no, "MouseDrag 의 시작 y좌표")
+        x2 = _parse_int(args[2], line_no, "MouseDrag 의 도착 x좌표")
+        y2 = _parse_int(args[3], line_no, "MouseDrag 의 도착 y좌표")
+        button = args[4].lower() if len(args) > 4 and args[4] else "left"
+        if button not in _MOUSE_BUTTONS:
+            raise MacroScriptError(line_no, f"지원하지 않는 마우스 버튼입니다: {button}")
+        return Step("drag", line_no, {"x1": x1, "y1": y1, "x2": x2, "y2": y2, "button": button}), False
+
     if command_lower == "mousemove":
         args = _split_args(rest)
         if len(args) < 2 or not args[0] or not args[1]:
@@ -276,6 +304,9 @@ def _parse_statement(line: str, line_no: int) -> tuple[Step, bool]:
         if len(args) < 2 or not args[0] or not args[1]:
             raise MacroScriptError(line_no, "MouseGetPos, x변수, y변수 형식이어야 합니다.")
         return Step("mousegetpos", line_no, {"x_var": args[0], "y_var": args[1]}), False
+
+    if command_lower == "mouserestorepos":
+        return Step("mouserestorepos", line_no, {}), False
 
     if command_lower == "coordmode":
         args = _split_args(rest)
@@ -468,6 +499,8 @@ AHK_KEY_TO_PYAUTOGUI = {
 }
 for _n in range(1, 25):
     AHK_KEY_TO_PYAUTOGUI[f"f{_n}"] = f"f{_n}"
+for _n in range(0, 10):
+    AHK_KEY_TO_PYAUTOGUI[f"num{_n}"] = f"num{_n}"
 
 # {CtrlDown} {AltUp} 처럼 붙여 쓰는 키 홀드/해제 토큰 → (pyautogui 키 이름, "down"|"up")
 _MODIFIER_HOLD_KEYS = {

@@ -61,6 +61,10 @@ class HotkeyManager:
             number = int(value[1:])
             if 1 <= number <= 24:
                 return 0x70 + number - 1
+        if value.startswith("NUM") and value[3:].isdigit():
+            number = int(value[3:])
+            if 0 <= number <= 9:
+                return 0x60 + number  # VK_NUMPAD0..VK_NUMPAD9
         special = {
             ";": 0xBA,
             "=": 0xBB,

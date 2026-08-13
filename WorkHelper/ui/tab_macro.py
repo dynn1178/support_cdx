@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
 
 from app.macro_script import MacroScriptError, count_steps, parse_script, record_actions_to_script, resolve_assign_value, substitute_vars, tokenize_send
 from app.utils import display_hotkey, new_id, now_iso
-from ui.common import GridPanel, HotkeyFields, SortControls, add_card_actions, apply_manual_reorder, bump_usage, confirm_delete, confirm_shift_digit_hotkey, dialog_palette, make_card
+from ui.common import GridPanel, HotkeyFields, SortControls, add_card_actions, apply_manual_reorder, bump_usage, confirm_delete, confirm_shift_digit_hotkey, dialog_palette, make_card, style_list_selection
 
 
 MODIFIER_NAMES = {"ctrl", "ctrl_l", "ctrl_r", "alt", "alt_l", "alt_r", "shift", "shift_l", "shift_r"}
@@ -41,8 +41,11 @@ MACRO_REFERENCE: list[dict[str, str]] = [
     {"category": "명령어", "name": "Sleep", "signature": "Sleep, ms", "desc": "지정한 밀리초(ms)만큼 실행을 잠시 멈춥니다. 클릭이나 키 입력 사이에 여유 시간을 줄 때 사용합니다.", "example": "Sleep, 1000", "note": "1초(1000ms) 동안 대기"},
     {"category": "명령어", "name": "Click", "signature": "Click [, x, y]", "desc": "마우스 왼쪽 버튼을 클릭합니다. 좌표(x, y)를 생략하면 현재 마우스 위치를 그대로 클릭합니다.", "example": "Click, 500, 300", "note": "화면 좌표 (500, 300) 위치를 클릭"},
     {"category": "명령어", "name": "MouseClick", "signature": "MouseClick, Button [, x, y]", "desc": "지정한 버튼(left/right/middle)으로 클릭합니다. 좌표를 생략하면 현재 마우스 위치를 클릭합니다.", "example": "MouseClick, right, 500, 300", "note": "(500, 300) 위치를 오른쪽 버튼으로 클릭"},
+    {"category": "명령어", "name": "MouseDoubleClick", "signature": "MouseDoubleClick [, Button, x, y]", "desc": "지정한 버튼(left/right/middle, 기본 left)으로 더블클릭합니다. 좌표를 생략하면 현재 마우스 위치를 더블클릭합니다.", "example": "MouseDoubleClick, left, 500, 300", "note": "(500, 300) 위치를 왼쪽 버튼으로 더블클릭"},
+    {"category": "명령어", "name": "MouseDrag", "signature": "MouseDrag, x1, y1, x2, y2 [, Button]", "desc": "(x1, y1) 위치에서 버튼을 누른 채 (x2, y2)까지 끌어다 놓습니다(드래그). 버튼을 생략하면 왼쪽 버튼입니다.", "example": "MouseDrag, 100, 100, 400, 300", "note": "(100,100)에서 (400,300)까지 왼쪽 버튼으로 드래그"},
     {"category": "명령어", "name": "MouseMove", "signature": "MouseMove, x, y [, R]", "desc": "마우스 커서를 이동합니다. 맨 끝에 R을 붙이면 절대 좌표가 아니라 현재 마우스 위치를 기준으로 한 상대 이동이 됩니다.", "example": "MouseMove, 80, 0, 0, R", "note": "현재 위치에서 오른쪽으로 80px 이동 (세 번째 값 0은 속도로, 무시됩니다)"},
     {"category": "명령어", "name": "MouseGetPos", "signature": "MouseGetPos, x변수, y변수", "desc": "현재 마우스 좌표를 두 변수에 저장합니다.", "example": "MouseGetPos, mx, my", "note": "mx, my 에 현재 마우스의 x, y 좌표가 저장됨"},
+    {"category": "명령어", "name": "MouseRestorePos", "signature": "MouseRestorePos", "desc": "가장 최근 MouseGetPos로 저장해둔 위치로 마우스를 되돌립니다. 클릭 몇 번 하고 원래 있던 자리로 마우스를 복귀시킬 때 사용합니다.", "example": "MouseGetPos, vx, vy\nClick, 300, 100\nMouseRestorePos", "note": "클릭 전 위치를 저장했다가, 클릭한 뒤 그 자리로 되돌아감"},
     {"category": "명령어", "name": "Send / SendInput", "signature": "Send, keys", "desc": "키보드 입력을 보냅니다. ^ ! + # 로 Ctrl/Alt/Shift/Win 을 조합하고, {}로 감싸 Enter, Tab 같은 특수 키를 입력합니다. 그 외 문자는 그대로 타이핑됩니다. SendInput 도 동일하게 동작합니다.", "example": "Send, +{Home}^c", "note": "Shift+Home 으로 줄 앞까지 선택한 뒤 Ctrl+C 로 복사"},
     {"category": "명령어", "name": "Run", "signature": "Run, 대상 [, 작업폴더]", "desc": "프로그램을 실행하거나 URL·파일·폴더를 기본 프로그램으로 엽니다. 실행 파일 경로는 큰따옴표로 감싸고, 뒤에 인자를 이어 쓸 수 있습니다.", "example": "Run, \"C:\\Program Files\\Naver\\Naver Whale\\Application\\whale.exe\" \"https://naver.com\"", "note": "Whale 브라우저로 naver.com 을 엶"},
     {"category": "명령어", "name": "IniWrite", "signature": "IniWrite, 값, 파일, 섹션, 키", "desc": "값을 지정한 파일에 저장합니다. 매크로를 다시 실행하거나 다른 매크로에서도 IniRead 로 값을 불러올 수 있습니다.", "example": "IniWrite, %clip%, setting.ini, Settings, clip", "note": "clip 변수 값을 setting.ini 파일의 [Settings] clip 항목에 저장"},
@@ -190,6 +193,7 @@ class MacroReferenceDialog(QDialog):
         self.search.setPlaceholderText("검색...")
         self.search.textChanged.connect(self._apply_filter)
         self.list = QListWidget()
+        style_list_selection(self.list, dialog_palette(self))
         self.list.currentItemChanged.connect(self._show_detail)
         left.addWidget(self.category)
         left.addWidget(self.search)
@@ -327,6 +331,7 @@ class MacroPlayerThread(QThread):
 
             held_keys: list[str] = []
             last_hwnd: list[int | None] = [None]  # 리스트로 감싸 클로저에서 값 변경
+            last_mouse_pos: list[tuple[int, int] | None] = [None]  # 가장 최근 MouseGetPos 좌표(MouseRestorePos용)
 
             def get_clipboard() -> str:
                 try:
@@ -454,6 +459,21 @@ class MacroPlayerThread(QThread):
                         sx, sy = to_screen_point(x, y)
                         pyautogui.click(sx, sy, button=button)
                     return False
+                if step.type == "doubleclick":
+                    x, y = params["x"], params["y"]
+                    button = params.get("button", "left")
+                    if x is None or y is None:
+                        pyautogui.doubleClick(button=button)
+                    else:
+                        sx, sy = to_screen_point(x, y)
+                        pyautogui.doubleClick(sx, sy, button=button)
+                    return False
+                if step.type == "drag":
+                    sx1, sy1 = to_screen_point(params["x1"], params["y1"])
+                    sx2, sy2 = to_screen_point(params["x2"], params["y2"])
+                    pyautogui.moveTo(sx1, sy1)
+                    pyautogui.dragTo(sx2, sy2, duration=0.2, button=params.get("button", "left"))
+                    return False
                 if step.type == "mousemove":
                     x, y = params["x"], params["y"]
                     if params["relative"]:
@@ -467,6 +487,12 @@ class MacroPlayerThread(QThread):
                     x, y = from_screen_point(x, y)
                     self._variables[params["x_var"].lower()] = str(x)
                     self._variables[params["y_var"].lower()] = str(y)
+                    last_mouse_pos[0] = (x, y)
+                    return False
+                if step.type == "mouserestorepos":
+                    if last_mouse_pos[0] is not None:
+                        sx, sy = to_screen_point(*last_mouse_pos[0])
+                        pyautogui.moveTo(sx, sy)
                     return False
                 if step.type == "coordmode":
                     mouse_coord_mode[0] = params["mode"]
@@ -560,7 +586,9 @@ class MacroPlayerThread(QThread):
                 return False
 
             repeat = max(1, int(self.macro.get("repeat", 1)))
-            time.sleep(1.0)
+            start_delay = float(self.macro.get("start_delay", 1.0))
+            if start_delay > 0:
+                time.sleep(start_delay)
             stopped = False
             for _ in range(repeat):
                 if self._stop_flag or run_steps(steps):
@@ -585,7 +613,7 @@ class MacroPlayerThread(QThread):
 
 
 _COMMAND_PATTERN = re.compile(
-    r"^\s*(Sleep|Click|MouseClick|MouseMove|MouseGetPos|Send(?:Input|Play|Event)?|IniWrite|IniRead|Run|"
+    r"^\s*(Sleep|Click|MouseClick|MouseDoubleClick|MouseDrag|MouseMove|MouseGetPos|MouseRestorePos|Send(?:Input|Play|Event)?|IniWrite|IniRead|Run|"
     r"WinActivate|WinWait(?:Active)?|WinMinimize|WinClose|IfWinNotActive|IfWinActive|if|Loop|KeyWait|"
     r"CoordMode|SetWinDelay|SetKeyDelay|SetControlDelay|SetMouseDelay|SendMode|ClipWait|Return)\b",
     re.IGNORECASE,
@@ -806,33 +834,28 @@ class MacroTab(QWidget):
         self.search.setStyleSheet("QLineEdit { padding: 1px 6px; font-size: 9pt; }")
         self.search.textChanged.connect(self.refresh)
         self.sort_controls = SortControls(self.refresh)
-        corner = QWidget()
-        corner_layout = QHBoxLayout(corner)
+        # 검색/정렬은 이 탭 자체가 아니라 상위(단축키/매크로) 탭의 코너 위젯으로 올라간다 —
+        # HotkeyMacroTab이 이 위젯을 가져다 붙인다.
+        self.corner_widget = QWidget()
+        corner_layout = QHBoxLayout(self.corner_widget)
         corner_layout.setContentsMargins(0, 0, 4, 0)
         corner_layout.setSpacing(4)
         corner_layout.addWidget(self.search)
         corner_layout.addWidget(self.sort_controls)
-        self.tabs = QTabWidget()
-        self.tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
         self.list = GridPanel(columns=2)
+        layout.addWidget(self.list, 1)
         new_btn = QPushButton("신규")
         record_btn = QPushButton("녹화")
         stop_btn = QPushButton("정지")
         new_btn.clicked.connect(self.create_macro)
         record_btn.clicked.connect(self.start_recording)
         stop_btn.clicked.connect(self.stop_recording)
-        page = QWidget()
-        page_layout = QVBoxLayout(page)
-        page_layout.setContentsMargins(0, 0, 0, 0)
-        page_layout.addWidget(self.list, 1)
-        row = QHBoxLayout()
-        row.addStretch(1)
-        row.addWidget(new_btn)
-        row.addWidget(record_btn)
-        row.addWidget(stop_btn)
-        page_layout.addLayout(row)
-        self.tabs.addTab(page, "매크로")
-        layout.addWidget(self.tabs, 1)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        btn_row.addWidget(new_btn)
+        btn_row.addWidget(record_btn)
+        btn_row.addWidget(stop_btn)
+        layout.addLayout(btn_row)
 
     def refresh(self) -> None:
         cards = []

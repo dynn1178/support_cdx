@@ -344,6 +344,121 @@ DEFAULT_TEMPLATE: dict[str, Any] = {
             "sort_order": 3,
         },
     ],
+    "process_hotkeys": [
+        # 프로그램별 단축키 샘플 — Ctrl+C 처럼 이미 단순한 기본 단축키는 사용자가 직접
+        # 등록하면 되므로 넣지 않는다. 여기 들어가는 건 리본 키탑(Alt를 누르고 밑줄 글자를
+        # 순서대로 입력하는) 방식처럼 Send, {AltDown}{AltUp}hmc 같은 스크립트를 직접 손으로
+        # 치기 번거로운 것들만 선별했다. 단축키를 지정해두면 사용자가 원치 않는 조합과 겹칠
+        # 수 있어 전부 hotkey=None(미지정) 상태로 배포한다.
+        # 리본 키탑은 엑셀/워드/파워포인트 등 오피스류에만 있는 방식이라, 그 외 프로그램은
+        # 대부분 단일 조합키(Ctrl+T 등)라 스크립트로 넣어줄 만큼 번거롭지 않아 제외했다.
+        {
+            "id": "ph_sample_excel_merge",
+            "name": "엑셀 - 셀 병합",
+            "process_exe": "EXCEL.EXE",
+            "hotkey": None,
+            "script": "Send, {AltDown}{AltUp}hmc",
+            "sort_order": 0,
+            "usage_count": 0,
+        },
+        {
+            "id": "ph_sample_excel_paste_values",
+            "name": "엑셀 - 값 붙여넣기",
+            "process_exe": "EXCEL.EXE",
+            "hotkey": None,
+            "script": "Send, {AltDown}{AltUp}hvv",
+            "sort_order": 1,
+            "usage_count": 0,
+        },
+        {
+            "id": "ph_sample_excel_borders",
+            "name": "엑셀 - 테두리 모두 적용",
+            "process_exe": "EXCEL.EXE",
+            "hotkey": None,
+            "script": "Send, {AltDown}{AltUp}hba",
+            "sort_order": 2,
+            "usage_count": 0,
+        },
+        {
+            "id": "ph_sample_excel_freeze_panes",
+            "name": "엑셀 - 틀 고정",
+            "process_exe": "EXCEL.EXE",
+            "hotkey": None,
+            "script": "Send, {AltDown}{AltUp}wff",
+            "sort_order": 3,
+            "usage_count": 0,
+        },
+        {
+            "id": "ph_sample_word_bullets",
+            "name": "워드 - 글머리 기호",
+            "process_exe": "WINWORD.EXE",
+            "hotkey": None,
+            "script": "Send, {AltDown}{AltUp}hu",
+            "sort_order": 4,
+            "usage_count": 0,
+        },
+        {
+            "id": "ph_sample_word_numbering",
+            "name": "워드 - 번호 매기기",
+            "process_exe": "WINWORD.EXE",
+            "hotkey": None,
+            "script": "Send, {AltDown}{AltUp}hn",
+            "sort_order": 5,
+            "usage_count": 0,
+        },
+        {
+            "id": "ph_sample_ppt_layout",
+            "name": "파워포인트 - 슬라이드 레이아웃",
+            "process_exe": "POWERPNT.EXE",
+            "hotkey": None,
+            "script": "Send, {AltDown}{AltUp}hl",
+            "sort_order": 6,
+            "usage_count": 0,
+        },
+        {
+            # 마우스 단계를 쓰는 예제 — 화면 전체 좌표가 아니라 CoordMode Client로 엑셀
+            # 창 내부 좌표를 쓰고, 클릭 전 위치를 MouseGetPos로 저장했다가 MouseRestorePos로
+            # 원래 마우스 위치로 되돌아온다. 좌표(300, 98)는 창 크기·DPI·엑셀 버전에 따라
+            # 리본의 '글꼴 크게' 버튼 위치가 달라질 수 있어 예시일 뿐이다 — '직접 지정' 탭의
+            # 클릭 위치 캡처로 본인 화면에 맞게 다시 잡아 쓰는 걸 권장한다.
+            "id": "ph_sample_excel_grow_font_mouse",
+            "name": "엑셀 - 글꼴 크게 (마우스 예제, 좌표 재측정 권장)",
+            "process_exe": "EXCEL.EXE",
+            "hotkey": None,
+            "script": "CoordMode, Mouse, Client\nMouseGetPos, vx, vy\nMouseClick, left, 300, 98\nMouseRestorePos",
+            "sort_order": 7,
+            "usage_count": 0,
+        },
+        {
+            "id": "ph_sample_excel_text_to_columns",
+            "name": "엑셀 - 텍스트 나누기",
+            "process_exe": "EXCEL.EXE",
+            "hotkey": None,
+            "script": "Send, {AltDown}{AltUp}ae",
+            "sort_order": 8,
+            "usage_count": 0,
+        },
+        {
+            "id": "ph_sample_excel_data_validation",
+            "name": "엑셀 - 데이터 유효성 검사",
+            "process_exe": "EXCEL.EXE",
+            "hotkey": None,
+            "script": "Send, {AltDown}{AltUp}avv",
+            "sort_order": 9,
+            "usage_count": 0,
+        },
+        {
+            "id": "ph_sample_excel_goto_special",
+            "name": "엑셀 - 이동 옵션(Go To Special)",
+            "process_exe": "EXCEL.EXE",
+            "hotkey": None,
+            "script": "Send, {AltDown}{AltUp}hfds",
+            "sort_order": 10,
+            "usage_count": 0,
+        },
+    ],
+    "window_layouts": [],
+    "timers": [],
     "phrase_popup_favorites": ["ph_sample2"],
     "todo_groups": ["그룹 1", "그룹 2", "그룹 3"],
     "custom_searches": [],
@@ -364,6 +479,9 @@ PRESET_COLLECTION_KEYS = (
     "macros",
     "memos",
     "schedules",
+    "process_hotkeys",
+    "window_layouts",
+    "timers",
 )
 PRESET_LINK_KEYS = ("phrase_popup_favorites",)
 PRESET_LIST_KEYS = PRESET_COLLECTION_KEYS + PRESET_LINK_KEYS
@@ -472,7 +590,48 @@ def save_template(index: int, data: dict[str, Any]) -> None:
     _write_json_atomic(template_path(index), data_to_save)
 
 
+# 예전에 배포됐다가 나중에 빠진 프로그램별 단축키 샘플 id — 이미 저장된 프리셋에 남아있으면
+# 정리한다(단순 기본 조합키라 샘플에서 뺀 것들 · 리본 키탑 방식이 아니라서 뺀 것들).
+RETIRED_PROCESS_HOTKEY_SAMPLE_IDS = frozenset(
+    {
+        "ph_sample_excel_filter",
+        "ph_sample_ppt_new_slide",
+        "ph_sample_ppt_slideshow",
+        "ph_sample_ppt_paste_special",
+        "ph_sample_word_format_painter_copy",
+        "ph_sample_word_center",
+        "ph_sample_word_find_replace",
+        "ph_sample_ps_free_transform",
+        "ph_sample_ps_new_layer",
+        "ph_sample_ps_image_size",
+        "ph_sample_premiere_add_edit",
+        "ph_sample_premiere_mark_in",
+        "ph_sample_premiere_mark_out",
+    }
+)
+
+
+def _reconcile_process_hotkey_samples(merged: dict[str, Any]) -> None:
+    """저장된 프리셋의 프로그램별 단축키 샘플을 최신 샘플 구성에 맞춘다.
+
+    더 이상 제공하지 않는 샘플은 지우고, 아직 없는 최신 샘플은 채워 넣는다. 샘플이 아닌
+    사용자가 직접 만든 항목(id가 ph_sample_ 로 시작하지 않는 항목)은 건드리지 않는다.
+    """
+    items = merged["process_hotkeys"]
+    items[:] = [item for item in items if item.get("id") not in RETIRED_PROCESS_HOTKEY_SAMPLE_IDS]
+    existing_ids = {item.get("id") for item in items}
+    start_order = len(items)
+    for sample in DEFAULT_TEMPLATE["process_hotkeys"]:
+        if sample["id"] in existing_ids:
+            continue
+        entry = copy.deepcopy(sample)
+        entry["sort_order"] = start_order
+        start_order += 1
+        items.append(entry)
+
+
 def merge_template_defaults(data: dict[str, Any]) -> dict[str, Any]:
+    had_own_process_hotkeys = "process_hotkeys" in data
     merged = copy.deepcopy(DEFAULT_TEMPLATE)
     for key, value in data.items():
         if isinstance(value, dict) and isinstance(merged.get(key), dict):
@@ -488,6 +647,8 @@ def merge_template_defaults(data: dict[str, Any]) -> dict[str, Any]:
         meta["preset_name"] = meta.get("template_name") or "프리셋"
     meta.pop("template_name", None)
     merged["macros"] = [_migrate_macro(item) for item in merged.get("macros", [])]
+    if had_own_process_hotkeys:
+        _reconcile_process_hotkey_samples(merged)
     return merged
 
 

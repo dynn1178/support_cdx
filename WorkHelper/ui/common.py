@@ -60,6 +60,8 @@ HOTKEY_KEYS = (
     + [chr(i) for i in range(ord("A"), ord("Z") + 1)]
     + [f"F{i}" for i in range(1, 13)]
     + [";", "'", "`", ",", ".", "/", "\\", "-", "=", "[", "]"]
+    + [f"Num{i}" for i in range(1, 10)]
+    + ["Num0"]
 )
 DIALOG_THEME = "light"
 CARD_SIZE_A = 72
@@ -463,6 +465,20 @@ def dialog_palette(parent: QWidget | None, accent: str | None = None) -> dict[st
     if accent:
         colors["accent"] = accent
     return colors
+
+
+def style_list_selection(list_widget, colors: dict[str, str]) -> None:
+    """QListWidget 선택 항목이 테마와 무관하게 항상 읽히도록 배경/글씨색을 명시한다.
+
+    Qt 기본 팔레트에 맡기면 일부 테마 조합에서 선택된 항목의 배경과 글씨가 둘 다
+    흰색이 되어 내용이 안 보이는 경우가 있어, 선택 시 배경만 강조색(hover)으로 바꾸고
+    글씨색은 그대로 유지한다. 위젯에 이미 다른 스타일시트가 있으면 뒤에 이어붙인다.
+    """
+    extra = (
+        f"QListWidget::item:selected {{ background: {colors['hover']}; color: {colors['text']}; }}"
+        f"QListWidget::item:hover:!selected {{ background: {colors['hover']}; }}"
+    )
+    list_widget.setStyleSheet(list_widget.styleSheet() + extra)
 
 
 def set_dialog_theme(theme: str) -> None:

@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
@@ -150,9 +151,17 @@ def exec_capture_dialog(dialog: QDialog) -> QDialog.DialogCode:
     return dialog.exec()
 
 
-def copy_pixmap_to_clipboard(pixmap: QPixmap) -> None:
+def copy_pixmap_to_clipboard(pixmap: QPixmap) -> bool:
+    """캡처한 이미지를 클립보드에 넣는다. 반환값은 반영이 확인됐는지 여부.
+
+    Windows에서는 SetClipboardData 직후 바로 읽어도 아직 반영되지 않은 것처럼 보일 때가
+    있다(클립보드 체인에 낀 다른 프로그램·DIB 변환 지연 등). 캡처 직후 사용자가 바로
+    Ctrl+V를 누르면 그 틈에 0바이트가 붙여넣기되는 문제로 이어지므로, 이 함수가 끝나기
+    전에 clipboard.image()로 실제 반영을 확인할 때까지(최대 0.4초) 짧게 폴링해 클립보드
+    쓰기를 확정한다.
+    """
     if pixmap.isNull():
-        return
+        return False
     image = pixmap.toImage().copy()
     clipboard = QApplication.clipboard()
     app = QApplication.instance()
@@ -176,8 +185,16 @@ def copy_pixmap_to_clipboard(pixmap: QPixmap) -> None:
             QApplication.processEvents()
 
     set_image(force=True)
-    for delay in (35, 90, 180, 320):
+    deadline = time.monotonic() + 0.4
+    while not image_is_current() and time.monotonic() < deadline:
+        clipboard.setImage(image)
+        QApplication.processEvents()
+        time.sleep(0.02)
+    confirmed = image_is_current()
+    # 다른 클립보드 관리자가 잠시 후 값을 덮어쓰는 경우에 대비한 뒤늦은 재확인(기존 동작 유지).
+    for delay in (150, 320, 600):
         QTimer.singleShot(delay, set_image)
+    return confirmed
 
 
 def _screen_source_rect(screen, logical_rect: QRect, full_pixmap: QPixmap) -> QRect:

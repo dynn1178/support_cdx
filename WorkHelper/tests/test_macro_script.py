@@ -320,10 +320,45 @@ def test_parse_mouseclick_invalid_button_raises():
         parse_script("MouseClick, invalid, 1, 2")
 
 
+def test_parse_mousedoubleclick():
+    steps = parse_script("MouseDoubleClick, left, 500, 300\nMouseDoubleClick\n")
+    assert steps[0].type == "doubleclick"
+    assert steps[0].params == {"x": 500, "y": 300, "button": "left"}
+    assert steps[1].params == {"x": None, "y": None, "button": "left"}
+
+
+def test_parse_mousedoubleclick_invalid_button_raises():
+    with pytest.raises(MacroScriptError):
+        parse_script("MouseDoubleClick, invalid, 1, 2")
+
+
+def test_parse_mousedrag():
+    steps = parse_script("MouseDrag, 100, 100, 400, 300\nMouseDrag, 0, 0, 10, 10, right\n")
+    assert steps[0].type == "drag"
+    assert steps[0].params == {"x1": 100, "y1": 100, "x2": 400, "y2": 300, "button": "left"}
+    assert steps[1].params == {"x1": 0, "y1": 0, "x2": 10, "y2": 10, "button": "right"}
+
+
+def test_parse_mousedrag_missing_args_raises():
+    with pytest.raises(MacroScriptError):
+        parse_script("MouseDrag, 100, 100")
+
+
+def test_parse_mousedrag_invalid_button_raises():
+    with pytest.raises(MacroScriptError):
+        parse_script("MouseDrag, 0, 0, 1, 1, invalid")
+
+
 def test_parse_mousegetpos():
     steps = parse_script("MouseGetPos,vx,vy")
     assert steps[0].type == "mousegetpos"
     assert steps[0].params == {"x_var": "vx", "y_var": "vy"}
+
+
+def test_parse_mouserestorepos():
+    steps = parse_script("MouseGetPos, vx, vy\nClick, 300, 100\nMouseRestorePos")
+    assert [s.type for s in steps] == ["mousegetpos", "click", "mouserestorepos"]
+    assert steps[2].params == {}
 
 
 def test_parse_keywait():

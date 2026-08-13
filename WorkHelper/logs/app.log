@@ -198,3 +198,31 @@ Traceback (most recent call last):
     
 KeyboardInterrupt
 2026-08-07 17:19:35,451 INFO    workhelper.main_window: app shutting down
+2026-08-07 17:19:38,377 INFO    workhelper.main: app starting (version=1.5.3)
+2026-08-07 17:37:33,101 INFO    workhelper.main_window: app shutting down
+2026-08-13 12:04:18,658 WARNING workhelper.main_window: system tray unavailable — close will quit the app
+2026-08-13 12:04:19,197 WARNING workhelper.main_window: hotkey register failed: 안녕하세요. 6PM ASSIST 육땡이입니다. (Alt+F1) — RegisterHotKey failed: 1400
+2026-08-13 12:04:19,198 WARNING workhelper.main_window: hotkey register failed: 엑셀 단축키 (Ctrl+Alt+F1) — RegisterHotKey failed: 1400
+2026-08-13 12:04:19,199 WARNING workhelper.main_window: hotkey register failed: 상용구 미니팝업 (Ctrl+;) — RegisterHotKey failed: 1400
+2026-08-13 12:04:19,199 WARNING workhelper.main_window: hotkey register failed: 캡처 단축키 (Ctrl+Shift+S) — RegisterHotKey failed: 1400
+2026-08-13 13:04:22,900 INFO    workhelper.main: app starting (version=1.5.4)
+2026-08-13 13:04:35,940 INFO    workhelper.backup: backup created: backup_20260813_130435.zip
+2026-08-13 13:27:57,754 INFO    workhelper.main_window: app shutting down
+2026-08-13 13:28:03,557 INFO    workhelper.main: app starting (version=1.5.4)
+2026-08-13 13:42:11,429 INFO    workhelper.main_window: app shutting down
+2026-08-13 13:42:15,154 INFO    workhelper.main: app starting (version=1.5.4)
+2026-08-13 13:48:13,498 INFO    workhelper.main_window: app shutting down
+2026-08-13 14:27:10,712 INFO    workhelper.main: app starting (version=1.5.4)
+2026-08-13 14:46:10,399 INFO    workhelper.main_window: app shutting down
+2026-08-13 14:46:14,369 INFO    workhelper.main: app starting (version=1.5.4)
+2026-08-13 15:12:35,868 INFO    workhelper.main_window: app shutting down
+2026-08-13 15:12:39,381 INFO    workhelper.main: app starting (version=1.5.4)
+2026-08-13 15:29:32,626 ERROR   workhelper.unhandled: unhandled exception
+Traceback (most recent call last):
+  File "c:\Users\User\Documents\GitHub\support_cdx\WorkHelper\ui\main_window.py", line 204, in nativeEventFilter
+    def nativeEventFilter(self, event_type, message):
+    
+KeyboardInterrupt
+2026-08-13 15:29:37,074 INFO    workhelper.main_window: app shutting down
+2026-08-13 15:29:39,427 INFO    workhelper.main: app starting (version=1.5.4)
+2026-08-13 15:57:50,381 INFO    workhelper.main_window: app shutting down

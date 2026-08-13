@@ -777,6 +777,163 @@ class CompletedItemsDialog(QDialog):
                     w.setStyleSheet("color:#15803D;")
 
 
+TIMER_ACTION_LABELS = {
+    "notify": "알림",
+    "shutdown": "컴퓨터 종료",
+    "start_program": "프로그램 시작",
+    "close_program": "프로그램 종료",
+}
+TIMER_ACTION_KEYS = {label: key for key, label in TIMER_ACTION_LABELS.items()}
+
+
+class TimerPresetDialog(QDialog):
+    """홈 화면 '타이머 등록'에서 만드는 타이머 사전 설정."""
+
+    def __init__(self, item: dict | None = None) -> None:
+        super().__init__()
+        self.item = item or {}
+        self.setWindowTitle(f"타이머 등록 - {self.item.get('label') or '새 타이머'}")
+        apply_modern_dialog_style(self)
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        self.label = QLineEdit(self.item.get("label", ""))
+        form.addRow("이름", self.label)
+
+        self.mode = QComboBox()
+        self.mode.addItems(["시간", "특정 시간"])
+        self.mode.setCurrentText("특정 시간" if self.item.get("mode") == "exact" else "시간")
+        self.mode.currentTextChanged.connect(self._on_mode_changed)
+        form.addRow("방식", self.mode)
+
+        self.hours = QSpinBox()
+        self.hours.setRange(0, 23)
+        self.minutes = QSpinBox()
+        self.minutes.setRange(0, 59)
+        self.seconds = QSpinBox()
+        self.seconds.setRange(0, 59)
+        self.hours.setValue(int(self.item.get("hours", 0) or 0))
+        self.minutes.setValue(int(self.item.get("minutes", 30) or 0))
+        self.seconds.setValue(int(self.item.get("seconds", 0) or 0))
+        duration_row = QHBoxLayout()
+        duration_row.setContentsMargins(0, 0, 0, 0)
+        for widget, unit in ((self.hours, "시간"), (self.minutes, "분"), (self.seconds, "초")):
+            duration_row.addWidget(widget)
+            duration_row.addWidget(QLabel(unit))
+        duration_row.addStretch(1)
+        self.duration_widget = QWidget()
+        self.duration_widget.setLayout(duration_row)
+        self.duration_label = QLabel("지속 시간")
+        form.addRow(self.duration_label, self.duration_widget)
+
+        self.target_date = QDateEdit()
+        self.target_date.setCalendarPopup(True)
+        saved_date = self.item.get("target_date", "")
+        self.target_date.setDate(QDate.fromString(saved_date, "yyyy-MM-dd") if saved_date else QDate.currentDate())
+        self.target_hour = QComboBox()
+        for h in range(24):
+            self.target_hour.addItem(f"{h:02d}시")
+        self.target_hour.setCurrentIndex(int(self.item.get("target_hour", datetime.now().hour) or 0))
+        self.target_minute = QComboBox()
+        for m in range(0, 60, 10):
+            self.target_minute.addItem(f"{m:02d}분")
+        saved_minute = int(self.item.get("target_minute", 0) or 0)
+        index = self.target_minute.findText(f"{saved_minute:02d}분")
+        self.target_minute.setCurrentIndex(index if index >= 0 else 0)
+        exact_row = QHBoxLayout()
+        exact_row.setContentsMargins(0, 0, 0, 0)
+        exact_row.addWidget(self.target_date)
+        exact_row.addWidget(self.target_hour)
+        exact_row.addWidget(self.target_minute)
+        exact_row.addStretch(1)
+        self.exact_widget = QWidget()
+        self.exact_widget.setLayout(exact_row)
+        self.exact_label = QLabel("목표 시각")
+        form.addRow(self.exact_label, self.exact_widget)
+
+        self.action = QComboBox()
+        self.action.addItems(list(TIMER_ACTION_LABELS.values()))
+        self.action.setCurrentText(TIMER_ACTION_LABELS.get(self.item.get("action", "notify"), "알림"))
+        self.action.currentTextChanged.connect(self._on_action_changed)
+        form.addRow("완료 후 작업", self.action)
+
+        self.message = QLineEdit(self.item.get("message", ""))
+        self.message.setPlaceholderText("알림 메시지 (선택)")
+        self.message_label = QLabel("알림 메시지")
+        form.addRow(self.message_label, self.message)
+
+        self.program = QLineEdit(self.item.get("program", ""))
+        self.program.setPlaceholderText("경로 또는 프로세스 이름 (.exe)")
+        browse_btn = QPushButton("찾아보기")
+        browse_btn.clicked.connect(self._browse_program)
+        program_row = QHBoxLayout()
+        program_row.setContentsMargins(0, 0, 0, 0)
+        program_row.addWidget(self.program)
+        program_row.addWidget(browse_btn)
+        self.program_widget = QWidget()
+        self.program_widget.setLayout(program_row)
+        self.program_label = QLabel("프로그램")
+        form.addRow(self.program_label, self.program_widget)
+
+        layout.addLayout(form)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("저장")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("취소")
+        buttons.accepted.connect(self._try_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self._on_mode_changed(self.mode.currentText())
+        self._on_action_changed(self.action.currentText())
+
+    def _on_mode_changed(self, text: str) -> None:
+        exact = text == "특정 시간"
+        self.duration_widget.setVisible(not exact)
+        self.duration_label.setVisible(not exact)
+        self.exact_widget.setVisible(exact)
+        self.exact_label.setVisible(exact)
+
+    def _on_action_changed(self, text: str) -> None:
+        is_program = text in ("프로그램 시작", "프로그램 종료")
+        is_notify = text == "알림"
+        self.message.setVisible(is_notify)
+        self.message_label.setVisible(is_notify)
+        self.program_widget.setVisible(is_program)
+        self.program_label.setVisible(is_program)
+
+    def _browse_program(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "프로그램 선택", "", "실행 파일 (*.exe);;모든 파일 (*)")
+        if path:
+            self.program.setText(path)
+
+    def _try_accept(self) -> None:
+        if not self.label.text().strip():
+            show_modern_warning(self, "입력 확인", "이름을 지정해주세요.")
+            return
+        self.accept()
+
+    def value(self) -> dict:
+        data = dict(self.item)
+        data.update(
+            {
+                "id": self.item.get("id") or new_id("tm"),
+                "label": self.label.text().strip(),
+                "mode": "exact" if self.mode.currentText() == "특정 시간" else "duration",
+                "hours": self.hours.value(),
+                "minutes": self.minutes.value(),
+                "seconds": self.seconds.value(),
+                "target_date": self.target_date.date().toString("yyyy-MM-dd"),
+                "target_hour": self.target_hour.currentIndex(),
+                "target_minute": int(self.target_minute.currentText().replace("분", "")),
+                "action": TIMER_ACTION_KEYS.get(self.action.currentText(), "notify"),
+                "message": self.message.text().strip(),
+                "program": self.program.text().strip(),
+            }
+        )
+        return data
+
+
 # 할 일(Todo) + 타이머 탭
 
 class TodoListTab(QWidget):
@@ -1572,3 +1729,49 @@ class TodoListTab(QWidget):
                     show_modern_info(self.main, "타이머 완료", f"프로그램 종료:\n{name}")
                 except Exception as exc:
                     show_modern_warning(self.main, "종료 오류", str(exc))
+
+    # 등록된 타이머(홈 화면 '타이머 등록') — 시간/작업을 미리 저장해두고 필요할 때 바로 시작한다.
+
+    def edit_timer_preset(self, item: dict | None = None) -> None:
+        dialog = TimerPresetDialog(item)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        value = dialog.value()
+        items = self.main.data.setdefault("timers", [])
+        if item in items:
+            value["created_at"] = item.get("created_at", "")
+            items[items.index(item)] = value
+        else:
+            value["sort_order"] = len(items)
+            value["created_at"] = now_iso()
+            items.append(value)
+        self.main.save_data()
+
+    def delete_timer_preset(self, item: dict) -> None:
+        self.main.data.get("timers", []).remove(item)
+        self.main.save_data()
+
+    def _timer_preset_seconds(self, item: dict) -> int | None:
+        if item.get("mode") == "exact":
+            try:
+                target_date = datetime.strptime(item.get("target_date", ""), "%Y-%m-%d").date()
+            except Exception:
+                return None
+            target = datetime.combine(target_date, dt_time(int(item.get("target_hour", 0) or 0), int(item.get("target_minute", 0) or 0)))
+            return int((target - datetime.now()).total_seconds())
+        h = int(item.get("hours", 0) or 0)
+        m = int(item.get("minutes", 0) or 0)
+        s = int(item.get("seconds", 0) or 0)
+        return h * 3600 + m * 60 + s
+
+    def start_timer_preset(self, item: dict) -> None:
+        seconds = self._timer_preset_seconds(item)
+        if not seconds or seconds <= 0:
+            show_modern_warning(self.main, "설정 확인", "지정한 시각이 이미 지났거나 시간이 설정되지 않았습니다.")
+            return
+        self._timer_action.setCurrentText(TIMER_ACTION_LABELS.get(item.get("action", "notify"), "알림"))
+        self._timer_msg.setText(item.get("message", ""))
+        self._timer_prog.setText(item.get("program", ""))
+        self._timer_status.setText(f"{item.get('label') or '타이머'} 시작")
+        self._start_timer(seconds, "duration")
+        self._tab_widget.setCurrentWidget(self._timer_page)

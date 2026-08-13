@@ -29,6 +29,7 @@ from app.screen_utils import virtual_screen_geometry
 from app.theme import THEMES
 from app.utils import new_id, now_iso
 from ui.tab_image import capture_screen_rect, copy_pixmap_to_clipboard
+from ui.tab_window_arrange import WindowArrangeTab
 from ui.common import ask_modern_question, bottom_action_bar, show_modern_info, show_modern_warning
 
 
@@ -1305,6 +1306,7 @@ class MiscTab(QWidget):
         tabs.addTab(SpecialCharTab(main), "특수문자")
         tabs.addTab(self._mouse_tab, "마우스 하이라이트")
         tabs.addTab(ScreenDrawTab(main), "화면 그리기")
+        tabs.addTab(WindowArrangeTab(main), "창 정렬")
         layout.addWidget(tabs, 1)
 
     def apply_theme(self) -> None:

@@ -58,9 +58,15 @@ def format_percent(value: float) -> str:
 
 
 def normalize_result(value: float | int) -> float | int:
-    """5.0처럼 소수부가 없는 실수는 정수로 되돌린다."""
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
+    """5.0처럼 소수부가 없는 실수는 정수로 되돌린다.
+
+    이진 부동소수점 오차(48.7-41.3 → 7.400000000000006)를 없애기 위해
+    소수 10자리로 반올림한 뒤 정수 여부를 판단한다.
+    """
+    if isinstance(value, float):
+        value = round(value, 10)
+        if value.is_integer():
+            return int(value)
     return value
 
 
@@ -69,6 +75,7 @@ def format_calc_result(value: float | int) -> tuple[str, str]:
 
     정수  → '9,000,000  구백만' / 복사는 '9000000'
     소수  → '0.0966666  (9.67%)' / 복사는 '0.0966666'
+    백분율 병기는 절댓값이 1 이하일 때만 표시한다.
     """
     value = normalize_result(value)
     if isinstance(value, int):
@@ -79,4 +86,6 @@ def format_calc_result(value: float | int) -> tuple[str, str]:
     raw = repr(value)
     if value != value or value in (float("inf"), float("-inf")):  # NaN/무한대
         return raw, raw
-    return f"{value:,}  ({format_percent(value)})", raw
+    if abs(value) <= 1:
+        return f"{value:,}  ({format_percent(value)})", raw
+    return f"{value:,}", raw

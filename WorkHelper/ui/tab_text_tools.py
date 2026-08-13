@@ -121,23 +121,27 @@ class UtmTab(QWidget):
 
 class LineBreakTab(QWidget):
     EXAMPLES = {
-        "줄바꿈 > 쉼표": ("hello\nworld", "hello, world"),
-        "공백 > 줄바꿈": ("hello world foo", "hello\nworld\nfoo"),
-        "줄바꿈 > 따옴표 목록": ("hello\nworld", "('hello', 'world')"),
-        "공백 > 따옴표 목록": ("hello world foo", "('hello', 'world', 'foo')"),
+        "줄바꿈 ↔ 쉼표": ("hello\nworld", "hello, world"),
+        "공백 ↔ 줄바꿈": ("hello world foo", "hello\nworld\nfoo"),
+        "줄바꿈 ↔ 따옴표 목록": ("hello\nworld", "('hello', 'world')"),
+        "공백 ↔ 따옴표 목록": ("hello world foo", "('hello', 'world', 'foo')"),
     }
 
     def __init__(self, main) -> None:
         super().__init__()
         self.main = main
+        self.forward = True
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
         content = QWidget()
         layout = QVBoxLayout(content)
+        hint = QLabel("순환 변환을 반복해서 누르면 두 형식 사이를 계속 오갑니다. 결과가 같은 칸에 그대로 반영됩니다.")
+        hint.setObjectName("mutedText")
+        layout.addWidget(hint)
         self.mode = QComboBox()
         self.mode.addItems(list(self.EXAMPLES))
-        self.mode.currentTextChanged.connect(self.update_example)
+        self.mode.currentTextChanged.connect(self.on_mode_changed)
         self.before_example = QLabel()
         self.after_example = QLabel()
         for label in [self.before_example, self.after_example]:
@@ -146,21 +150,17 @@ class LineBreakTab(QWidget):
             label.setFixedHeight(32)
             label.setStyleSheet("QLabel#mutedText { padding: 2px 6px; border: 1px solid rgba(107,114,128,0.28); border-radius: 6px; }")
         self.input = PlainTextEdit()
-        self.output = PlainTextEdit()
-        convert = QPushButton("변환")
+        convert = QPushButton("순환 변환")
         copy = QPushButton("결과 복사")
         convert.clicked.connect(self.convert)
-        copy.clicked.connect(lambda: self.main.app.clipboard().setText(self.output.toPlainText()))
+        copy.clicked.connect(lambda: self.main.app.clipboard().setText(self.input.toPlainText()))
         row = QHBoxLayout()
         row.setSpacing(6)
         row.addWidget(self.mode)
         row.addWidget(self.before_example, 1)
         row.addWidget(self.after_example, 1)
         layout.addLayout(row)
-        layout.addWidget(QLabel("입력"))
         layout.addWidget(self.input, 1)
-        layout.addWidget(QLabel("결과"))
-        layout.addWidget(self.output, 1)
         root.addWidget(content, 1)
         root.addLayout(bottom_action_bar(convert, copy))
         self.update_example(self.mode.currentText())
@@ -170,17 +170,45 @@ class LineBreakTab(QWidget):
         self.before_example.setText(before)
         self.after_example.setText(after)
 
+    def on_mode_changed(self, mode: str) -> None:
+        self.update_example(mode)
+        self.forward = True
+
+    def items_from_lines(self, text: str) -> list[str]:
+        return [line.strip() for line in text.splitlines() if line.strip()]
+
+    def items_from_spaces(self, text: str) -> list[str]:
+        return [part.strip() for part in text.split() if part.strip()]
+
+    def items_from_comma(self, text: str) -> list[str]:
+        return [part.strip() for part in text.split(",") if part.strip()]
+
+    def items_from_quoted_list(self, text: str) -> list[str]:
+        matches = re.findall(r"'([^']*)'|\"([^\"]*)\"", text)
+        items = [first or second for first, second in matches]
+        return [item.strip() for item in items if item.strip()]
+
     def convert(self) -> None:
         mode = self.mode.currentText()
         text = self.input.toPlainText().strip()
-        items = [line.strip() for line in text.splitlines() if line.strip()] if mode.startswith("줄바꿈") else [part.strip() for part in text.split() if part.strip()]
-        if "쉼표" in mode:
-            result = ", ".join(items)
-        elif mode == "공백 > 줄바꿈":
-            result = "\n".join(items)
-        else:
-            result = "(" + ", ".join(f"'{item}'" for item in items) + ")"
-        self.output.setPlainText(result)
+        if mode == "줄바꿈 ↔ 쉼표":
+            result = ", ".join(self.items_from_lines(text)) if self.forward else "\n".join(self.items_from_comma(text))
+        elif mode == "공백 ↔ 줄바꿈":
+            result = "\n".join(self.items_from_spaces(text)) if self.forward else " ".join(self.items_from_lines(text))
+        elif mode == "줄바꿈 ↔ 따옴표 목록":
+            result = (
+                "(" + ", ".join(f"'{item}'" for item in self.items_from_lines(text)) + ")"
+                if self.forward
+                else "\n".join(self.items_from_quoted_list(text))
+            )
+        else:  # 공백 ↔ 따옴표 목록
+            result = (
+                "(" + ", ".join(f"'{item}'" for item in self.items_from_spaces(text)) + ")"
+                if self.forward
+                else " ".join(self.items_from_quoted_list(text))
+            )
+        self.input.setPlainText(result)
+        self.forward = not self.forward
 
 
 class CaseCycleTab(QWidget):
@@ -381,8 +409,11 @@ class TaggingReviewTab(QWidget):
         self.definition_sample_label.setObjectName("mutedText")
         load_btn = QPushButton("엑셀 정의서 불러오기")
         load_btn.clicked.connect(self.load_definition)
+        sample_btn = QPushButton("정의서 샘플 다운로드")
+        sample_btn.clicked.connect(self.download_definition_sample)
         top = QHBoxLayout()
         top.addWidget(load_btn)
+        top.addWidget(sample_btn)
         top.addWidget(self.definition_label, 1)
         top.addWidget(self.definition_sample_label, 2)
         layout.addLayout(top)
@@ -409,6 +440,36 @@ class TaggingReviewTab(QWidget):
 
     def normalize_header(self, value: str) -> str:
         return re.sub(r"\s+", "", str(value or "")).lower()
+
+    def download_definition_sample(self) -> None:
+        if Workbook is None:
+            QMessageBox.warning(self, "의존성 필요", "openpyxl이 설치되어 있지 않습니다. requirements.txt 설치 후 다시 실행해 주세요.")
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "정의서 샘플 저장", "태깅_정의서_양식.xlsx", "Excel (*.xlsx)")
+        if not path:
+            return
+        if not path.lower().endswith(".xlsx"):
+            path += ".xlsx"
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "정의서"
+        headers = ["필드명(한글)", "필드명(영어)", "TYPE", "SAMPLE"]
+        ws.append(headers)
+        ws.append(["", "", "", ""])
+        ws.append(["", "", "", ""])
+        if Font is not None:
+            header_font = Font(bold=True)
+            for cell in ws[1]:
+                cell.font = header_font
+        if get_column_letter is not None:
+            for index, width in enumerate([20, 20, 12, 20], start=1):
+                ws.column_dimensions[get_column_letter(index)].width = width
+        try:
+            wb.save(path)
+        except Exception as exc:
+            QMessageBox.warning(self, "저장 실패", str(exc))
+            return
+        QMessageBox.information(self, "저장 완료", "정의서 샘플 양식을 저장했습니다.")
 
     def load_definition(self) -> None:
         if load_workbook is None:

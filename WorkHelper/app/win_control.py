@@ -14,6 +14,9 @@ KERNEL32 = ctypes.WinDLL("kernel32", use_last_error=True)
 WM_CLOSE = 0x0010
 SW_RESTORE = 9
 SW_MINIMIZE = 6
+SW_MAXIMIZE = 3
+SWP_NOZORDER = 0x0004
+SWP_NOACTIVATE = 0x0010
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
 _WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
@@ -32,6 +35,7 @@ USER32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BO
 USER32.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
 USER32.ClientToScreen.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.POINT)]
 USER32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+USER32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
 KERNEL32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
 KERNEL32.OpenProcess.restype = wintypes.HANDLE
 KERNEL32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
@@ -142,6 +146,31 @@ def active_window() -> int | None:
     return hwnd or None
 
 
+def active_process_name() -> str:
+    """현재 활성(포그라운드) 창을 소유한 프로세스의 파일명(예: EXCEL.EXE)을 돌려준다."""
+    hwnd = active_window()
+    return _window_process_name(hwnd) if hwnd else ""
+
+
+def list_foreground_processes() -> list[tuple[str, str]]:
+    """현재 화면에 보이는 창들의 (프로세스 파일명, 창 제목) 목록 — 프로세스당 하나씩만, 제목 기준 정렬."""
+    seen: dict[str, tuple[str, str]] = {}
+
+    def _callback(hwnd, _lparam):
+        if not USER32.IsWindowVisible(hwnd):
+            return True
+        title = _window_title(hwnd)
+        if not title:
+            return True
+        process = _window_process_name(hwnd)
+        if process and process.lower() not in seen:
+            seen[process.lower()] = (process, title)
+        return True
+
+    USER32.EnumWindows(_WNDENUMPROC(_callback), 0)
+    return sorted(seen.values(), key=lambda entry: entry[1].lower())
+
+
 def client_origin(hwnd: int | None) -> tuple[int, int] | None:
     """창의 클라이언트 영역(제목표시줄/테두리 제외) 좌상단의 화면 좌표."""
     if not hwnd:
@@ -160,3 +189,37 @@ def window_origin(hwnd: int | None) -> tuple[int, int] | None:
     if not USER32.GetWindowRect(hwnd, ctypes.byref(rect)):
         return None
     return (rect.left, rect.top)
+
+
+def window_rect(hwnd: int | None) -> tuple[int, int, int, int] | None:
+    """창 전체(제목표시줄/테두리 포함)의 (x, y, width, height) 화면 좌표."""
+    if not hwnd:
+        return None
+    rect = wintypes.RECT()
+    if not USER32.GetWindowRect(hwnd, ctypes.byref(rect)):
+        return None
+    return (rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top)
+
+
+def active_window_info() -> tuple[str, str, int, int, int, int] | None:
+    """현재 활성 창의 (프로세스 파일명, 제목, x, y, width, height)."""
+    hwnd = active_window()
+    if not hwnd:
+        return None
+    rect = window_rect(hwnd)
+    if rect is None:
+        return None
+    return (_window_process_name(hwnd), _window_title(hwnd), *rect)
+
+
+def move_resize_window(hwnd: int, x: int, y: int, width: int, height: int, maximized: bool = False) -> None:
+    """창을 지정한 화면 좌표/크기로 옮긴다. maximized면 위치는 무시하고 최대화한다."""
+    if not hwnd:
+        return
+    if USER32.IsIconic(hwnd):
+        USER32.ShowWindow(hwnd, SW_RESTORE)
+    if maximized:
+        USER32.ShowWindow(hwnd, SW_MAXIMIZE)
+        return
+    USER32.ShowWindow(hwnd, SW_RESTORE)
+    USER32.SetWindowPos(hwnd, 0, int(x), int(y), max(1, int(width)), max(1, int(height)), SWP_NOZORDER | SWP_NOACTIVATE)

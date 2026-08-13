@@ -28,6 +28,8 @@ from ui.tab_home import HomeTab
 from ui.tab_image import ImageTab
 from ui.tab_launcher import LauncherTab
 from ui.tab_macro import MacroTab
+from ui.tab_process_hotkey import ProcessHotkeyTab
+from ui.tab_hotkey_macro import HotkeyMacroTab
 from ui.tab_memo import MemoListTab
 from ui.tab_todo import ScheduleListTab, TodoListTab
 from ui.tab_misc import MiscTab, MouseHighlightOverlay
@@ -897,6 +899,7 @@ class MainWindow(QMainWindow):
         self.apply_current_settings()
         self.refresh_all_tabs()
         self.register_hotkeys()
+        self._warm_macro_runtime_imports()
         self.start_modifier_double_tap_listener()
         self.start_hotstring_listener()
         self.schedule_timer = QTimer(self)
@@ -1018,29 +1021,31 @@ class MainWindow(QMainWindow):
         self.todo_tab = TodoListTab(self)
         self.memo_tab = MemoListTab(self)
         self.macro_tab = MacroTab(self)
+        self.process_hotkey_tab = ProcessHotkeyTab(self)
+        self.hotkey_macro_tab = HotkeyMacroTab(self.process_hotkey_tab, self.macro_tab)
         self.calculator_tab = CalculatorTab(self)
         self.text_tools_tab = TextToolsTab(self)
         self.misc_tab = MiscTab(self)
         self.settings_tab = SettingsTab(self)
         self.tabs = [
-            self.home_tab,          # 홈
-            self.phrase_tab,        # 상용구
-            self.launcher_tab,      # 바로가기
-            self.clipboard_tab,     # 클립보드
-            self.image_tab,         # 컨닝페이퍼
-            self.todo_tab,          # 일정 관리
-            self.memo_tab,          # 메모
-            self.macro_tab,         # 매크로
-            self.calculator_tab,    # 계산기
-            self.text_tools_tab,    # 텍스트 변환
-            self.misc_tab,          # 피커/기타
-            self.settings_tab,      # 설정
+            self.home_tab,             # 홈
+            self.phrase_tab,           # 상용구
+            self.launcher_tab,         # 바로가기
+            self.clipboard_tab,        # 클립보드
+            self.image_tab,            # 컨닝페이퍼
+            self.todo_tab,             # 일정 관리
+            self.memo_tab,             # 메모
+            self.hotkey_macro_tab,     # 단축키 / 매크로 (프로그램별 단축키 + 매크로)
+            self.calculator_tab,       # 계산기
+            self.text_tools_tab,       # 텍스트 변환
+            self.misc_tab,             # 피커/기타
+            self.settings_tab,         # 설정
         ]
         for tab in self.tabs:
             self.stack.addWidget(tab)
         content_layout.addWidget(self.stack, 1)
 
-        names = ["홈", "상용구", "바로가기", "클립보드", "캡처 · 그리기", "일정 관리", "메모", "매크로", "계산기", "텍스트 변환", "피커 · 기타", "설정"]
+        names = ["홈", "상용구", "바로가기", "클립보드", "캡처 · 그리기", "일정 관리", "메모", "단축키 / 매크로", "계산기", "텍스트 변환", "피커 · 기타", "설정"]
         self.buttons: list[QToolButton] = []
         for i, name in enumerate(names):
             button = QToolButton()
@@ -1106,7 +1111,7 @@ class MainWindow(QMainWindow):
             "🔹원하는 이미지를 파일, URL, 캡처 방식으로 저장하고 불러올 수 있어요\n💡자주 참고하는 자료를 등록해보세요. (단축키, 조직도, KPI 등)",                                                              # 4 컨닝페이퍼
             "🔹할 일을 체크리스트로 관리합니다.\n💡우선순위·마감기한·알림을 설정하고, 완료 체크로 목록에서 제거하세요.",                                                                                           # 5 일정 관리
             "🔹메모를 저장할 수 있어요.\n💡Alt를 두 번 누르면 할 일/메모/일정을 빠르게 등록할 수 있어요.",                                                                                                        # 6 메모
-            "🔹마우스와 키보드 동작을 녹화하고 그대로 반복&재생시킬 수 있어요.\n💡편집 화면에서 직접 편집하는 것도 가능해요.",                                                                                    # 7 매크로
+            "🔹프로그램별 단축키(특정 프로그램에서만 동작)와 매크로(녹화/반복 재생)를 한 곳에서 관리합니다.\n💡프로그램별 단축키는 스크립트 입력·직접 지정·녹화 세 가지 방식으로 만들 수 있어요.",                     # 7 단축키/매크로
             "🔹수식과 날짜를 계산하고 결과를 복사합니다.",                                                                                                                                                    # 8 계산기
             "🔹URL, UTM, 줄바꿈, 따옴표 변환을 처리합니다.",                                                                                                                                                  # 9 텍스트 변환
             "🔹컬러, 마우스 하이라이트, 이모지를 관리합니다.",                                                                                                                                                # 10 피커/기타
@@ -1246,7 +1251,7 @@ class MainWindow(QMainWindow):
         apply_theme(self.app, settings.get("theme", "light"))
         if getattr(self, "floating_widget", None) is not None:
             self.floating_widget.apply_settings()
-        for tab in (getattr(self, "misc_tab", None), getattr(self, "settings_tab", None)):
+        for tab in (getattr(self, "misc_tab", None), getattr(self, "settings_tab", None), getattr(self, "home_tab", None)):
             if tab is not None and hasattr(tab, "apply_theme"):
                 tab.apply_theme()
 
@@ -1337,6 +1342,7 @@ class MainWindow(QMainWindow):
             ("launchers", "바로가기"),
             ("images", "캡처 · 그리기"),
             ("macros", "매크로"),
+            ("process_hotkeys", "프로그램별 단축키"),
         ]:
             for item in self.data.get(collection, []):
                 if original is not None and item is original:
@@ -1374,6 +1380,25 @@ class MainWindow(QMainWindow):
                 return f"{key} 단축키가 이미 사용 중입니다.\n- {seen[normalized]}\n- {label}"
             seen[normalized] = label
         return ""
+
+    def _warm_macro_runtime_imports(self) -> None:
+        """매크로/전용 단축키 실행에 쓰는 무거운 모듈을 백그라운드에서 미리 불러온다.
+
+        MacroPlayerThread.run()은 pyautogui/pynput 등을 실행 시점에 지연 임포트하는데,
+        이 모듈들은 최초 import 시 화면·키보드 레이아웃 조회 등으로 수백ms~1초가 걸릴 수 있다.
+        앱 시작 직후 백그라운드 스레드에서 한 번 불러와 sys.modules에 캐시해두면, 사용자가
+        처음 매크로나 전용 단축키를 실행할 때 그 콜드스타트 지연을 겪지 않는다.
+        """
+
+        def _warm() -> None:
+            try:
+                import pyautogui  # noqa: F401
+                import pyperclip  # noqa: F401
+                from pynput import keyboard, mouse  # noqa: F401
+            except Exception:
+                pass
+
+        threading.Thread(target=_warm, daemon=True).start()
 
     def register_hotkeys(self) -> None:
         self.hotkeys.set_hwnd(int(self.winId()))
@@ -1415,6 +1440,10 @@ class MainWindow(QMainWindow):
             hotkey = item.get("hotkey")
             if hotkey:
                 register(item.get("name", "매크로"), hotkey, lambda value=item: self.macro_tab.play_macro(value, show_intro=False), item.get("id", ""))
+        for item in self.data.get("process_hotkeys", []):
+            hotkey = item.get("hotkey")
+            if hotkey:
+                register(item.get("name", "프로그램별 단축키"), hotkey, lambda value=item: self.process_hotkey_tab.trigger(value), item.get("id", ""))
         settings = self.settings
         popup_hotkey = settings.get("clipboard_popup_hotkey")
         if popup_hotkey and not settings.get("clipboard_popup_double_ctrl", True):
