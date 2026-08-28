@@ -88,6 +88,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "sticky_memo_display_mode": "floating",
     "sticky_memo_index_side": "right",
     "sticky_memo_index_start_y": 0,
+    "sticky_memo_auto_hide": False,
     "update_shortcut_notice_ack": "",
 }
 

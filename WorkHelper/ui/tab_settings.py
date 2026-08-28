@@ -497,11 +497,15 @@ class SettingsTab(QWidget):
         self._memo_display_group = QButtonGroup(self)
         self.memo_display_floating = QRadioButton("플로팅 형태")
         self.memo_display_index = QRadioButton("인덱스 형태")
+        self.memo_display_hybrid = QRadioButton("플로팅+인덱스")
+        self.memo_display_hybrid.setToolTip("플로팅처럼 정렬해 두고, 마우스를 올리면 인덱스처럼 내용이 펼쳐집니다.")
         self._memo_display_group.addButton(self.memo_display_floating)
         self._memo_display_group.addButton(self.memo_display_index)
+        self._memo_display_group.addButton(self.memo_display_hybrid)
         self.memo_display_floating.setChecked(True)
         display_layout.addWidget(self.memo_display_floating)
         display_layout.addWidget(self.memo_display_index)
+        display_layout.addWidget(self.memo_display_hybrid)
         display_layout.addStretch(1)
         display_row.setStyleSheet("background: transparent; border: 0;")
         memo_form.addRow("표시 방식", display_row)
@@ -553,8 +557,17 @@ class SettingsTab(QWidget):
         self._memo_index_start_y_lbl.setVisible(False)
         self.memo_index_start_y.setVisible(False)
 
+        self.memo_auto_hide = QCheckBox("마우스를 가까이 가져가면 메모 표시")
+        self.memo_auto_hide.setToolTip(
+            "표시 방식과 상관없이 메모를 숨겨 두고, 마우스가 메모 자리에 가까워지면 다시 보여 줍니다.\n"
+            "마우스를 올려 둔 동안에는 사라지지 않습니다."
+        )
+        memo_form.addRow("자동 숨김", self.memo_auto_hide)
+
         self.memo_display_floating.toggled.connect(self._update_memo_display_mode_ui)
         self.memo_display_index.toggled.connect(self._update_memo_display_mode_ui)
+        self.memo_display_hybrid.toggled.connect(self._update_memo_display_mode_ui)
+        self.memo_auto_hide.toggled.connect(self._preview_auto_hide_setting)
         self.memo_index_start_y.slider.valueChanged.connect(self._preview_index_settings)
         self.memo_index_side_left.toggled.connect(self._preview_index_settings)
         self.memo_index_side_right.toggled.connect(self._preview_index_settings)
@@ -577,6 +590,21 @@ class SettingsTab(QWidget):
             self._memo_index_start_y_lbl.setVisible(is_index)
         if hasattr(self, "memo_index_start_y"):
             self.memo_index_start_y.setVisible(is_index)
+
+    def _memo_display_mode_value(self) -> str:
+        if getattr(self, "memo_display_index", None) is not None and self.memo_display_index.isChecked():
+            return "index"
+        if getattr(self, "memo_display_hybrid", None) is not None and self.memo_display_hybrid.isChecked():
+            return "hybrid"
+        return "floating"
+
+    def _preview_auto_hide_setting(self) -> None:
+        if self._refreshing:
+            return
+        self.main.settings["sticky_memo_auto_hide"] = self.memo_auto_hide.isChecked()
+        tab = self._get_memo_tab()
+        if tab is not None and hasattr(tab, "apply_auto_hide_setting"):
+            tab.apply_auto_hide_setting()
 
     def _get_memo_tab(self):
         for tab in getattr(self.main, "tabs", []):
@@ -1089,8 +1117,12 @@ class SettingsTab(QWidget):
         if hasattr(self, "memo_display_index"):
             if display_mode == "index":
                 self.memo_display_index.setChecked(True)
+            elif display_mode == "hybrid":
+                self.memo_display_hybrid.setChecked(True)
             else:
                 self.memo_display_floating.setChecked(True)
+        if hasattr(self, "memo_auto_hide"):
+            self.memo_auto_hide.setChecked(bool(settings.get("sticky_memo_auto_hide", False)))
         if hasattr(self, "memo_index_side_left"):
             if str(settings.get("sticky_memo_index_side", "right") or "right") == "left":
                 self.memo_index_side_left.setChecked(True)
@@ -1139,9 +1171,10 @@ class SettingsTab(QWidget):
             "sticky_memo_arrange_monitor_preferred": int(self.sticky_memo_arrange_monitor.currentData() or 1) if hasattr(self, "sticky_memo_arrange_monitor") else 1,
             "sticky_memo_arrange_monitor_signature": (signature_for_monitor_index(int(self.sticky_memo_arrange_monitor.currentData() or 1)) or self.main.settings.get("sticky_memo_arrange_monitor_signature")) if hasattr(self, "sticky_memo_arrange_monitor") else None,
             "sticky_memo_arrange_corner": self.sticky_memo_arrange_corner.currentData() if hasattr(self, "sticky_memo_arrange_corner") else "top_right",
-            "sticky_memo_display_mode": "index" if (hasattr(self, "memo_display_index") and self.memo_display_index.isChecked()) else "floating",
+            "sticky_memo_display_mode": self._memo_display_mode_value(),
             "sticky_memo_index_side": "left" if (hasattr(self, "memo_index_side_left") and self.memo_index_side_left.isChecked()) else "right",
             "sticky_memo_index_start_y": self.widget_slider_value(self.memo_index_start_y, 0) if hasattr(self, "memo_index_start_y") else 0,
+            "sticky_memo_auto_hide": self.memo_auto_hide.isChecked() if hasattr(self, "memo_auto_hide") else False,
         }
 
     def format_update_snooze_until(self, value: str) -> str:
@@ -1185,7 +1218,11 @@ class SettingsTab(QWidget):
             return {"light": "밝은 테마", "dark": "어두운 테마", "glass": "미러 글래스", "mint": "민트", "rose": "로즈"}.get(value, str(value))
         if key.endswith("_hotkey"):
             return display_hotkey(value) or "없음"
-        if key in {"clipboard_popup_double_ctrl", "quick_memo_double_alt", "always_on_top", "auto_update_check", "startup_with_windows", "floating_widget_enabled", "floating_widget_show_hover_text"}:
+        if key == "sticky_memo_display_mode":
+            return {"floating": "플로팅 형태", "index": "인덱스 형태", "hybrid": "플로팅+인덱스"}.get(value, str(value))
+        if key == "sticky_memo_index_side":
+            return {"left": "좌측", "right": "우측"}.get(value, str(value))
+        if key in {"clipboard_popup_double_ctrl", "quick_memo_double_alt", "always_on_top", "auto_update_check", "startup_with_windows", "floating_widget_enabled", "floating_widget_show_hover_text", "sticky_memo_auto_hide"}:
             return "사용" if value else "사용 안 함"
         return str(value)
 
@@ -1216,6 +1253,10 @@ class SettingsTab(QWidget):
             "floating_widget_theme": "위젯 테마",
             "floating_widget_show_hover_text": "위젯 팝업 메시지",
             "floating_widget_categories": "위젯 표시 메뉴",
+            "sticky_memo_display_mode": "메모 표시 방식",
+            "sticky_memo_index_side": "메모 인덱스 정렬 기준",
+            "sticky_memo_index_start_y": "메모 인덱스 시작 위치",
+            "sticky_memo_auto_hide": "메모 자동 숨김",
         }
         before = getattr(self, "_settings_snapshot", {})
         current = self.current_settings_state()
@@ -1266,6 +1307,10 @@ class SettingsTab(QWidget):
         settings["sticky_memo_arrange_monitor_preferred"] = int(snapshot.get("sticky_memo_arrange_monitor_preferred", snapshot.get("sticky_memo_arrange_monitor", 1)) or 1)
         settings["sticky_memo_arrange_monitor_signature"] = snapshot.get("sticky_memo_arrange_monitor_signature")
         settings["sticky_memo_arrange_corner"] = snapshot.get("sticky_memo_arrange_corner", "top_right")
+        settings["sticky_memo_display_mode"] = snapshot.get("sticky_memo_display_mode", "floating")
+        settings["sticky_memo_index_side"] = snapshot.get("sticky_memo_index_side", "right")
+        settings["sticky_memo_index_start_y"] = int(snapshot.get("sticky_memo_index_start_y", 0) or 0)
+        settings["sticky_memo_auto_hide"] = bool(snapshot.get("sticky_memo_auto_hide", False))
         settings.pop("floating_widget_color", None)
         settings.pop("floating_widget_item_spacing", None)
         settings["theme"] = snapshot.get("theme", "light")
@@ -1305,6 +1350,20 @@ class SettingsTab(QWidget):
         self.set_widget_categories(snapshot.get("floating_widget_categories"))
         sticky_corner_index = self.sticky_memo_arrange_corner.findData(snapshot.get("sticky_memo_arrange_corner", "top_right"))
         self.sticky_memo_arrange_corner.setCurrentIndex(sticky_corner_index if sticky_corner_index >= 0 else 0)
+        display_mode = str(snapshot.get("sticky_memo_display_mode", "floating") or "floating")
+        if display_mode == "index":
+            self.memo_display_index.setChecked(True)
+        elif display_mode == "hybrid":
+            self.memo_display_hybrid.setChecked(True)
+        else:
+            self.memo_display_floating.setChecked(True)
+        if str(snapshot.get("sticky_memo_index_side", "right") or "right") == "left":
+            self.memo_index_side_left.setChecked(True)
+        else:
+            self.memo_index_side_right.setChecked(True)
+        self.set_widget_slider_value(self.memo_index_start_y, int(snapshot.get("sticky_memo_index_start_y", 0) or 0))
+        self.memo_auto_hide.setChecked(bool(snapshot.get("sticky_memo_auto_hide", False)))
+        self._update_memo_display_mode_ui()
         self.popup_mode_double_ctrl.setChecked(bool(snapshot.get("clipboard_popup_double_ctrl", True)))
         self.popup_mode_hotkey.setChecked(not self.popup_mode_double_ctrl.isChecked())
         self.memo_mode_double_alt.setChecked(bool(snapshot.get("quick_memo_double_alt", True)))
@@ -1313,6 +1372,9 @@ class SettingsTab(QWidget):
         self._general_snapshot = self.current_general_state()
         self._settings_snapshot = self.current_settings_state()
         self._refreshing = False
+        memo_tab = self._get_memo_tab()
+        if memo_tab is not None and hasattr(memo_tab, "apply_auto_hide_setting"):
+            memo_tab.apply_auto_hide_setting()
         if hasattr(self.main, "apply_current_settings"):
             self.main.apply_current_settings()
 
@@ -1393,9 +1455,10 @@ class SettingsTab(QWidget):
         settings["sticky_memo_arrange_monitor_preferred"] = sticky_monitor
         settings["sticky_memo_arrange_monitor_signature"] = signature_for_monitor_index(sticky_monitor) or settings.get("sticky_memo_arrange_monitor_signature")
         settings["sticky_memo_arrange_corner"] = self.sticky_memo_arrange_corner.currentData()
-        settings["sticky_memo_display_mode"] = "index" if (hasattr(self, "memo_display_index") and self.memo_display_index.isChecked()) else "floating"
+        settings["sticky_memo_display_mode"] = self._memo_display_mode_value()
         settings["sticky_memo_index_side"] = "left" if (hasattr(self, "memo_index_side_left") and self.memo_index_side_left.isChecked()) else "right"
         settings["sticky_memo_index_start_y"] = self.widget_slider_value(self.memo_index_start_y, 0) if hasattr(self, "memo_index_start_y") else 0
+        settings["sticky_memo_auto_hide"] = self.memo_auto_hide.isChecked() if hasattr(self, "memo_auto_hide") else False
         settings.pop("floating_widget_color", None)
         settings.pop("floating_widget_item_spacing", None)
         settings["screen_draw_hotkey"] = self.screen_draw_hotkey.value()
@@ -1442,6 +1505,7 @@ class SettingsTab(QWidget):
             "sticky_memo_display_mode",
             "sticky_memo_index_side",
             "sticky_memo_index_start_y",
+            "sticky_memo_auto_hide",
         }
         hotkey_keys = {
             "clipboard_popup_double_ctrl",
@@ -1474,8 +1538,10 @@ class SettingsTab(QWidget):
                 memo_tab = self._get_memo_tab()
                 if memo_tab is not None:
                     memo_tab.reopen_stickers_for_mode()
-                    if prev_display_mode == "index" and new_display_mode == "floating":
+                    if new_display_mode == "floating" and prev_display_mode != "floating":
                         memo_tab.collapse_all_stickers()
+                        memo_tab.arrange_compact_stickers()
+                    elif new_display_mode == "hybrid":
                         memo_tab.arrange_compact_stickers()
             elif any(before.get(key) != current.get(key) for key in {
                 "sticky_memo_arrange_monitor",
@@ -1486,6 +1552,9 @@ class SettingsTab(QWidget):
                 memo_tab = self._get_memo_tab()
                 if memo_tab is not None:
                     memo_tab.arrange_compact_stickers()
+            memo_tab = self._get_memo_tab()
+            if memo_tab is not None and hasattr(memo_tab, "apply_auto_hide_setting"):
+                memo_tab.apply_auto_hide_setting()
             self._general_snapshot = self.current_general_state()
             self._settings_snapshot = self.current_settings_state()
         except Exception as exc:

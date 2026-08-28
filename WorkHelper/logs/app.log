@@ -226,3 +226,10 @@ KeyboardInterrupt
 2026-08-13 15:29:37,074 INFO    workhelper.main_window: app shutting down
 2026-08-13 15:29:39,427 INFO    workhelper.main: app starting (version=1.5.4)
 2026-08-13 15:57:50,381 INFO    workhelper.main_window: app shutting down
+2026-08-28 20:33:25,508 INFO    workhelper.main: app starting (version=1.5.5)
+2026-08-28 21:03:45,209 INFO    workhelper.main_window: app shutting down
+2026-08-28 21:03:50,342 INFO    workhelper.main: app starting (version=1.5.5)
+2026-08-28 21:19:10,032 INFO    workhelper.main_window: app shutting down
+2026-08-28 21:19:16,924 INFO    workhelper.main: app starting (version=1.5.5)
+2026-08-28 21:22:52,410 INFO    workhelper.main_window: app shutting down
+2026-08-28 21:22:56,931 INFO    workhelper.main: app starting (version=1.5.5)

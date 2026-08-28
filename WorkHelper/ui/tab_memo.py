@@ -5,6 +5,7 @@ import subprocess
 import sys
 from datetime import date as py_date, datetime, time as dt_time, timedelta
 from pathlib import Path
+from time import monotonic
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -207,11 +208,18 @@ class MemoDialog(QDialog):
 
 
 class MemoListTab(QWidget):
+    AUTO_HIDE_MARGIN = 26      # 마우스가 이만큼 가까워지면 메모를 다시 띄운다
+    AUTO_HIDE_DELAY = 0.45     # 벗어난 뒤 숨기기까지 대기 (초)
+    AUTO_HIDE_GRACE = 2.0      # 방금 연 메모는 잠시 숨기지 않는다 (초)
+
     def __init__(self, main) -> None:
         super().__init__()
         self.main = main
         self.sticky_windows: dict[str, StickyMemoDialog | MemoIndexCard] = {}
         self._recently_closed_sticker_keys: list[str] = []
+        self._auto_hide_timer: QTimer | None = None
+        self._auto_hide_leave_at: float | None = None
+        self._auto_hide_grace_until: float = 0.0
         self.group_id = ""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -277,10 +285,16 @@ class MemoListTab(QWidget):
         return memos
 
     def _sync_index_action_buttons(self) -> None:
-        is_index = self._display_mode() == "index"
-        for button in (getattr(self, "expand_btn", None), getattr(self, "collapse_btn", None), getattr(self, "arrange_btn", None)):
+        mode = self._display_mode()
+        states = {
+            "expand_btn": mode == "floating",
+            "collapse_btn": mode == "floating",
+            "arrange_btn": mode != "index",
+        }
+        for name, enabled in states.items():
+            button = getattr(self, name, None)
             if button is not None:
-                button.setEnabled(not is_index)
+                button.setEnabled(enabled)
                 button.setFixedHeight(BOTTOM_ACTION_HEIGHT)
                 button.setStyleSheet(MEMO_BOTTOM_ACTION_STYLE)
 
@@ -518,8 +532,14 @@ class MemoListTab(QWidget):
                 return memo
         return None
 
+    @staticmethod
+    def _sticker_is_open(dialog) -> bool:
+        """자동 숨김으로 잠시 감춘 창도 '열려 있는 메모'로 본다."""
+        return bool(dialog is not None and (dialog.isVisible() or getattr(dialog, "_auto_hidden", False)))
+
     def _display_mode(self) -> str:
-        return str(getattr(self.main, "settings", {}).get("sticky_memo_display_mode", "floating") or "floating")
+        mode = str(getattr(self.main, "settings", {}).get("sticky_memo_display_mode", "floating") or "floating")
+        return mode if mode in {"floating", "index", "hybrid"} else "floating"
 
     def show_sticker(self, memo: dict, track_usage: bool = True, raise_window: bool = True, toggle_existing: bool = True) -> None:
         if self._display_mode() == "index":
@@ -527,10 +547,13 @@ class MemoListTab(QWidget):
             return
         key = self.memo_key(memo)
         dialog = self.sticky_windows.get(key)
-        if dialog is not None and dialog.isVisible():
+        if self._sticker_is_open(dialog):
             if toggle_existing:
                 dialog.accept()
                 return
+            if getattr(dialog, "_auto_hidden", False):
+                self._reveal_auto_hidden()
+                self.note_memo_activity()
             if raise_window:
                 dialog.raise_()
                 dialog.activateWindow()
@@ -538,21 +561,25 @@ class MemoListTab(QWidget):
         if track_usage:
             bump_usage(memo)
             self.main.save_usage_data()
-        dialog = StickyMemoDialog(memo, self.main, self.refresh)
+        dialog = StickyMemoDialog(memo, self.main, self.refresh, hybrid=self._display_mode() == "hybrid")
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         dialog.destroyed.connect(lambda _obj=None, memo_key=key: self.forget_sticker(memo_key))
         self.sticky_windows[key] = dialog
         dialog.show()
         if raise_window:
             dialog.raise_()
+        self.note_memo_activity()
 
     def _show_index_card(self, memo: dict, track_usage: bool = True, raise_window: bool = True, toggle_existing: bool = True) -> None:
         key = self.memo_key(memo)
         card = self.sticky_windows.get(key)
-        if card is not None and card.isVisible():
+        if self._sticker_is_open(card):
             if toggle_existing:
                 card.accept()
                 return
+            if getattr(card, "_auto_hidden", False):
+                self._reveal_auto_hidden()
+                self.note_memo_activity()
             if raise_window:
                 card.raise_()
             return
@@ -581,14 +608,18 @@ class MemoListTab(QWidget):
         if raise_window:
             card.raise_()
         self._arrange_index_cards()
+        self.note_memo_activity()
 
     def forget_sticker(self, memo_key: str) -> None:
         self.sticky_windows.pop(memo_key, None)
 
     def visible_stickers(self) -> list:
-        return [dialog for dialog in self.sticky_windows.values() if dialog.isVisible()]
+        """열려 있는 메모 창 — 자동 숨김으로 잠시 감춘 창도 열린 것으로 본다."""
+        return [dialog for dialog in self.sticky_windows.values() if self._sticker_is_open(dialog)]
 
     def expand_all_stickers(self) -> None:
+        if self._display_mode() != "floating":
+            return
         for dialog in self.visible_stickers():
             if isinstance(dialog, StickyMemoDialog) and dialog.compact:
                 dialog.compact = False
@@ -597,6 +628,8 @@ class MemoListTab(QWidget):
                 dialog.persist()
 
     def collapse_all_stickers(self) -> None:
+        if self._display_mode() != "floating":
+            return
         for dialog in self.visible_stickers():
             if isinstance(dialog, StickyMemoDialog) and not dialog.compact:
                 dialog.compact = True
@@ -630,12 +663,12 @@ class MemoListTab(QWidget):
     def reopen_stickers_for_mode(self) -> None:
         visible_keys = [
             key for key, dialog in list(self.sticky_windows.items())
-            if dialog.isVisible()
+            if self._sticker_is_open(dialog)
         ]
         if not visible_keys:
             return
         for dialog in list(self.sticky_windows.values()):
-            if dialog.isVisible():
+            if self._sticker_is_open(dialog):
                 dialog.accept()
         QApplication.processEvents()
         for key in visible_keys:
@@ -648,13 +681,13 @@ class MemoListTab(QWidget):
         pinned = [memo for memo in memos if self.is_favorite_memo(memo)]
         if not pinned:
             return
-        open_keys = {key for key, dlg in self.sticky_windows.items() if dlg.isVisible()}
+        open_keys = {key for key, dlg in self.sticky_windows.items() if self._sticker_is_open(dlg)}
         any_open = any(self.memo_key(m) in open_keys for m in pinned)
         if any_open:
             for memo in pinned:
                 key = self.memo_key(memo)
                 dialog = self.sticky_windows.get(key)
-                if dialog is not None and dialog.isVisible():
+                if self._sticker_is_open(dialog):
                     dialog.accept()
         else:
             for memo in pinned:
@@ -667,6 +700,9 @@ class MemoListTab(QWidget):
         stickers = [d for d in self.visible_stickers() if isinstance(d, StickyMemoDialog)]
         if not stickers:
             return
+        for dialog in stickers:
+            if getattr(dialog, "hybrid", False):
+                dialog._hybrid_collapse()
         settings = getattr(self.main, "settings", {})
         screens = QApplication.screens()
         monitor_index = int(settings.get("sticky_memo_arrange_monitor", 1) or 1)
@@ -759,6 +795,114 @@ class MemoListTab(QWidget):
             self.sort_controls.update_order_enabled()
         self.main.save_data()  # refresh_all_tabs → refresh → _arrange_index_cards
 
+    # ── 자동 숨김 ──────────────────────────────────────────────────
+
+    def _auto_hide_enabled(self) -> bool:
+        return bool(getattr(self.main, "settings", {}).get("sticky_memo_auto_hide", False))
+
+    def note_memo_activity(self, seconds: float | None = None) -> None:
+        """메모를 열거나 설정을 바꾼 직후 잠시 숨기지 않도록 유예를 준다."""
+        grace = self.AUTO_HIDE_GRACE if seconds is None else float(seconds)
+        self._auto_hide_grace_until = max(self._auto_hide_grace_until, monotonic() + grace)
+        self._auto_hide_leave_at = None
+        if self._auto_hide_enabled():
+            self._ensure_auto_hide_timer()
+
+    def apply_auto_hide_setting(self) -> None:
+        """설정 변경 직후 자동 숨김 상태를 최신 설정에 맞춘다."""
+        if self._auto_hide_enabled():
+            self.note_memo_activity()
+        else:
+            self._reveal_auto_hidden()
+            self._stop_auto_hide_timer()
+
+    def _ensure_auto_hide_timer(self) -> None:
+        timer = self._auto_hide_timer
+        if timer is None:
+            timer = QTimer(self)
+            timer.setInterval(80)
+            timer.timeout.connect(self._auto_hide_tick)
+            self._auto_hide_timer = timer
+        if not timer.isActive():
+            timer.start()
+
+    def _stop_auto_hide_timer(self) -> None:
+        if self._auto_hide_timer is not None:
+            self._auto_hide_timer.stop()
+        self._auto_hide_leave_at = None
+
+    def _auto_hide_tick(self) -> None:
+        windows = self.visible_stickers()
+        if not windows:
+            self._stop_auto_hide_timer()
+            return
+        if not self._auto_hide_enabled():
+            self._reveal_auto_hidden()
+            self._stop_auto_hide_timer()
+            return
+        now = monotonic()
+        if now < self._auto_hide_grace_until or self._cursor_near_memos(windows) or self._memo_interaction_active(windows):
+            self._auto_hide_leave_at = None
+            self._reveal_auto_hidden()
+            return
+        if self._auto_hide_leave_at is None:
+            self._auto_hide_leave_at = now
+        elif now - self._auto_hide_leave_at >= self.AUTO_HIDE_DELAY:
+            self._auto_hide_leave_at = None
+            self._hide_for_auto_hide(windows)
+
+    def _cursor_near_memos(self, windows: list) -> bool:
+        pos = QCursor.pos()
+        margin = self.AUTO_HIDE_MARGIN
+        for window in windows:
+            anchor = window.auto_hide_anchor_rect() if hasattr(window, "auto_hide_anchor_rect") else window.frameGeometry()
+            if anchor.adjusted(-margin, -margin, margin, margin).contains(pos):
+                return True
+            if window.isVisible() and window.frameGeometry().adjusted(-margin, -margin, margin, margin).contains(pos):
+                return True
+        return False
+
+    def _memo_interaction_active(self, windows: list) -> bool:
+        if getattr(MemoIndexCard, "_drag_active", None) is not None:
+            return True
+        active_window = QApplication.activeWindow()
+        focus = QApplication.focusWidget()
+        focus_window = focus.window() if focus is not None else None
+        for window in windows:
+            if window is active_window or window is focus_window:
+                return True
+            if getattr(window, "drag_position", None) is not None:
+                return True
+        return False
+
+    def _hide_for_auto_hide(self, windows: list) -> None:
+        for window in windows:
+            if not window.isVisible():
+                continue
+            if hasattr(window, "_hide_preview"):
+                window._hide_preview()
+            if isinstance(window, MemoIndexCard):
+                window.reset_compact_geometry()
+            elif getattr(window, "hybrid", False):
+                window._hybrid_collapse()
+            window._auto_hidden = True
+            window.hide()
+
+    def _reveal_auto_hidden(self) -> None:
+        index_revealed = False
+        for window in list(self.sticky_windows.values()):
+            if not getattr(window, "_auto_hidden", False):
+                continue
+            window._auto_hidden = False
+            # 포커스를 뺏지 않고 다시 띄운다 (입력 중인 다른 프로그램 보호).
+            window.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+            window.show()
+            window.raise_()
+            window.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
+            index_revealed = index_revealed or isinstance(window, MemoIndexCard)
+        if index_revealed:
+            MemoIndexCard._ensure_hover_manager()
+
     def handle_screen_layout_changed(self) -> None:
         """모니터 연결/배율 변경 후 열려 있는 메모 창을 새 화면 기준으로 복구한다."""
         if self._display_mode() == "index":
@@ -772,7 +916,7 @@ class MemoListTab(QWidget):
 
     def _sync_open_sticker(self, memo: dict) -> None:
         dialog = self.sticky_windows.get(self.memo_key(memo))
-        if dialog is not None and dialog.isVisible() and hasattr(dialog, "reload_from_memo"):
+        if self._sticker_is_open(dialog) and hasattr(dialog, "reload_from_memo"):
             dialog.reload_from_memo()
 
     def edit_memo(self, memo: dict | None = None) -> None:
@@ -804,7 +948,7 @@ class MemoListTab(QWidget):
             return
         key = self.memo_key(memo)
         dialog = self.sticky_windows.get(key)
-        if dialog is not None and dialog.isVisible():
+        if self._sticker_is_open(dialog):
             dialog.accept()
         self.sticky_windows.pop(key, None)
         self.main.data.get("memos", []).remove(memo)

@@ -195,19 +195,135 @@ class CornerGrip(QSizeGrip):
         painter.drawLine(self.width() - 12, self.height() - 3, self.width() - 3, self.height() - 12)
 
 
+class MemoPreviewPopup(QWidget):
+    """플로팅 메모 위에 마우스를 올린 채 유지하면 내용을 보여 주는 미리보기 팝업."""
+
+    WIDTH = 320
+    MAX_LINES = 16
+    MAX_CHARS = 1200
+    _instance: "MemoPreviewPopup | None" = None
+
+    @classmethod
+    def instance(cls) -> "MemoPreviewPopup":
+        if cls._instance is None:
+            cls._instance = MemoPreviewPopup()
+        return cls._instance
+
+    @classmethod
+    def hide_for(cls, owner=None) -> None:
+        if cls._instance is not None:
+            cls._instance.hide_preview(owner)
+
+    def __init__(self) -> None:
+        super().__init__(
+            None,
+            Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint,
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setObjectName("memoPreviewPopup")
+        self.owner = None
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 8, 10, 9)
+        layout.setSpacing(3)
+        self._title = QLabel()
+        self._title.setObjectName("memoPreviewTitle")
+        self._title.setWordWrap(True)
+        self._body = QLabel()
+        self._body.setObjectName("memoPreviewBody")
+        self._body.setWordWrap(True)
+        self._body.setTextFormat(Qt.TextFormat.PlainText)
+        self._body.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(self._title)
+        layout.addWidget(self._body, 1)
+        self.setFixedWidth(self.WIDTH)
+
+    @classmethod
+    def _shorten(cls, content: str) -> str:
+        text = content.strip()
+        if not text:
+            return "(내용 없음)"
+        lines = text.splitlines()
+        clipped = len(lines) > cls.MAX_LINES
+        text = "\n".join(lines[: cls.MAX_LINES])
+        if len(text) > cls.MAX_CHARS:
+            text = text[: cls.MAX_CHARS].rstrip()
+            clipped = True
+        return f"{text} …" if clipped else text
+
+    def show_preview(self, owner, anchor: QRect, title: str, content: str, background: str) -> None:
+        self.owner = owner
+        self._title.setText(str(title).strip() or "메모")
+        self._body.setText(self._shorten(content))
+        self.setStyleSheet(
+            f"""
+            QWidget#memoPreviewPopup {{
+                background: {background};
+                border: 1px solid #B8B08A;
+                border-radius: 8px;
+            }}
+            QLabel {{ background: transparent; color: #2F2A14; font-size: 9pt; }}
+            QLabel#memoPreviewTitle {{ font-weight: 800; border-bottom: 1px solid rgba(47,42,20,45); padding-bottom: 3px; }}
+            """
+        )
+        self.adjustSize()
+        self.move(self._preview_position(anchor))
+        self.show()
+        self.raise_()
+
+    def _preview_position(self, anchor: QRect) -> QPoint:
+        screen = QApplication.screenAt(anchor.center()) or QApplication.primaryScreen()
+        area = screen.availableGeometry() if screen else anchor
+        gap = 8
+        width = self.width()
+        height = self.height()
+        if anchor.center().x() > area.center().x():
+            x = anchor.left() - width - gap
+            if x < area.left():
+                x = anchor.right() + gap
+        else:
+            x = anchor.right() + gap
+            if x + width > area.right():
+                x = anchor.left() - width - gap
+        x = max(area.left(), min(x, area.right() - width + 1))
+        y = anchor.top()
+        if y + height > area.bottom():
+            y = area.bottom() - height + 1
+        y = max(area.top(), y)
+        return QPoint(int(x), int(y))
+
+    def hide_preview(self, owner=None) -> None:
+        if owner is not None and self.owner is not owner:
+            return
+        self.owner = None
+        self.hide()
+
+
 class StickyMemoDialog(QDialog):
     SNAP_DISTANCE = 16
     COMPACT_WIDTH = 260
     COMPACT_HEIGHT = 24
+    PREVIEW_DELAY_MS = 550
 
-    def __init__(self, memo: dict, main=None, on_saved=None) -> None:
+    def __init__(self, memo: dict, main=None, on_saved=None, hybrid: bool = False) -> None:
         super().__init__()
         self.memo = memo
         self.main = main
         self.on_saved = on_saved
         self.drag_position: QPoint | None = None
-        self.compact = bool(memo.get("sticker_compact", False))
+        self.hybrid = bool(hybrid)
+        self._saved_compact = bool(memo.get("sticker_compact", False))
+        self.compact = True if self.hybrid else self._saved_compact
+        self._hybrid_expanded = False
+        self._hybrid_base_pos: QPoint | None = None
+        self._auto_hidden = False
         self.normal_geometry = None
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.timeout.connect(self._show_preview)
+        self._hybrid_watch = QTimer(self)
+        self._hybrid_watch.setInterval(120)
+        self._hybrid_watch.timeout.connect(self._hybrid_watch_tick)
         self.save_timer = QTimer(self)
         self.save_timer.setSingleShot(True)
         self.save_timer.timeout.connect(self.persist)
@@ -350,8 +466,13 @@ class StickyMemoDialog(QDialog):
                 return line
         return self.memo.get("title", "메모")
 
+    def bar_title(self) -> str:
+        """접힌 막대에 표시할 이름 — 제목이 비어 있을 때만 내용 첫 줄로 대체한다."""
+        title = str(self.memo.get("title") or "").strip()
+        return title if title else self.first_line()
+
     def update_drag_bar_text(self) -> None:
-        self.drag_bar.setText(self.first_line() if self.compact else "")
+        self.drag_bar.setText(self.bar_title() if self.compact else "")
 
     def move_default_position(self) -> None:
         screen = QApplication.screenAt(self.pos()) or QApplication.primaryScreen()
@@ -391,13 +512,121 @@ class StickyMemoDialog(QDialog):
         self.grip.setVisible(visible)
 
     def enterEvent(self, event) -> None:
-        if not self.compact:
+        if self.hybrid:
+            self._hybrid_expand()
+        elif not self.compact:
             self.set_controls_visible(True)
+        else:
+            self._preview_timer.start(self.PREVIEW_DELAY_MS)
         super().enterEvent(event)
 
     def leaveEvent(self, event) -> None:
+        self._preview_timer.stop()
+        self._hide_preview()
         QTimer.singleShot(180, self.hide_controls_if_idle)
         super().leaveEvent(event)
+
+    # -- 내용 미리보기 (플로팅 형태의 접힌 메모) --
+
+    def _show_preview(self) -> None:
+        if self.hybrid or not self.compact or not self.isVisible():
+            return
+        if not self._cursor_nearby():
+            return
+        MemoPreviewPopup.instance().show_preview(
+            self,
+            self.frameGeometry(),
+            str(self.memo.get("title") or "메모"),
+            self.text.toPlainText(),
+            MEMO_COLORS.get(self.color.currentText(), "#FFF9C4"),
+        )
+
+    def _hide_preview(self) -> None:
+        self._preview_timer.stop()
+        MemoPreviewPopup.hide_for(self)
+
+    # -- 플로팅+인덱스 결합 (마우스 오버 시 펼치기) --
+
+    def _cursor_nearby(self, margin: int = 0) -> bool:
+        if self.underMouse():
+            return True
+        pos = QCursor.pos()
+        widget = QApplication.widgetAt(pos)
+        while widget is not None:
+            if widget is self:
+                return True
+            widget = widget.parentWidget()
+        return self.frameGeometry().adjusted(-margin, -margin, margin, margin).contains(pos)
+
+    def _is_editing_active(self) -> bool:
+        focused = QApplication.focusWidget()
+        while focused is not None:
+            if focused is self:
+                return True
+            focused = focused.parentWidget()
+        return False
+
+    def _hybrid_expand(self) -> None:
+        if not self.hybrid or self._hybrid_expanded:
+            return
+        self._hide_preview()
+        geo = self.geometry()
+        self._hybrid_base_pos = geo.topLeft()
+        screen = QApplication.screenAt(geo.center()) or QApplication.primaryScreen()
+        area = screen.availableGeometry() if screen else geo
+        width = max(200, int(self.memo.get("normal_width", self.memo.get("width", 300)) or 300))
+        height = max(120, int(self.memo.get("normal_height", self.memo.get("height", 240)) or 240))
+        anchor_right = geo.left() > area.center().x()
+        anchor_bottom = geo.top() > area.center().y()
+        x = geo.right() - width + 1 if anchor_right else geo.left()
+        y = geo.bottom() - height + 1 if anchor_bottom else geo.top()
+        x = max(area.left(), min(x, area.right() - width + 1))
+        y = max(area.top(), min(y, area.bottom() - height + 1))
+        self._hybrid_expanded = True
+        self.compact = False
+        self.setMinimumSize(0, 80)
+        self.setMaximumSize(16777215, 16777215)
+        self.drag_bar.setFixedHeight(12)
+        self.text.show()
+        self.setGeometry(int(x), int(y), width, height)
+        self.set_controls_visible(True)
+        self.update_drag_bar_text()
+        self.raise_()
+        self._hybrid_watch.start()
+
+    def _hybrid_collapse(self) -> None:
+        if not self.hybrid or not self._hybrid_expanded:
+            return
+        self._hybrid_watch.stop()
+        self._hybrid_expanded = False
+        self.compact = True
+        self.text.hide()
+        self.set_controls_visible(False)
+        self.drag_bar.setFixedHeight(22)
+        self.setFixedSize(self.COMPACT_WIDTH, self.COMPACT_HEIGHT)
+        if self._hybrid_base_pos is not None:
+            self.move(self._hybrid_base_pos)
+        self.update_drag_bar_text()
+
+    def _hybrid_watch_tick(self) -> None:
+        if not self._hybrid_expanded:
+            self._hybrid_watch.stop()
+            return
+        if self.drag_position is not None or self._is_editing_active():
+            return
+        if self.color.view().isVisible() or self._cursor_nearby(8):
+            return
+        self._hybrid_collapse()
+
+    def _note_hybrid_move(self) -> None:
+        if self.hybrid and self._hybrid_expanded:
+            self._hybrid_base_pos = self.geometry().topLeft()
+
+    def auto_hide_anchor_rect(self) -> QRect:
+        """자동 숨김이 마우스 접근을 감지할 기준 영역 (접힌 상태 위치)."""
+        if self.hybrid and self._hybrid_expanded and self._hybrid_base_pos is not None:
+            return QRect(self._hybrid_base_pos, QSize(self.COMPACT_WIDTH, self.COMPACT_HEIGHT))
+        return self.frameGeometry()
 
     def hide_controls_if_idle(self) -> None:
         if self.compact:
@@ -413,6 +642,7 @@ class StickyMemoDialog(QDialog):
         super().mousePressEvent(event)
 
     def drag_bar_mouse_press(self, event) -> None:
+        self._hide_preview()
         if event.button() == Qt.MouseButton.LeftButton:
             self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
         event.accept()
@@ -430,12 +660,14 @@ class StickyMemoDialog(QDialog):
     def mouseReleaseEvent(self, event) -> None:
         self.drag_position = None
         self.snap_to_neighbors()
+        self._note_hybrid_move()
         self.schedule_save()
         super().mouseReleaseEvent(event)
 
     def drag_bar_mouse_release(self, event) -> None:
         self.drag_position = None
         self.snap_to_neighbors()
+        self._note_hybrid_move()
         self.schedule_save()
         event.accept()
 
@@ -452,6 +684,10 @@ class StickyMemoDialog(QDialog):
         event.accept()
 
     def toggle_compact(self) -> None:
+        if self.hybrid:
+            # 결합 형태에서는 마우스 오버가 펼치기/접기를 담당한다.
+            return
+        self._hide_preview()
         self.compact = not self.compact
         self.apply_compact_state(save=True)
 
@@ -534,7 +770,7 @@ class StickyMemoDialog(QDialog):
         self.memo["always_on_top"] = self.always_on_top.isChecked()
         self.memo["background"] = self.color.currentText()
         self.memo["opacity"] = self.slider.value()
-        self.memo["sticker_compact"] = self.compact
+        self.memo["sticker_compact"] = self._saved_compact if self.hybrid else self.compact
         if self.compact:
             self.memo["normal_width"] = int(self.memo.get("normal_width", self.width()))
             self.memo["normal_height"] = int(self.memo.get("normal_height", self.memo.get("height", 240)) or 240)
@@ -543,9 +779,13 @@ class StickyMemoDialog(QDialog):
             self.memo["height"] = self.height()
             self.memo["normal_width"] = self.width()
             self.memo["normal_height"] = self.height()
-        self.memo["x"] = self.x()
-        self.memo["y"] = self.y()
-        self.memo["sticker_open"] = bool(self.memo.get("sticker_open", self.isVisible()))
+        if self.hybrid and self._hybrid_expanded and self._hybrid_base_pos is not None:
+            self.memo["x"] = self._hybrid_base_pos.x()
+            self.memo["y"] = self._hybrid_base_pos.y()
+        else:
+            self.memo["x"] = self.x()
+            self.memo["y"] = self.y()
+        self.memo["sticker_open"] = bool(self.memo.get("sticker_open", self.isVisible() or self._auto_hidden))
         self.memo["updated_at"] = now_iso()
         if self.main is not None:
             config.save_template(self.main.template_index, self.main.data)
@@ -558,6 +798,9 @@ class StickyMemoDialog(QDialog):
         super().accept()
 
     def closeEvent(self, event) -> None:
+        self._preview_timer.stop()
+        self._hybrid_watch.stop()
+        MemoPreviewPopup.hide_for(self)
         self.persist()
         super().closeEvent(event)
 
@@ -616,6 +859,7 @@ class MemoIndexCard(QWidget):
         self._hover_regions: list[QRect] = []
         self._last_mouse_y: int | None = None
         self._expanded_h_cache: tuple[str, int] | None = None
+        self._auto_hidden = False
 
         self.save_timer = QTimer(self)
         self.save_timer.setSingleShot(True)
@@ -954,6 +1198,12 @@ class MemoIndexCard(QWidget):
         self.move(x, y)
         self.reset_compact_geometry()
 
+    def auto_hide_anchor_rect(self) -> QRect:
+        """자동 숨김이 마우스 접근을 감지할 기준 영역 (인덱스 슬롯)."""
+        if self._base_x is not None and self._base_y is not None:
+            return QRect(self._base_x, self._base_y, self.COMPACT_W, self.COMPACT_H)
+        return self.frameGeometry()
+
     def reset_compact_geometry(self) -> None:
         """Return to the exact compact card size after screen/layout changes."""
         self._anim.stop()
@@ -1275,7 +1525,7 @@ class MemoIndexCard(QWidget):
         self.memo["content"] = self._text.toPlainText()
         self.memo["background"] = self._color.currentText()
         self.memo["always_on_top"] = self._always_on_top_chk.isChecked()
-        self.memo["sticker_open"] = self.isVisible()
+        self.memo["sticker_open"] = bool(self.isVisible() or self._auto_hidden)
         self.memo["x"] = self.x()
         self.memo["y"] = self.y()
         self.memo["updated_at"] = now_iso()

@@ -8,6 +8,9 @@
 .PARAMETER ReleaseNote
     Release notes for GitHub Release.
 
+.PARAMETER ReleaseNoteFile
+    Path to a UTF-8 text file holding the release notes (used by release.bat).
+
 .PARAMETER SkipInstall
     Skip pip install step.
 
@@ -20,8 +23,9 @@
     .\build_release.ps1 -SkipInstall -SkipRelease
 #>
 param(
-    [string]$Version     = "",
-    [string]$ReleaseNote = "",
+    [string]$Version         = "",
+    [string]$ReleaseNote     = "",
+    [string]$ReleaseNoteFile = "",
     [switch]$SkipInstall,
     [switch]$SkipRelease
 )
@@ -130,7 +134,11 @@ if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
     Write-Host ""
     Write-Host "  Install gh CLI: winget install --id GitHub.cli"
 } else {
-    $notes = if ($ReleaseNote) { $ReleaseNote } else { "## $tag`n`nRelease notes here." }
+    $noteText = $ReleaseNote
+    if (-not $noteText -and $ReleaseNoteFile -and (Test-Path $ReleaseNoteFile)) {
+        $noteText = (Get-Content $ReleaseNoteFile -Raw -Encoding utf8).Trim()
+    }
+    $notes = if ($noteText) { $noteText } else { "## $tag`n`nRelease notes here." }
     $notesTmp = [System.IO.Path]::GetTempFileName()
     [System.IO.File]::WriteAllText($notesTmp, $notes, [System.Text.UTF8Encoding]::new($false))
     gh release create $tag `

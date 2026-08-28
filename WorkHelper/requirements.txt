@@ -8,3 +8,12 @@ plyer>=2.1.0
 requests>=2.31.0
 openpyxl>=3.1.0
 pyinstaller>=6.0.0
+
+# 캡처 이미지 글자 인식 (Windows 내장 OCR)
+winrt-runtime>=3.2.1
+winrt-Windows.Foundation>=3.2.1
+winrt-Windows.Foundation.Collections>=3.2.1
+winrt-Windows.Globalization>=3.2.1
+winrt-Windows.Graphics.Imaging>=3.2.1
+winrt-Windows.Media.Ocr>=3.2.1
+winrt-Windows.Storage.Streams>=3.2.1

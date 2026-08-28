@@ -5,7 +5,8 @@ from __future__ import annotations
 - SnipOverlay: 화면을 얼려두고 커서 아래 UI 요소를 자동 탐지해
   클릭(요소)/드래그(영역)/PrtSc(전체)/Alt+PrtSc(창)로 영역을 지정한다.
 - SnipEditorWindow: 캡처 직후 나타나는 프레임 없는 최상위 편집 창.
-  도형/화살표/선/연필/형광펜/텍스트 + 되돌리기/다시실행 + 저장/복사/고정.
+  도형/화살표/선/연필/형광펜/텍스트 + 되돌리기/다시실행 + 저장/복사/고정 +
+  이미지 속 글자 추출(OCR).
 - PinnedImageWindow: 테두리 없는 최상위 고정 창. 우클릭 메뉴로
   복사/저장/확대(30~100%)/회전·뒤집기/이동 기능을 제공한다.
 
@@ -72,6 +73,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from ui.ocr_text import extract_text_from_pixmap
 
 IS_WINDOWS = sys.platform.startswith("win")
 
@@ -1863,6 +1866,10 @@ QWidget#snipBar QToolButton#wideButton {{
     min-width: 52px; max-width: 72px; padding: 0px 6px; font-size: 9pt;
     font-family: "Malgun Gothic";
 }}
+QWidget#snipBar QToolButton#ocrButton {{
+    min-width: 36px; max-width: 36px; padding: 0px 2px; font-size: 8pt;
+    font-family: "Malgun Gothic";
+}}
 QWidget#snipBar QLabel {{ color: #64748B; font-size: 9pt; }}
 """
 
@@ -1954,6 +1961,9 @@ class SnipEditorWindow(QWidget):
         layout.addWidget(self._action_button("💾", "캡처 · 그리기에 저장 (Ctrl+S)", self._save))
         layout.addWidget(self._action_button("🗂️", "다른 이름으로 저장", self._save_as))
         layout.addWidget(self._action_button("🧾", "컨닝페이퍼로 이동", self._move_to_cheat))
+        ocr_btn = self._action_button("OCR", "이미지 글자 복사 (OCR, Ctrl+Shift+C)", self._extract_text)
+        ocr_btn.setObjectName("ocrButton")
+        layout.addWidget(ocr_btn)
         layout.addWidget(self._separator())
         layout.addWidget(self._action_button("❌", "닫기 (Esc)", self.close))
         self._sync_history_buttons()
@@ -2062,6 +2072,7 @@ class SnipEditorWindow(QWidget):
             (QKeySequence("Ctrl+Y"), self._redo),
             (QKeySequence("Ctrl+Shift+Z"), self._redo),
             (QKeySequence(QKeySequence.StandardKey.Copy), self._copy),
+            (QKeySequence("Ctrl+Shift+C"), self._extract_text),
             (QKeySequence("Ctrl+S"), self._save),
         ]
         for sequence, callback in bindings:
@@ -2167,6 +2178,10 @@ class SnipEditorWindow(QWidget):
 
     def _copy(self) -> None:
         copy_snip_to_clipboard(self.canvas.composed_pixmap())
+
+    def _extract_text(self) -> None:
+        # 그려 넣은 주석은 빼고 원본 화면 그대로 인식한다.
+        extract_text_from_pixmap(self, self.canvas.base)
 
     def _save(self) -> None:
         self.tab.save_snip_capture(self.canvas.composed_pixmap(), self.capture_title)
@@ -2289,6 +2304,7 @@ class PinnedImageWindow(QWidget):
     def contextMenuEvent(self, event) -> None:
         menu = QMenu(self)
         menu.addAction("이미지 복사", self._copy)
+        menu.addAction("이미지 글자 복사 (OCR)", self._extract_text)
         menu.addAction("다른 이름으로 이미지 저장...", self._save_as)
         menu.addSeparator()
         menu.addAction("툴바 보기 (편집)", self._open_editor)
@@ -2341,6 +2357,9 @@ class PinnedImageWindow(QWidget):
 
     def _copy(self) -> None:
         copy_snip_to_clipboard(self.raw)
+
+    def _extract_text(self) -> None:
+        extract_text_from_pixmap(self, self.raw)
 
     def _save_as(self) -> None:
         save_pixmap_as(self, self.raw)

@@ -1341,18 +1341,21 @@ class FloatingWidget(QFrame):
         return label, str(item.get("content", "")), lambda checked=False, value=item: self._toggle_memo_sticker(value), "🗒", None
 
     def _memo_control_items(self) -> list[tuple[str, str, Callable, str, QIcon | None]]:
-        controls_enabled = str(self._settings.get("sticky_memo_display_mode", "floating") or "floating") == "floating"
+        display_mode = str(self._settings.get("sticky_memo_display_mode", "floating") or "floating")
+        controls_enabled = display_mode == "floating"
+        arrange_enabled = display_mode != "index"
         disabled_tooltip = "인덱스 형태에서는 사용할 수 없습니다"
+        fold_tooltip = "이 표시 방식에서는 마우스 오버로 펼쳐집니다" if display_mode == "hybrid" else disabled_tooltip
 
-        def memo_action(action: str) -> Callable:
-            if not controls_enabled:
+        def memo_action(action: str, enabled: bool = True) -> Callable:
+            if not enabled:
                 return lambda checked=False: None
             return lambda checked=False: self._run_memo_sticker_action(action)
 
         return [
-            ("모두 펼치기", disabled_tooltip if not controls_enabled else "열려있는 스티커 메모를 모두 펼칩니다", memo_action("expand_all_stickers"), "▣", None, controls_enabled),
-            ("모두 접기", disabled_tooltip if not controls_enabled else "열려있는 스티커 메모를 모두 접습니다", memo_action("collapse_all_stickers"), "▤", None, controls_enabled),
-            ("정렬", disabled_tooltip if not controls_enabled else "열려있는 스티커 메모를 우측 상단부터 정렬합니다", memo_action("arrange_compact_stickers"), "↘", None, controls_enabled),
+            ("모두 펼치기", fold_tooltip if not controls_enabled else "열려있는 스티커 메모를 모두 펼칩니다", memo_action("expand_all_stickers", controls_enabled), "▣", None, controls_enabled),
+            ("모두 접기", fold_tooltip if not controls_enabled else "열려있는 스티커 메모를 모두 접습니다", memo_action("collapse_all_stickers", controls_enabled), "▤", None, controls_enabled),
+            ("정렬", disabled_tooltip if not arrange_enabled else "열려있는 스티커 메모를 우측 상단부터 정렬합니다", memo_action("arrange_compact_stickers", arrange_enabled), "↘", None, arrange_enabled),
             ("★ 열기/닫기", "즐겨찾기 메모 스티커를 열거나 닫습니다", lambda checked=False: self._run_memo_sticker_action("toggle_pinned_stickers"), "★", None, True),
             ("열기/닫기", "현재 열린 스티커 메모를 닫고, 다시 누르면 방금 닫은 스티커만 복구합니다", lambda checked=False: self._run_memo_sticker_action("toggle_recent_stickers"), "↕", None, True),
         ]
