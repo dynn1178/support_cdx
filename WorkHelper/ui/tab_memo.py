@@ -752,9 +752,10 @@ class MemoListTab(QWidget):
         card_x = area.right() - MemoIndexCard.COMPACT_W if side == "right" else area.left()
         y = start_y
         for card in cards:
-            if hasattr(card, "reset_compact_geometry"):
-                card.reset_compact_geometry()
-            card.set_position(card_x, y)
+            # 펼쳐져 편집 중인 카드는 슬롯이 그대로면 접지 않는다. 입력할 때마다
+            # 자동 저장(persist → refresh)이 이 함수를 불러 카드가 닫히던 문제 방지.
+            if not (card._expanded and (card._base_x, card._base_y) == (card_x, y)):
+                card.set_position(card_x, y)
             y += MemoIndexCard.COMPACT_H + MemoIndexCard.COMPACT_GAP
             card.raise_()
         if self.main is not None:
@@ -766,6 +767,7 @@ class MemoListTab(QWidget):
         if not cards:
             return
         if len(cards) == 1:
+            dragged.reset_compact_geometry()
             self._arrange_index_cards()
             return
 
@@ -793,6 +795,8 @@ class MemoListTab(QWidget):
             mode.setCurrentIndex(manual_index)
             mode.blockSignals(False)
             self.sort_controls.update_order_enabled()
+        # 펼친 채 끌려간 카드는 _arrange_index_cards 가 건너뛰므로 먼저 접어 슬롯으로 되돌린다.
+        dragged.reset_compact_geometry()
         self.main.save_data()  # refresh_all_tabs → refresh → _arrange_index_cards
 
     # ── 자동 숨김 ──────────────────────────────────────────────────

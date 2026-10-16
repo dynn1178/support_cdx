@@ -1094,6 +1094,7 @@ class Annotation:
     mosaic_shape: str = "rect"  # pen | rect | ellipse
     mosaic_pixel: int = 12  # 물리 px 블록 크기
     mosaic_effect: str = "pixel"  # pixel | blur
+    filled: bool = False  # rect/ellipse 를 외곽선 대신 색으로 채운다
 
     def render(self, painter: QPainter, base: QPixmap | None = None) -> None:
         if self.tool == "mosaic":
@@ -1110,6 +1111,9 @@ class Annotation:
             if len(self.points) < 2:
                 return
             rect = QRectF(self.points[0], self.points[-1]).normalized()
+            if self.filled:
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(color)
             if self.tool == "rect":
                 painter.drawRect(rect)
             else:
@@ -1258,6 +1262,8 @@ class Annotation:
                 path.addEllipse(rect)
             else:
                 path.addRect(rect)
+            if self.filled and path.contains(point):
+                return True
         elif len(self.points) >= 2:
             path.moveTo(self.points[0])
             for p in self.points[1:]:
@@ -1299,6 +1305,7 @@ class AnnotationCanvas(QWidget):
         self._redo_ops: list[tuple] = []
         self.tool = "none"
         self.shape_kind = "rect"
+        self.shape_filled = False
         self.color = QColor("#EF4444")
         self.width_display = 3
         self.mosaic_shape = "rect"
@@ -1508,6 +1515,7 @@ class AnnotationCanvas(QWidget):
             color=QColor(self.color),
             width=self.raw_width() * (2.6 if self.tool == "marker" else 1.0),
             points=[raw],
+            filled=self.tool == "shape" and self.shape_filled,
         )
 
     def _is_freehand(self, annotation: Annotation) -> bool:
@@ -1994,10 +2002,11 @@ class SnipEditorWindow(QWidget):
         self.shape_rect_btn = self._option_toggle("▭", "사각형", lambda: self._set_shape("rect"))
         self.shape_rect_btn.setChecked(True)
         self.shape_ellipse_btn = self._option_toggle("◯", "원", lambda: self._set_shape("ellipse"))
+        self.shape_rect_fill_btn = self._option_toggle("■", "채운 사각형", lambda: self._set_shape("rect", filled=True))
+        self.shape_ellipse_fill_btn = self._option_toggle("●", "채운 원", lambda: self._set_shape("ellipse", filled=True))
         self._shape_sep = self._separator()
-        layout.addWidget(self.shape_rect_btn)
-        layout.addWidget(self.shape_ellipse_btn)
-        layout.addWidget(self._shape_sep)
+        for widget in self._shape_widgets():
+            layout.addWidget(widget)
 
         # 모자이크 컨트롤 (모자이크 도구 전용): 적용 모양 + 효과 + 픽셀 크기
         self.mosaic_pen_btn = self._option_toggle("✎", "연필로 칠해서 적용", lambda: self._set_mosaic_shape("pen"))
@@ -2107,9 +2116,8 @@ class SnipEditorWindow(QWidget):
         self.canvas.set_tool(tool)
         self.options_bar.setVisible(tool not in ("none", "eraser"))
         is_shape = tool == "shape"
-        self.shape_rect_btn.setVisible(is_shape)
-        self.shape_ellipse_btn.setVisible(is_shape)
-        self._shape_sep.setVisible(is_shape)
+        for widget in self._shape_widgets():
+            widget.setVisible(is_shape)
         is_mosaic = tool == "mosaic"
         for widget in (
             self.mosaic_pen_btn, self.mosaic_rect_btn, self.mosaic_ellipse_btn,
@@ -2128,10 +2136,19 @@ class SnipEditorWindow(QWidget):
             self._set_color("#FACC15")
         self.adjustSize()
 
-    def _set_shape(self, kind: str) -> None:
+    def _shape_widgets(self) -> tuple[QWidget, ...]:
+        return (
+            self.shape_rect_btn, self.shape_ellipse_btn,
+            self.shape_rect_fill_btn, self.shape_ellipse_fill_btn, self._shape_sep,
+        )
+
+    def _set_shape(self, kind: str, filled: bool = False) -> None:
         self.canvas.shape_kind = kind
-        self.shape_rect_btn.setChecked(kind == "rect")
-        self.shape_ellipse_btn.setChecked(kind == "ellipse")
+        self.canvas.shape_filled = filled
+        self.shape_rect_btn.setChecked(kind == "rect" and not filled)
+        self.shape_ellipse_btn.setChecked(kind == "ellipse" and not filled)
+        self.shape_rect_fill_btn.setChecked(kind == "rect" and filled)
+        self.shape_ellipse_fill_btn.setChecked(kind == "ellipse" and filled)
 
     def _set_mosaic_shape(self, kind: str) -> None:
         self.canvas.mosaic_shape = kind
